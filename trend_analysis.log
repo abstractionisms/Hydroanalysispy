@@ -1,0 +1,126 @@
+2025-04-21 11:42:48 - INFO - --- Starting Trend Analysis Script (Unified Config Mode) ---
+2025-04-21 11:42:48 - INFO - Base output directory for trends: trend_analysis_results
+2025-04-21 11:42:48 - INFO - --- Processing Site: 12422500 (Spokane River at Spokane, WA) ---
+2025-04-21 11:42:48 - INFO - Attempting to fetch WaterML for site 12422500 (2000-01-01 to 2025-04-21)...
+2025-04-21 11:42:49 - INFO - WaterML fetch successful: 12422500. Length: 716550
+2025-04-21 11:42:49 - INFO - Parsing WaterML: 12422500...
+2025-04-21 11:42:53 - INFO - DataFrame created: 12422500 (9145 rows).
+2025-04-21 11:42:53 - INFO - Skipped 97 points: 12422500.
+2025-04-21 11:42:53 - INFO - Calculating Flow Duration Curve (FDC)...
+2025-04-21 11:42:53 - INFO - FDC calculated with 9145 points.
+2025-04-21 11:42:53 - INFO - Generating individual FDC plot for site 12422500...
+2025-04-21 11:42:53 - INFO - Individual FDC plot saved: trend_analysis_results\12422500\USGS_12422500_00060_fdc.png
+2025-04-21 11:42:53 - INFO - Calculating monthly means...
+2025-04-21 11:42:53 - INFO - Calculated monthly means for 301 months.
+2025-04-21 11:42:53 - INFO - Performing MONTHLY trend analysis (Mann-Kendall)...
+2025-04-21 11:42:53 - INFO -   Month Jan: Trend=no trend, p=0.7914, SenSlope=10.00
+2025-04-21 11:42:53 - INFO -   Month Feb: Trend=no trend, p=0.8335, SenSlope=17.29
+2025-04-21 11:42:53 - INFO -   Month Mar: Trend=no trend, p=0.6913, SenSlope=40.61
+2025-04-21 11:42:53 - INFO -   Month Apr: Trend=no trend, p=0.4409, SenSlope=-137.40
+2025-04-21 11:42:53 - INFO -   Month May: Trend=no trend, p=0.6913, SenSlope=-44.68
+2025-04-21 11:42:53 - INFO -   Month Jun: Trend=no trend, p=0.4409, SenSlope=-54.48
+2025-04-21 11:42:53 - INFO -   Month Jul: Trend=no trend, p=0.4691, SenSlope=-17.49
+2025-04-21 11:42:53 - INFO -   Month Aug: Trend=no trend, p=1.0000, SenSlope=0.32
+2025-04-21 11:42:53 - INFO -   Month Sep: Trend=no trend, p=0.0973, SenSlope=-11.14
+2025-04-21 11:42:53 - INFO -   Month Oct: Trend=no trend, p=0.2723, SenSlope=-14.77
+2025-04-21 11:42:53 - INFO -   Month Nov: Trend=no trend, p=0.1990, SenSlope=21.99
+2025-04-21 11:42:53 - INFO -   Month Dec: Trend=no trend, p=0.8335, SenSlope=13.60
+2025-04-21 11:42:53 - INFO - Calculating annual means...
+2025-04-21 11:42:53 - INFO - Calculated annual means for 26 years.
+2025-04-21 11:42:53 - INFO - Performing ANNUAL trend analysis...
+2025-04-21 11:42:53 - INFO -   Annual LinReg: p=0.7524, slope=-13.95
+2025-04-21 11:42:53 - INFO -   Annual MK: Trend=no trend, p=0.5968, SenSlope=-28.85
+2025-04-21 11:42:53 - INFO - Generating individual trend plot for site 12422500...
+2025-04-21 11:42:54 - INFO - Individual annual trend plot saved: trend_analysis_results\12422500\USGS_12422500_00060_annual_trend.png
+2025-04-21 11:42:54 - INFO - Generating combined plot for site 12422500...
+2025-04-21 11:42:54 - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2025-04-21 11:42:54 - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2025-04-21 11:42:55 - INFO - Combined plot saved to: trend_analysis_results\12422500\USGS_12422500_00060_combined_summary.png
+2025-04-21 11:42:55 - INFO - --- Finished Processing Site: 12422500 ---
+2025-04-21 11:42:55 - INFO - --- Processing Site: 12422990 (HANGMAN CREEK AT STATE LINE ROAD NEAR TEKOA, WA) ---
+2025-04-21 11:42:55 - INFO - Attempting to fetch WaterML for site 12422990 (2005-01-01 to 2025-04-21)...
+2025-04-21 11:42:55 - INFO - WaterML fetch successful: 12422990. Length: 504204
+2025-04-21 11:42:55 - INFO - Parsing WaterML: 12422990...
+2025-04-21 11:42:59 - INFO - DataFrame created: 12422990 (6405 rows).
+2025-04-21 11:42:59 - INFO - Skipped 101 points: 12422990.
+2025-04-21 11:42:59 - INFO - Calculating Flow Duration Curve (FDC)...
+2025-04-21 11:42:59 - INFO - FDC calculated with 6405 points.
+2025-04-21 11:42:59 - INFO - Generating individual FDC plot for site 12422990...
+2025-04-21 11:42:59 - INFO - Individual FDC plot saved: trend_analysis_results\12422990\USGS_12422990_00060_fdc.png
+2025-04-21 11:42:59 - INFO - Calculating monthly means...
+2025-04-21 11:42:59 - INFO - Calculated monthly means for 212 months.
+2025-04-21 11:42:59 - INFO - Performing MONTHLY trend analysis (Mann-Kendall)...
+2025-04-21 11:42:59 - INFO -   Month Jan: Trend=no trend, p=0.0956, SenSlope=5.83
+2025-04-21 11:42:59 - INFO -   Month Feb: Trend=no trend, p=1.0000, SenSlope=0.10
+2025-04-21 11:42:59 - INFO -   Month Mar: Trend=no trend, p=0.2016, SenSlope=-10.56
+2025-04-21 11:42:59 - INFO -   Month Apr: Trend=no trend, p=0.1275, SenSlope=-6.81
+2025-04-21 11:42:59 - INFO -   Month May: Trend=no trend, p=0.0529, SenSlope=-4.94
+2025-04-21 11:42:59 - INFO -   Month Jun: Trend=no trend, p=0.1978, SenSlope=-0.45
+2025-04-21 11:42:59 - INFO -   Month Jul: Trend=no trend, p=0.3247, SenSlope=-0.07
+2025-04-21 11:42:59 - INFO -   Month Aug: Trend=no trend, p=0.3061, SenSlope=-0.03
+2025-04-21 11:42:59 - INFO -   Month Sep: Trend=no trend, p=0.6494, SenSlope=-0.01
+2025-04-21 11:42:59 - INFO -   Month Oct: Trend=no trend, p=0.9396, SenSlope=0.00
+2025-04-21 11:42:59 - INFO -   Month Nov: Trend=no trend, p=0.9396, SenSlope=0.05
+2025-04-21 11:42:59 - INFO -   Month Dec: Trend=no trend, p=0.4487, SenSlope=0.97
+2025-04-21 11:42:59 - INFO - Calculating annual means...
+2025-04-21 11:42:59 - INFO - Calculated annual means for 19 years.
+2025-04-21 11:42:59 - INFO - Performing ANNUAL trend analysis...
+2025-04-21 11:42:59 - INFO -   Annual LinReg: p=0.1560, slope=4.29
+2025-04-21 11:42:59 - INFO -   Annual MK: Trend=no trend, p=0.6746, SenSlope=0.79
+2025-04-21 11:42:59 - INFO - Generating individual trend plot for site 12422990...
+2025-04-21 11:42:59 - INFO - Individual annual trend plot saved: trend_analysis_results\12422990\USGS_12422990_00060_annual_trend.png
+2025-04-21 11:42:59 - INFO - Generating combined plot for site 12422990...
+2025-04-21 11:43:00 - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2025-04-21 11:43:00 - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2025-04-21 11:43:00 - INFO - Combined plot saved to: trend_analysis_results\12422990\USGS_12422990_00060_combined_summary.png
+2025-04-21 11:43:00 - INFO - --- Finished Processing Site: 12422990 ---
+2025-04-21 11:43:00 - INFO - --- Processing Site: 12426000 (SPOKANE RIVER BELOW NINE MILE DAM AT SPOKANE, WA) ---
+2025-04-21 11:43:00 - INFO - Attempting to fetch WaterML for site 12426000 (1990-01-01 to 2025-04-21)...
+2025-04-21 11:43:01 - INFO - WaterML fetch successful: 12426000. Length: 254335
+2025-04-21 11:43:01 - INFO - Parsing WaterML: 12426000...
+2025-04-21 11:43:03 - INFO - DataFrame created: 12426000 (3071 rows).
+2025-04-21 11:43:03 - INFO - Skipped 174 points: 12426000.
+2025-04-21 11:43:03 - INFO - Calculating Flow Duration Curve (FDC)...
+2025-04-21 11:43:03 - INFO - FDC calculated with 3071 points.
+2025-04-21 11:43:03 - INFO - Generating individual FDC plot for site 12426000...
+2025-04-21 11:43:03 - INFO - Individual FDC plot saved: trend_analysis_results\12426000\USGS_12426000_00060_fdc.png
+2025-04-21 11:43:03 - INFO - Calculating monthly means...
+2025-04-21 11:43:03 - INFO - Calculated monthly means for 101 months.
+2025-04-21 11:43:03 - INFO - Performing MONTHLY trend analysis (Mann-Kendall)...
+2025-04-21 11:43:03 - INFO -   Month Jan: Trend=no trend, p=0.9015, SenSlope=-51.84
+2025-04-21 11:43:03 - INFO -   Month Feb: Trend=no trend, p=0.1078, SenSlope=-957.85
+2025-04-21 11:43:03 - INFO -   Month Mar: Trend=no trend, p=0.5362, SenSlope=-720.86
+2025-04-21 11:43:03 - INFO -   Month Apr: Trend=no trend, p=0.0635, SenSlope=-2010.54
+2025-04-21 11:43:03 - INFO -   Month May: Trend=no trend, p=0.1078, SenSlope=-1342.16
+2025-04-21 11:43:03 - INFO -   Month Jun: Trend=no trend, p=0.9170, SenSlope=-63.55
+2025-04-21 11:43:03 - INFO -   Month Jul: Trend=no trend, p=0.7545, SenSlope=-27.26
+2025-04-21 11:43:03 - INFO -   Month Aug: Trend=no trend, p=0.1179, SenSlope=-43.63
+2025-04-21 11:43:03 - INFO -   Month Sep: Trend=no trend, p=0.1753, SenSlope=-49.89
+2025-04-21 11:43:03 - INFO -   Month Oct: Trend=decreasing, p=0.0091, SenSlope=-171.85
+2025-04-21 11:43:03 - INFO -   Month Nov: Trend=no trend, p=0.0635, SenSlope=-294.06
+2025-04-21 11:43:03 - INFO -   Month Dec: Trend=no trend, p=0.3865, SenSlope=-246.27
+2025-04-21 11:43:03 - INFO - Calculating annual means...
+2025-04-21 11:43:03 - INFO - Calculated annual means for 9 years.
+2025-04-21 11:43:03 - INFO - Performing ANNUAL trend analysis...
+2025-04-21 11:43:03 - INFO -   Annual LinReg: p=0.4698, slope=-200.74
+2025-04-21 11:43:03 - INFO -   Annual MK: Trend=no trend, p=0.4655, SenSlope=-215.17
+2025-04-21 11:43:03 - INFO - Generating individual trend plot for site 12426000...
+2025-04-21 11:43:03 - INFO - Individual annual trend plot saved: trend_analysis_results\12426000\USGS_12426000_00060_annual_trend.png
+2025-04-21 11:43:03 - INFO - Generating combined plot for site 12426000...
+2025-04-21 11:43:03 - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2025-04-21 11:43:03 - INFO - Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2025-04-21 11:43:04 - INFO - Combined plot saved to: trend_analysis_results\12426000\USGS_12426000_00060_combined_summary.png
+2025-04-21 11:43:04 - INFO - --- Finished Processing Site: 12426000 ---
+2025-04-21 11:43:04 - INFO - --- Summary of Trend Results (Mann-Kendall) ---
+2025-04-21 11:43:04 - INFO - Site ID        | Description                                   | MK Trend       | MK Sig | MK p-val | Sen Slope 
+2025-04-21 11:43:04 - INFO - ---------------------------------------------------------------------------------------------------------
+2025-04-21 11:43:04 - INFO - 12422500       | Spokane River at Spokane, WA                  | Annual Mean    | no trend       | False  | 0.5968   | -28.85    
+2025-04-21 11:43:04 - INFO - 12422990       | HANGMAN CREEK AT STATE LINE ROAD NEAR TEKOA,  | Annual Mean    | no trend       | False  | 0.6746   | 0.79      
+2025-04-21 11:43:04 - INFO - 12426000       | SPOKANE RIVER BELOW NINE MILE DAM AT SPOKANE, | Annual Mean    | no trend       | False  | 0.4655   | -215.17   
+2025-04-21 11:43:04 - INFO - ---------------------------------------------------------------------------------------------------------
+2025-04-21 11:43:04 - INFO - --- Significant Monthly Trends (Mann-Kendall, p<0.05) ---
+2025-04-21 11:43:04 - INFO -   12426000 (SPOKANE RIVER BELOW NINE MILE DAM AT SPOKANE,): Oct:-171.8
+2025-04-21 11:43:04 - INFO - --- End Monthly Summary ---
+2025-04-21 11:43:04 - INFO - --- Trend Analysis Script Finished ---
+2025-04-21 11:43:04 - INFO - Log file: trend_analysis.log
+2025-04-21 11:43:04 - INFO - Output directory: trend_analysis_results

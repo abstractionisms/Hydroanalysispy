@@ -1,0 +1,5 @@
+*.pyc  # Ignore compiled Python bytecode files
+__pycache__/  # Ignore Python cache directories
+*.log      # Ignore log files
+config.json # Ignore config file with sensitive information
+*.env      # Ignore environment variable files
