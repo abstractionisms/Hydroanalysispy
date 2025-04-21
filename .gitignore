@@ -1,17 +1,17 @@
- # Python bytecode and cache files
-    *.pyc
-    __pycache__/
+# Python bytecode and cache files
+*.pyc
+__pycache__/
 
-    # Log files
-    *.log
+# Log files
+*.log
 
-    # Configuration file (potentially sensitive)
-    config.json
+# Configuration file (potentially sensitive)
+config.json
 
-    # Results directories (if you don't want to track them)
-    climate_corr_results/
-    discharge_analysis_results/
-    trend_analysis_results/
+# Results directories (if you don't want to track them)
+climate_corr_results/
+discharge_analysis_results/
+trend_analysis_results/
 
-    # OS Specific files
-    .DS_Store
+# OS Specific files
+.DS_Store
