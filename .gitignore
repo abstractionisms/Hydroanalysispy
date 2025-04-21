@@ -1,5 +1,17 @@
-*.pyc  # Ignore compiled Python bytecode files
-__pycache__/  # Ignore Python cache directories
-*.log      # Ignore log files
-config.json # Ignore config file with sensitive information
-*.env      # Ignore environment variable files
+ # Python bytecode and cache files
+    *.pyc
+    __pycache__/
+
+    # Log files
+    *.log
+
+    # Configuration file (potentially sensitive)
+    config.json
+
+    # Results directories (if you don't want to track them)
+    climate_corr_results/
+    discharge_analysis_results/
+    trend_analysis_results/
+
+    # OS Specific files
+    .DS_Store
