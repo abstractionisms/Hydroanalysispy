@@ -48,7 +48,8 @@ def load_inventory(inventory_path):
                 if header_row_index == -1: header_row_index = i; column_names = [col.strip() for col in line.strip().split('\t')]; break
         if header_row_index == -1 or 'site_no' not in column_names: raise ValueError("Could not detect header row.")
 
-        df_inventory = pd.read_csv(inventory_path, sep='\t', comment='#', header=header_row_index - comment_lines_count, names=column_names, low_memory=False, dtype={'site_no': str})
+        df_inventory = pd.read_csv(inventory_path, sep='\t', comment='#', 
+        header=header_row_index - comment_lines_count, names=column_names, low_memory=False, dtype={'site_no': str})
         logging.info(f"Inventory loaded: {len(df_inventory)} sites.")
         required_cols = ['site_no','station_nm', 'dec_lat_va', 'dec_long_va']
         if not all(col in df_inventory.columns for col in required_cols): raise ValueError(f"Inventory missing columns: {required_cols}")
