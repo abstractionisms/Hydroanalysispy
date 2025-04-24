@@ -1,0 +1,23 @@
+{
+  "inventory_file": "nwis_inventory_with_latlon.txt",
+  "project1_settings": {
+    "output_directory": "trend_analysis_results",
+    "log_file": "trend_analysis.log"
+  },
+  "project2_settings": {
+    "output_directory": "climate_corr_results",
+    "log_file": "climate_corr.log"
+  },
+  "sites_to_process": [
+    {
+      "site_id": "12424000",
+      "param_cd": "00060",
+      "latitude": 47.65266880,
+      "longitude": -117.44965800,
+      "start_date": "2000-01-01",
+      "end_date": "today",
+      "enabled": true,
+      "description": "Hangman Creek at Spokane, WA"
+    }
+]
+}

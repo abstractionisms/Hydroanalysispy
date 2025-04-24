@@ -15,7 +15,7 @@ import calendar # For month names
 import textwrap # For wrapping long titles/text
 
 # --- Constants ---
-DEFAULT_CONFIG_PATH = 'config.json'
+DEFAULT_CONFIG_PATH = 'config2.json'
 DISCHARGE_COL = 'Discharge_cfs' # Standard column name after parsing
 MK_ALPHA = 0.05 # Significance level for Mann-Kendall
 
