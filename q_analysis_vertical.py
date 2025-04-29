@@ -26,9 +26,8 @@ DEFAULT_CONFIG_PATH = 'config2.json' # Single config file
 DEFAULT_PARAM_CD = "00060"
 DEFAULT_START_DATE = "2000-01-01"
 DEFAULT_END_DATE = "today"
-DEFAULT_OUTPUT_DIR = "climate_corr_results"
-DEFAULT_LOG_FILE = "climate_corr.log"
-DEFAULT_INVENTORY_FILE = "nwis_inventory_with_latlon.txt" # Default if not in config
+DEFAULT_LOG_FILE = "logs/q_analysis_vertical.log" # New log file name with logs/
+DEFAULT_INVENTORY_FILE = "nwis_inventory_with_latlon_full_data.txt" # Default if not in config
 DISCHARGE_COL = 'Discharge_cfs'
 TEMP_COL = 'Temp_C'
 PRECIP_COL = 'Precip_mm'
@@ -38,6 +37,9 @@ PLOT_YEARS = 3 # Number of years for daily time series plot
 N_SCATTER_ANNOTATIONS = 10 # Number of points to annotate on monthly scatter
 HEXBIN_GRIDSIZE = 30 # Controls the number of hexagons in the hexbin plot
 RECENT_DECADE_YEARS = 10 # Number of years for recent decade average
+
+# --- Output Paths ---
+PLOT_BASE_DIR = 'plots/q_analysis_vertical' # Base directory for plots
 
 # --- Descriptive Labels for Plots ---
 PLOT_LABELS = {
@@ -70,7 +72,7 @@ def setup_logging(log_file=DEFAULT_LOG_FILE):
         file_handler.setFormatter(log_formatter)
         root_logger.addHandler(file_handler)
     except Exception as e:
-        print(f"Error setting up file logger for {log_file}: {e}")
+        print(f"Error setting up file logger for {log_file}: {e}") # Keep print here as logging might not be setup yet
 
     # Console Handler
     console_handler = logging.StreamHandler()
@@ -80,20 +82,20 @@ def setup_logging(log_file=DEFAULT_LOG_FILE):
 # --- Configuration Loading ---
 def load_config(config_path=DEFAULT_CONFIG_PATH):
     """Loads configuration from a JSON file."""
-    print(f"Attempting to load configuration from: {config_path}")
+    logging.info(f"Attempting to load configuration from: {config_path}") # Changed print to logging.info
     try:
         with open(config_path, 'r') as f:
             config_data = json.load(f)
-        print("Configuration loaded successfully.")
+        logging.info("Configuration loaded successfully.") # Changed print to logging.info
         return config_data
     except FileNotFoundError:
-        print(f"ERROR: Config file not found at '{config_path}'")
+        logging.error(f"ERROR: Config file not found at '{config_path}'") # Changed print to logging.error
         return None
     except json.JSONDecodeError as e:
-        print(f"ERROR: Invalid JSON in config file '{config_path}': {e}")
+        logging.error(f"ERROR: Invalid JSON in config file '{config_path}': {e}") # Changed print to logging.error
         return None
     except Exception as e:
-        print(f"ERROR loading config '{config_path}': {e}")
+        logging.error(f"ERROR loading config '{config_path}': {e}") # Changed print to logging.error
         return None
 
 # --- Inventory Loading (Not used by main in this version) ---
@@ -556,6 +558,7 @@ def _plot_anomaly(ax, df_merged):
 
 
 # --- Helper for Hexbin Plots (Optional Log Scale) ---
+# Modified to accept plot_base_dir for saving if called standalone (not in this script's flow)
 def _plot_hexbin(ax, df_merged, x_col, y_col, analysis_results, use_log_scale=False, add_counts=False):
     """
     Plots a hexbin plot for two columns (using daily data) with correlation info.
@@ -783,20 +786,23 @@ def _plot_timeseries(ax, df_q):
 
 
 # --- Main Plotting Function (Refactored) ---
+# Modified to accept plot_base_dir
 def plot_correlation_results(df_q, df_merged, analysis_results, temp_trend_results,
-                             site_id, description, start_date_str, end_date_str, output_dir):
+                             site_id, description, start_date_str, end_date_str, plot_base_dir):
     """
     Generates plots visualizing data and correlations.
     MODIFIED: Creates 4 plots: Anomaly Q/T/P, Hexbin Q vs T (Log Scale + Counts),
               Monthly Avg Q vs Lag P, Daily Q Timeseries (LOG SCALE).
+    Saves plots to plot_base_dir/site_id/.
     """
     logging.info(f"Generating revised plots for site {site_id}...") # Version bump
 
     has_discharge = df_q is not None and not df_q.empty
     has_merged = df_merged is not None and not df_merged.empty
 
-    if not has_discharge:
-        logging.warning(f"No discharge data available for plot: {site_id}.")
+    # Ensure there is at least discharge data to attempt plotting something
+    if not has_discharge and not has_merged:
+        logging.warning(f"No discharge or merged data available for plot: {site_id}.")
         return
 
     try:
@@ -808,10 +814,12 @@ def plot_correlation_results(df_q, df_merged, analysis_results, temp_trend_resul
             actual_start_m = df_merged.index.min().strftime('%Y-%m-%d')
             actual_end_m = df_merged.index.max().strftime('%Y-%m-%d')
             plot_period_str = f"Overlap: {actual_start_m} to {actual_end_m}"
-        else: # Use full discharge period if no overlap
+        elif has_discharge: # Use full discharge period if no overlap but discharge exists
             actual_start_q = df_q.index.min().strftime('%Y-%m-%d')
             actual_end_q = df_q.index.max().strftime('%Y-%m-%d')
             plot_period_str = f"Discharge: {actual_start_q} to {actual_end_q}"
+        else:
+            plot_period_str = "No Data Available"
 
 
         wrapped_title = "\n".join(textwrap.wrap(f"Site {site_id}: {description}", width=60))
@@ -825,44 +833,47 @@ def plot_correlation_results(df_q, df_merged, analysis_results, temp_trend_resul
         # Plot 3: Monthly Avg Q vs Monthly Avg Lag P (with top N annotations)
         _plot_monthly_lagged_scatter(axes[2], df_merged if has_merged else None, analysis_results if has_merged else None)
         # Plot 4: Daily Q Timeseries (LOG SCALE, with yearly min/max annotations)
-        _plot_timeseries(axes[3], df_q) # <-- This now plots log scale
+        _plot_timeseries(axes[3], df_q if has_discharge else None) # <-- Pass df_q if available
 
-        # Removed overall summary text block
 
         # Save plot
-        os.makedirs(output_dir, exist_ok=True)
+        site_plot_dir = os.path.join(plot_base_dir, site_id) # Construct path using plot_base_dir
+        os.makedirs(site_plot_dir, exist_ok=True)
         plot_filename = f"USGS_{site_id}_climate_analysis.png" # Increment version and name
-        plot_path = os.path.join(output_dir, plot_filename)
+        plot_path = os.path.join(site_plot_dir, plot_filename) # Save to site_plot_dir
         plt.savefig(plot_path, dpi=150, bbox_inches='tight')
         plt.close(fig)
         logging.info(f"Revised analysis plot saved: {plot_path}")
 
     except Exception as e:
-        logging.error(f"Error generating revised plot: {site_id}: {e}")
+        logging.error(f"Error generating revised plot figure: {site_id}: {e}")
         plt.close()
-
 
 # --- REMOVED Summary Text Generation Function ---
 
 
 # --- Main Orchestration ---
-def process_site(site_config, analysis_params, output_base_dir):
+# Modified to accept plot_base_dir
+def process_site(site_config, analysis_params, plot_base_dir):
     """Processes a single site based on its configuration."""
     site_id = site_config.get("site_id")
     param_cd = site_config.get("param_cd", analysis_params.get("param_cd", DEFAULT_PARAM_CD))
     start_date_str = site_config.get("start_date", analysis_params.get("start_date", DEFAULT_START_DATE))
     end_date_str = site_config.get("end_date", analysis_params.get("end_date", DEFAULT_END_DATE))
     description = site_config.get("description", f"Site {site_id}")
-    latitude_raw = site_config.get("latitude")
-    longitude_raw = site_config.get("longitude")
 
     if not site_config.get("enabled", False):
         logging.info(f"Skipping disabled site: {site_id or 'Missing ID'}")
         return None
 
-    if not all([site_id, param_cd, start_date_str, latitude_raw is not None, longitude_raw is not None]):
-        logging.warning(f"Skipping {site_id or 'N/A'}: Missing required config data (site_id, param_cd, start_date, latitude, longitude).")
-        return {site_id: {'status': 'Error (Config Missing)'}}
+    # Get and validate Lat/Lon early
+    latitude_raw = site_config.get("latitude")
+    longitude_raw = site_config.get("longitude")
+
+    # Ensure latitude and longitude are present and valid before proceeding
+    if latitude_raw is None or longitude_raw is None:
+        logging.warning(f"Skipping {site_id or 'N/A'}: Missing latitude or longitude in config.")
+        return {site_id: {'status': 'Error (Config Missing Coords)'}}
 
     try:
         latitude = float(latitude_raw)
@@ -872,6 +883,12 @@ def process_site(site_config, analysis_params, output_base_dir):
     except (ValueError, TypeError):
         logging.warning(f"Skipping {site_id}: Invalid latitude ('{latitude_raw}') or longitude ('{longitude_raw}') in config.")
         return {site_id: {'status': 'Error (Invalid Coords)'}}
+
+    # Validate other required fields after successful coordinate validation
+    if not all([site_id, param_cd, start_date_str, end_date_str]):
+         logging.warning(f"Skipping {site_id or 'N/A'}: Missing site_id, param_cd, or dates in config.")
+         return {site_id: {'status': 'Error (Config Missing Other Fields)'}}
+
 
     try:
         end_date = datetime.now() if end_date_str.lower() == 'today' else datetime.strptime(end_date_str, '%Y-%m-%d')
@@ -887,12 +904,13 @@ def process_site(site_config, analysis_params, output_base_dir):
 
     logging.info(f"--- Processing Site: {site_id} ({description}) ---")
 
-    site_output_dir = os.path.join(output_base_dir, site_id)
-    try:
-        os.makedirs(site_output_dir, exist_ok=True)
-    except Exception as e:
-        logging.error(f"Could not create output dir for {site_id}: {e}.")
-        # Continue processing, but plotting might fail if dir truly doesn't exist
+    # Removed creation of site_output_dir here as it's done in plot_correlation_results
+    # site_output_dir = os.path.join(output_base_dir, site_id)
+    # try:
+    #     os.makedirs(site_output_dir, exist_ok=True)
+    # except Exception as e:
+    #     logging.error(f"Could not create output dir for {site_id}: {e}.")
+
 
     site_results = {'status': 'Started'}
     df_q = None
@@ -901,53 +919,55 @@ def process_site(site_config, analysis_params, output_base_dir):
     analysis_results = None
     temp_trend_results = None
 
+    # Fetch discharge data
     discharge_wml = fetch_waterml_data(site_id, param_cd, start_date_nwis, end_date_nwis)
     if discharge_wml:
-        # Pass True to indicate log scale might be used later, filtering non-positives
-        df_q = parse_waterml(discharge_wml, site_id) # parse_waterml now filters non-positives
+        # parse_waterml now filters non-positives
+        df_q = parse_waterml(discharge_wml, site_id)
 
+    # Fetch climate (precipitation) data - latitude and longitude are now guaranteed to be defined if we reached this point
     df_climate = fetch_climate_data(latitude, longitude, start_date, end_date)
 
-    if df_q is None or df_q.empty:
-        logging.error(f"Discharge data missing or empty (or no positive values for log scale) for {site_id}. Analysis skipped.")
-        site_results['status'] = 'Error (Discharge Missing/Non-positive)'
+    # Attempt to merge data if both are available and df_q is not empty after parsing
+    if df_q is not None and not df_q.empty and df_climate is not None and not df_climate.empty:
+         logging.info(f"Merging discharge and climate data for site {site_id}...")
+         df_merged = pd.merge(df_q, df_climate, left_index=True, right_index=True, how='inner')
+         logging.info(f"Merged DataFrame for analysis shape: {df_merged.shape}")
+
+         if not df_merged.empty:
+             analysis_results = analyze_correlation(df_merged)
+             site_results['correlation_results'] = analysis_results
+
+             logging.info(f"Analyzing temperature trend: {site_id}...")
+             temp_annual_means = calculate_annual_means(df_merged, TEMP_COL)
+             if temp_annual_means is not None:
+                 temp_trend_results = perform_trend_analysis(temp_annual_means, "Annual Temp")
+                 site_results['temp_trend_results'] = temp_trend_results
+             else:
+                 logging.warning(f"Could not calculate annual temp means: {site_id}")
+
+             site_results['status'] = 'Processed (Full)'
+         else:
+             logging.warning(f"Merged DataFrame empty (no overlapping data or non-positive discharge): {site_id}. Analysis skipped.")
+             site_results['status'] = 'Processed (No Overlap/Non-positive Q)'
+             # df_merged remains None/empty, plots will handle this
+
+    elif df_q is None or df_q.empty:
+         logging.error(f"Discharge data missing or empty (or no positive values for log scale) for {site_id}. Analysis skipped.")
+         site_results['status'] = 'Error (Discharge Missing/Non-positive)'
+         # df_merged remains None
+
     elif df_climate is None or df_climate.empty:
         logging.warning(f"Climate data fetch failed or empty for {site_id}. Correlation analysis skipped.")
         site_results['status'] = 'Processed (Climate Missing)'
-        # Only plot timeseries if climate is missing (it only needs df_q)
-        plot_correlation_results(df_q, None, None, None, site_id, description, start_date_nwis, end_date_nwis, site_output_dir)
-    else:
-        logging.info(f"Merging discharge and climate data for site {site_id}...")
-        # Ensure df_q still has data after filtering non-positives before merging
-        if df_q is not None and not df_q.empty:
-            df_merged = pd.merge(df_q, df_climate, left_index=True, right_index=True, how='inner')
-        else:
-            # Handle case where df_q became empty after filtering in parse_waterml
-            logging.error(f"Discharge data became empty after filtering non-positives for log scale: {site_id}. Merging skipped.")
-            df_merged = pd.DataFrame() # Ensure df_merged is empty DF
+        # df_merged remains None
 
-        if df_merged.empty:
-            logging.warning(f"Merged DataFrame empty (no overlapping data or non-positive discharge): {site_id}. Correlation analysis skipped.")
-            site_results['status'] = 'Processed (No Overlap/Non-positive Q)'
-             # Only plot timeseries if no overlap (it only needs df_q, which might still have data if merge failed)
-            plot_correlation_results(df_q, None, None, None, site_id, description, start_date_nwis, end_date_nwis, site_output_dir)
-        else:
-            logging.info(f"Merged DataFrame for analysis shape: {df_merged.shape}")
-            analysis_results = analyze_correlation(df_merged)
-            site_results['correlation_results'] = analysis_results
 
-            logging.info(f"Analyzing temperature trend: {site_id}...")
-            temp_annual_means = calculate_annual_means(df_merged, TEMP_COL)
-            if temp_annual_means is not None:
-                temp_trend_results = perform_trend_analysis(temp_annual_means, "Annual Temp")
-                site_results['temp_trend_results'] = temp_trend_results
-            else:
-                logging.warning(f"Could not calculate annual temp means: {site_id}")
+    # Plotting - Pass all results needed for the 4 plots and plot_base_dir
+    # plot_correlation_results handles cases where df_q or df_merged is None/empty
+    plot_correlation_results(df_q, df_merged, analysis_results, temp_trend_results,
+                             site_id, description, start_date_nwis, end_date_nwis, plot_base_dir)
 
-            site_results['status'] = 'Processed (Full)'
-            # Plotting - Pass all results needed for the 4 plots
-            plot_correlation_results(df_q, df_merged, analysis_results, temp_trend_results,
-                                     site_id, description, start_date_nwis, end_date_nwis, site_output_dir)
 
     logging.info(f"--- Finished Processing Site: {site_id} ---")
     return {site_id: site_results}
@@ -957,22 +977,26 @@ def main():
     """Main function: Loads config, sets up logging, processes sites."""
     config = load_config()
     if not config:
+        # setup_logging failed, print error
         print("CRITICAL: Failed to load configuration. Exiting.")
         return
 
-    proj2_settings = config.get('project2_settings', {})
-    log_filename = proj2_settings.get('log_file', DEFAULT_LOG_FILE)
-    output_base_dir = proj2_settings.get('output_directory', DEFAULT_OUTPUT_DIR)
-
-    setup_logging(log_file=log_filename)
+    # Use the defined LOG_FILE constant directly for setup
+    setup_logging(log_file=DEFAULT_LOG_FILE)
     logging.info("--- Starting Climate Correlation Script (Unified Config Mode) ---")
 
+    # Use the defined PLOT_BASE_DIR constant
+    # output_base_dir = config.get('project2_settings', {}).get('output_directory', DEFAULT_OUTPUT_DIR) # Removed
+    plot_base_dir = PLOT_BASE_DIR # Use the constant
+
     try:
-        os.makedirs(output_base_dir, exist_ok=True)
-        logging.info(f"Base output directory: {output_base_dir}")
+        # Create the base plot directory if it doesn't exist
+        os.makedirs(plot_base_dir, exist_ok=True)
+        logging.info(f"Base plot directory: {plot_base_dir}")
     except Exception as e:
-        logging.critical(f"Failed create base output dir '{output_base_dir}': {e}. Exiting.")
+        logging.critical(f"Failed create base plot dir '{plot_base_dir}': {e}. Exiting.")
         return
+
 
     analysis_params = config.get("analysis_parameters", {})
     sites_to_process = config.get("sites_to_process", [])
@@ -984,7 +1008,8 @@ def main():
 
     all_site_results = {}
     for site_config in sites_to_process:
-        result = process_site(site_config, analysis_params, output_base_dir)
+        # Pass plot_base_dir to process_site
+        result = process_site(site_config, analysis_params, plot_base_dir)
         if result:
              all_site_results.update(result)
 

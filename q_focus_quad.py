@@ -33,8 +33,7 @@ DEFAULT_CONFIG_PATH = 'config2.json' # Single config file
 DEFAULT_PARAM_CD = "00060"
 DEFAULT_START_DATE = "2000-01-01" # Still needed for initial fetch range
 DEFAULT_END_DATE = "today" # Still needed for initial fetch range
-DEFAULT_OUTPUT_DIR = "discharge_focus_results" # New output directory
-DEFAULT_LOG_FILE = "discharge_focus_v6.log" # New log file name (v6)
+DEFAULT_LOG_FILE = "logs/q_focus_quad.log" # New log file name with logs/
 DEFAULT_INVENTORY_FILE = "nwis_inventory_with_latlon.txt" # Default if not in config
 DISCHARGE_COL = 'Discharge_cfs'
 PRECIP_COL = 'Precip_mm' # Added back precipitation column
@@ -44,6 +43,9 @@ PEAK_PROMINENCE_THRESHOLD = 50 # Minimum prominence for local extrema annotation
 MAX_LOCAL_EXTREMA_PER_YEAR = 1 # Max number of *additional* local peaks/troughs to annotate per year
 HEATMAP_DISCHARGE_BINS = 50 # Number of bins for discharge axis in heatmap
 HEATMAP_DOY_BINS = 50 # Number of bins for day-of-year axis in heatmap
+
+# --- Output Paths ---
+PLOT_BASE_DIR = 'plots/q_focus_quad' # Base directory for plots
 
 # --- Descriptive Labels for Plots ---
 PLOT_LABELS = {
@@ -74,7 +76,7 @@ def setup_logging(log_file=DEFAULT_LOG_FILE):
         file_handler.setFormatter(log_formatter)
         root_logger.addHandler(file_handler)
     except Exception as e:
-        print(f"Error setting up file logger for {log_file}: {e}")
+        print(f"Error setting up file logger for {log_file}: {e}") # Keep print here as logging might not be setup yet
 
     # Console Handler
     console_handler = logging.StreamHandler()
@@ -84,20 +86,20 @@ def setup_logging(log_file=DEFAULT_LOG_FILE):
 # --- Configuration Loading ---
 def load_config(config_path=DEFAULT_CONFIG_PATH):
     """Loads configuration from a JSON file."""
-    print(f"Attempting to load configuration from: {config_path}")
+    logging.info(f"Attempting to load configuration from: {config_path}") # Changed print to logging.info
     try:
         with open(config_path, 'r') as f:
             config_data = json.load(f)
-        print("Configuration loaded successfully.")
+        logging.info("Configuration loaded successfully.") # Changed print to logging.info
         return config_data
     except FileNotFoundError:
-        print(f"ERROR: Config file not found at '{config_path}'")
+        logging.error(f"ERROR: Config file not found at '{config_path}'") # Changed print to logging.error
         return None
     except json.JSONDecodeError as e:
-        print(f"ERROR: Invalid JSON in config file '{config_path}': {e}")
+        logging.error(f"ERROR: Invalid JSON in config file '{config_path}': {e}") # Changed print to logging.error
         return None
     except Exception as e:
-        print(f"ERROR loading config '{config_path}': {e}")
+        logging.error(f"ERROR loading config '{config_path}': {e}") # Changed print to logging.error
         return None
 
 # --- Data Fetching & Parsing ---
@@ -321,11 +323,12 @@ def _plot_discharge_timeseries(ax, df_plot_q, df_plot_precip):
             precip_sum_str = "(ΣP N/A)"
             if has_precip_data and last_annotation_idx is not None and last_annotation_idx < idx:
                 try:
-                    start_sum_date = last_annotation_idx + pd.Timedelta(days=1)
+                    # Use original index of df_plot_q for date slicing consistency
+                    start_sum_date = df_plot_q.index[df_plot_q.index.get_loc(last_annotation_idx, method='nearest') + 1]
                     precip_period = df_plot_precip.loc[start_sum_date:idx]
                     precip_sum = precip_period[PRECIP_COL].sum(skipna=True)
                     precip_sum_str = f"{precip_sum:.1f} mm ΣP"
-                except Exception as sum_err: logging.warning(f"Could not sum precipitation for annotation at {idx}: {sum_err}")
+                except Exception as sum_err: logging.warning(f"Could not sum precipitation for annotation at {idx} (after {last_annotation_idx}): {sum_err}")
             elif i == 0 and has_precip_data: # Handle first annotation
                  try:
                      start_plot_idx = df_plot_q.index.min()
@@ -333,6 +336,7 @@ def _plot_discharge_timeseries(ax, df_plot_q, df_plot_precip):
                      precip_sum = precip_period[PRECIP_COL].sum(skipna=True)
                      precip_sum_str = f"{precip_sum:.1f} mm ΣP*"
                  except Exception as sum_err: logging.warning(f"Could not sum precipitation for first annotation at {idx}: {sum_err}")
+
 
             # Determine annotation text and style
             text_content = ""
@@ -357,6 +361,7 @@ def _plot_discharge_timeseries(ax, df_plot_q, df_plot_precip):
 
             # Create the text object for adjustText
             # Store the text object in the list
+            # Use log scale for y-position
             texts.append(ax.text(idx, val, text_content, color=color, fontsize=fontsize,
                                  bbox=dict(boxstyle='round,pad=0.1', fc='white', alpha=0.6, ec='none')))
 
@@ -368,9 +373,10 @@ def _plot_discharge_timeseries(ax, df_plot_q, df_plot_precip):
             try:
                 # Define standard arrow properties for adjustText
                 arrowprops = dict(arrowstyle="->", color='gray', lw=0.5, connectionstyle="arc3,rad=0.1") # Standard arrow
-                # Adjust text positions automatically
-                # You might need to tune parameters like force_points, force_text, expand_points, etc.
-                adjust_text(texts, ax=ax, arrowprops=arrowprops,
+                # Pass the ax.collections for scatter/line objects to avoid text overlapping them
+                adjust_text(texts, x=df_plot_q.index, y=q_series.values, # Pass x and y data explicitly for adjustText
+                            ax=ax, arrowprops=arrowprops,
+                            # objects=[line_q], # Include plot lines/scatter as objects to avoid
                             # Example tuning parameters (uncomment and adjust as needed):
                             # force_points=(0.1, 0.2), # Increase repulsion from points
                             # force_text=(0.2, 0.4),   # Increase repulsion between texts
@@ -416,13 +422,12 @@ def _plot_discharge_heatmap(ax, df_plot_q):
              _plot_placeholder(ax, "Discharge Heatmap N/A\n(Invalid Data Range for Log Scale)")
              return
 
-        min_q = np.floor(np.log10(min_q_val))
+        # Ensure min_q is derived from a positive value for log
+        min_q = np.floor(np.log10(max(min_q_val, 1e-6))) # Use a small value if min_q_val is zero or negative
         max_q = np.ceil(np.log10(max_q_val))
 
-        # Ensure min_q is not -inf if min discharge was extremely small but > 0
-        if np.isneginf(min_q):
-             min_q = np.log10(min_q_val) # Use actual log if floor is -inf
-        if min_q >= max_q: # Ensure max is greater than min
+        # Ensure min_q < max_q for bin creation
+        if min_q >= max_q:
              max_q = min_q + 1 # Add arbitrary difference if they are too close
 
         log_bins_q = np.logspace(min_q, max_q, HEATMAP_DISCHARGE_BINS)
@@ -506,9 +511,10 @@ def _plot_monthly_boxplots(ax, df_plot_q):
     try:
         # Prepare data
         # Ensure 'Month' column exists, create if not
-        if 'Month' not in df_plot_q.columns:
-             df_plot_q = df_plot_q.copy() # Avoid SettingWithCopyWarning
-             df_plot_q['Month'] = df_plot_q.index.month
+        # Create a temporary copy for plotting to avoid modifying the original filtered df
+        df_plot_q_copy = df_plot_q.copy()
+        df_plot_q_copy['Month'] = df_plot_q_copy.index.month
+
 
         month_order = range(1, 13)
         month_labels = [calendar.month_abbr[i] for i in month_order]
@@ -517,7 +523,7 @@ def _plot_monthly_boxplots(ax, df_plot_q):
         sns.boxplot(
             x='Month',
             y=DISCHARGE_COL,
-            data=df_plot_q,
+            data=df_plot_q_copy,
             ax=ax,
             order=month_order,
             showfliers=False,
@@ -543,13 +549,14 @@ def _plot_monthly_boxplots(ax, df_plot_q):
 
 
 # --- Main Plotting Function ---
-# Modified to accept climate data (for precip)
-def plot_discharge_details(df_q, df_climate, site_id, description, output_dir):
+# Modified to accept climate data (for precip) and PLOT_BASE_DIR
+def plot_discharge_details(df_q, df_climate, site_id, description, plot_base_dir):
     """
     Generates a multi-panel plot focusing on discharge details for the last PLOT_YEARS.
     Requires df_climate for precipitation data used in timeseries annotations.
+    Saves plots to plot_base_dir/site_id/.
     """
-    logging.info(f"Generating discharge focus plots (v6 - adjustText) for site {site_id}...")
+    logging.info(f"Generating discharge focus plots for site {site_id}...")
 
     if df_q is None or df_q.empty:
         logging.error(f"No discharge data available for plotting: {site_id}.")
@@ -576,9 +583,10 @@ def plot_discharge_details(df_q, df_climate, site_id, description, output_dir):
              for i in range(4):
                  _plot_placeholder(axes[i], f"Plot N/A\n(No Positive Discharge in last {PLOT_YEARS} years)")
              # Save placeholder plot
-             os.makedirs(output_dir, exist_ok=True)
-             plot_filename = f"USGS_{site_id}_discharge_focus_v6_no_data.png" # v6
-             plot_path = os.path.join(output_dir, plot_filename)
+             site_plot_dir = os.path.join(plot_base_dir, site_id) # Construct path using plot_base_dir
+             os.makedirs(site_plot_dir, exist_ok=True)
+             plot_filename = f"USGS_{site_id}_discharge_focus.png"
+             plot_path = os.path.join(site_plot_dir, plot_filename) # Save to site_plot_dir
              plt.savefig(plot_path, dpi=150, bbox_inches='tight')
              plt.close(fig)
              logging.info(f"Placeholder plot saved due to no positive discharge data: {plot_path}")
@@ -626,9 +634,10 @@ def plot_discharge_details(df_q, df_climate, site_id, description, output_dir):
         _plot_monthly_boxplots(axes[3], df_plot_q)
 
         # --- Save Plot ---
-        os.makedirs(output_dir, exist_ok=True)
-        plot_filename = f"USGS_{site_id}_discharge_focus_v6.png" # Incremented version
-        plot_path = os.path.join(output_dir, plot_filename)
+        site_plot_dir = os.path.join(plot_base_dir, site_id) # Construct path using plot_base_dir
+        os.makedirs(site_plot_dir, exist_ok=True)
+        plot_filename = f"USGS_{site_id}_discharge_focus.png" # Incremented version
+        plot_path = os.path.join(site_plot_dir, plot_filename) # Save to site_plot_dir
         plt.savefig(plot_path, dpi=150, bbox_inches='tight')
         plt.close(fig)
         logging.info(f"Discharge focus plot saved: {plot_path}")
@@ -639,8 +648,8 @@ def plot_discharge_details(df_q, df_climate, site_id, description, output_dir):
 
 
 # --- Main Orchestration ---
-# Modified to fetch precip and pass it along
-def process_site(site_config, analysis_params, output_base_dir):
+# Modified to fetch precip and pass it along and use plot_base_dir
+def process_site(site_config, analysis_params, plot_base_dir):
     """Processes a single site based on its configuration."""
     site_id = site_config.get("site_id")
     param_cd = site_config.get("param_cd", analysis_params.get("param_cd", DEFAULT_PARAM_CD))
@@ -693,11 +702,13 @@ def process_site(site_config, analysis_params, output_base_dir):
 
     logging.info(f"--- Processing Site: {site_id} ({description}) ---")
 
-    site_output_dir = os.path.join(output_base_dir, site_id)
-    try:
-        os.makedirs(site_output_dir, exist_ok=True)
-    except Exception as e:
-        logging.error(f"Could not create output dir for {site_id}: {e}.")
+    # Removed creation of site_output_dir here as it's done in plot_discharge_details
+    # site_output_dir = os.path.join(output_base_dir, site_id)
+    # try:
+    #     os.makedirs(site_output_dir, exist_ok=True)
+    # except Exception as e:
+    #     logging.error(f"Could not create output dir for {site_id}: {e}.")
+
 
     site_results = {'status': 'Started'}
     df_q = None
@@ -712,16 +723,19 @@ def process_site(site_config, analysis_params, output_base_dir):
     # Use the original fetch start/end datetimes for consistency
     df_climate = fetch_climate_data(latitude, longitude, start_date_fetch, end_date_fetch)
 
-    # Plotting - Pass both discharge and climate dataframes
+    # Plotting - Pass both discharge and climate dataframes and plot_base_dir
     if df_q is not None and not df_q.empty:
         # Pass df_climate even if it's None, plotting function handles it
-        plot_discharge_details(df_q, df_climate, site_id, description, site_output_dir)
+        plot_discharge_details(df_q, df_climate, site_id, description, plot_base_dir) # Pass plot_base_dir
         site_results['status'] = 'Processed'
         if df_climate is None:
              site_results['warnings'] = ['Precipitation data missing, annotations lack summed values.'] # Updated warning
     else:
         logging.error(f"No valid discharge data obtained for {site_id}. Plotting skipped.")
         site_results['status'] = 'Error (Discharge Missing/Invalid)'
+        # Even if discharge is missing, attempt to save a placeholder plot if needed
+        plot_discharge_details(df_q, df_climate, site_id, description, plot_base_dir)
+
 
     logging.info(f"--- Finished Processing Site: {site_id} ---")
     return {site_id: site_results}
@@ -731,22 +745,24 @@ def main():
     """Main function: Loads config, sets up logging, processes sites."""
     config = load_config()
     if not config:
+        # setup_logging failed, print error
         print("CRITICAL: Failed to load configuration. Exiting.")
         return
 
-    proj2_settings = config.get('project2_settings', {})
-    log_filename = proj2_settings.get('log_file', DEFAULT_LOG_FILE)
-    output_base_dir = proj2_settings.get('output_directory', DEFAULT_OUTPUT_DIR)
+    # Use the defined LOG_FILE constant directly for setup
+    setup_logging(log_file=DEFAULT_LOG_FILE)
+    logging.info("--- Starting Discharge Focus Plotting Script") # Updated log message
 
-    setup_logging(log_file=log_filename)
-    logging.info("--- Starting Discharge Focus Plotting Script (v6 - adjustText) ---") # Updated log message
+    plot_base_dir = PLOT_BASE_DIR # Use the constant
 
     try:
-        os.makedirs(output_base_dir, exist_ok=True)
-        logging.info(f"Base output directory: {output_base_dir}")
+        # Create the base plot directory if it doesn't exist
+        os.makedirs(plot_base_dir, exist_ok=True)
+        logging.info(f"Base plot directory: {plot_base_dir}")
     except Exception as e:
-        logging.critical(f"Failed create base output dir '{output_base_dir}': {e}. Exiting.")
+        logging.critical(f"Failed create base plot dir '{plot_base_dir}': {e}. Exiting.")
         return
+
 
     analysis_params = config.get("analysis_parameters", {})
     sites_to_process = config.get("sites_to_process", [])
@@ -758,7 +774,8 @@ def main():
 
     all_site_results = {}
     for site_config in sites_to_process:
-        result = process_site(site_config, analysis_params, output_base_dir)
+        # Pass plot_base_dir to process_site
+        result = process_site(site_config, analysis_params, plot_base_dir)
         if result:
              all_site_results.update(result)
 
