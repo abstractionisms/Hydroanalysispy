@@ -1,0 +1,25 @@
+{
+    "sites_to_process": [
+  
+      {
+        "site_id": "12422990",
+        "description": "HANGMAN CREEK AT STATE LINE ROAD NEAR TEKOA, WA",
+        "latitude": 46.63454570,
+        "longitude": -123.29681190,
+        "start_date": "2000-01-01",
+        "end_date": "today",
+        "param_cd": "00060",
+        "enabled": true
+      },
+      {
+        "site_id": "12424000",
+        "description": "downriver golf course",
+        "latitude": 46.37399370,
+        "longitude": -123.74348200,
+        "start_date": "2000-01-01",
+        "end_date": "today",
+        "param_cd": "00060",
+        "enabled": true
+      }
+    ]
+  }

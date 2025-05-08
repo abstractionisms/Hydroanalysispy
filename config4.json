@@ -1,0 +1,54 @@
+{
+    "sites_to_process": [
+      {
+        "site_id": "12305000",
+        "description": "KOOTENAI RIVER AT LEONIA, ID",
+        "latitude": 48.61688330,
+        "longitude": -116.04919440,
+        "start_date": "2000-01-01",
+        "end_date": "today",
+        "param_cd": "00060",
+        "enabled": true
+      },
+      {
+        "site_id": "12308000",
+        "description": "KOOTENAI RIVER BEL MOYIE RIVER NR BONNERS FERRY ID",
+        "latitude": 48.69930000,
+        "longitude": -116.19623890,
+        "start_date": "2000-01-01",
+        "end_date": "today",
+        "param_cd": "00060",
+        "enabled": true
+      },
+      {
+        "site_id": "12321500",
+        "description": "BOUNDARY CREEK NR PORTHILL ID",
+        "latitude": 48.99722220,
+        "longitude": -116.56916670,
+        "start_date": "2000-01-01",
+        "end_date": "today",
+        "param_cd": "00060",
+        "enabled": true
+      },
+      {
+        "site_id": "12322000",
+        "description": "KOOTENAI RIVER AT PORTHILL ID",
+        "latitude": 48.99638889,
+        "longitude": -116.50750000,
+        "start_date": "2000-01-01",
+        "end_date": "today",
+        "param_cd": "00060",
+        "enabled": true
+      },
+      {
+        "site_id": "12322001",
+        "description": "KOOTENAI RIVER AT PORTHILL ID TOTAL FLOW",
+        "latitude": 48.99995220,
+        "longitude": -116.50382230,
+        "start_date": "2000-01-01",
+        "end_date": "today",
+        "param_cd": "00060",
+        "enabled": true
+      }
+    ]
+  }
