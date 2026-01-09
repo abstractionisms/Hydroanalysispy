@@ -155,7 +155,6 @@ def check_iv_availability(site_id: str, param_cd: str):
     Returns dict with availability info or None.
     """
     import requests
-    import json
 
     try:
         end_date = date.today()
@@ -193,6 +192,107 @@ def check_iv_availability(site_id: str, param_cd: str):
         }
     except Exception:
         return None
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def find_availability_windows(site_id: str, param_cd: str, check_iv: bool = False):
+    """
+    Find windows of data availability by sampling multiple decades.
+    Returns list of (start_year, end_year) tuples representing continuous data periods.
+
+    For gage height, set check_iv=True to also check instantaneous values endpoint.
+    """
+    import requests
+
+    # Sample years to check (roughly every 5 years from 1900 to present)
+    current_year = date.today().year
+    sample_years = list(range(1900, current_year + 1, 5))
+    if current_year not in sample_years:
+        sample_years.append(current_year)
+
+    years_with_data = set()
+
+    # Check Daily Values endpoint first
+    for year in sample_years:
+        try:
+            start_str = f"{year}-01-01"
+            end_str = f"{year}-12-31"
+
+            df = fetch_daily_values(
+                site_id, param_cd=param_cd,
+                start_date=start_str,
+                end_date=end_str,
+                chunk_years=2
+            )
+            if df is not None and not df.empty:
+                years_with_data.add(year)
+        except Exception:
+            continue
+
+    # If checking IV and no DV data found, try IV endpoint for recent years
+    if check_iv and len(years_with_data) == 0:
+        # Check recent years via IV
+        for year in range(current_year - 10, current_year + 1):
+            try:
+                url = "https://waterservices.usgs.gov/nwis/iv/"
+                params = {
+                    "format": "json",
+                    "sites": site_id,
+                    "parameterCd": param_cd,
+                    "startDT": f"{year}-01-01",
+                    "endDT": f"{year}-12-31",
+                }
+                response = requests.get(url, params=params, timeout=15)
+                if response.status_code == 200:
+                    json_data = response.json()
+                    time_series = json_data.get('value', {}).get('timeSeries', [])
+                    if time_series:
+                        values = time_series[0].get('values', [{}])[0].get('value', [])
+                        if values:
+                            years_with_data.add(year)
+            except Exception:
+                continue
+
+    if not years_with_data:
+        return None
+
+    # Convert to sorted list and find continuous windows
+    sorted_years = sorted(years_with_data)
+    windows = []
+    window_start = sorted_years[0]
+    prev_year = sorted_years[0]
+
+    for year in sorted_years[1:]:
+        # If gap > 10 years, consider it a new window
+        if year - prev_year > 10:
+            windows.append((window_start, prev_year))
+            window_start = year
+        prev_year = year
+
+    # Close the last window
+    if prev_year == current_year or prev_year >= current_year - 2:
+        windows.append((window_start, "present"))
+    else:
+        windows.append((window_start, prev_year))
+
+    return windows
+
+
+def format_availability_windows(windows: list) -> str:
+    """Format availability windows as readable string."""
+    if not windows:
+        return "not available"
+
+    parts = []
+    for start, end in windows:
+        if end == "present":
+            parts.append(f"{start}-present")
+        elif start == end:
+            parts.append(str(start))
+        else:
+            parts.append(f"{start}-{end}")
+
+    return ", ".join(parts)
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -252,24 +352,27 @@ def display_site_info(site_info: dict, show_check_button: bool = True):
     # Auto-fetch date ranges for all parameters
     availability_text = []
 
-    # Discharge - get actual date range
-    discharge_info = check_usgs_availability(site_id, DEFAULT_PARAM_DISCHARGE)
-    if discharge_info:
-        availability_text.append(f"✅ **Discharge** ({discharge_info['start']} to {discharge_info['end']})")
+    # Discharge - find availability windows
+    discharge_windows = find_availability_windows(site_id, DEFAULT_PARAM_DISCHARGE, check_iv=False)
+    if discharge_windows:
+        windows_str = format_availability_windows(discharge_windows)
+        availability_text.append(f"✅ **Discharge** ({windows_str})")
     elif begin_date:
         availability_text.append(f"✅ **Discharge** (from {begin_date})")
     else:
-        availability_text.append("✅ **Discharge**")
+        availability_text.append("❌ **Discharge** (not available)")
 
-    # Gage Height - check both daily values and instantaneous values
-    stage_info = check_usgs_availability(site_id, DEFAULT_PARAM_STAGE)
-    if stage_info:
-        availability_text.append(f"✅ **Gage Height** Daily ({stage_info['start']} to {stage_info['end']})")
+    # Gage Height - check daily values first, then IV if needed
+    stage_dv_windows = find_availability_windows(site_id, DEFAULT_PARAM_STAGE, check_iv=False)
+    if stage_dv_windows:
+        windows_str = format_availability_windows(stage_dv_windows)
+        availability_text.append(f"✅ **Gage Height** ({windows_str})")
     else:
-        # Try instantaneous values if daily not available
-        stage_iv_info = check_iv_availability(site_id, DEFAULT_PARAM_STAGE)
-        if stage_iv_info:
-            availability_text.append(f"✅ **Gage Height** Continuous (recent data available)")
+        # No daily values - check instantaneous values
+        stage_iv_windows = find_availability_windows(site_id, DEFAULT_PARAM_STAGE, check_iv=True)
+        if stage_iv_windows:
+            windows_str = format_availability_windows(stage_iv_windows)
+            availability_text.append(f"✅ **Gage Height** IV only ({windows_str})")
         else:
             availability_text.append("❌ **Gage Height** (not available)")
 
