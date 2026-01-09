@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from hydrology.data.inventory import load_inventory, get_site_info
 from hydrology.data.usgs import (
-    fetch_waterml_data, parse_waterml, fetch_daily_values,
+    fetch_waterml_data, parse_waterml, fetch_daily_values, fetch_stage_data,
     DEFAULT_PARAM_DISCHARGE, DEFAULT_PARAM_STAGE
 )
 from hydrology.data.climate import fetch_climate_data, fetch_nearest_station_info
@@ -59,11 +59,11 @@ def get_weather_station_info(lat: float, lon: float):
 @st.cache_data(ttl=3600, show_spinner=False)
 def check_usgs_availability(site_id: str, param_cd: str):
     """
-    Check USGS for actual data availability by sampling start and end of record.
+    Check USGS for actual data availability by sampling multiple decades.
     Returns dict with start_date, end_date, or None if not available.
     """
     try:
-        # Check recent data
+        # Check recent data first
         recent_end = datetime.now()
         recent_start = datetime(recent_end.year - 2, 1, 1)
 
@@ -77,21 +77,34 @@ def check_usgs_availability(site_id: str, param_cd: str):
         if df_recent is None or df_recent.empty:
             return None
 
-        # Check historical data (sample from 1950s)
-        df_historical = fetch_daily_values(
-            site_id, param_cd=param_cd,
-            start_date='1950-01-01',
-            end_date='1960-12-31',
-            chunk_years=11
-        )
-
-        # Determine date range
-        if df_historical is not None and not df_historical.empty:
-            start_date = df_historical.index.min()
-        else:
-            start_date = df_recent.index.min()
-
         end_date = df_recent.index.max()
+
+        # Check multiple decades to find the earliest data
+        # Start from oldest and work forward to find first data
+        decade_ranges = [
+            ('1900-01-01', '1910-12-31'),
+            ('1930-01-01', '1940-12-31'),
+            ('1950-01-01', '1960-12-31'),
+            ('1970-01-01', '1980-12-31'),
+            ('1990-01-01', '2000-12-31'),
+            ('2010-01-01', '2015-12-31'),
+        ]
+
+        start_date = df_recent.index.min()  # Default to recent if nothing older found
+
+        for range_start, range_end in decade_ranges:
+            try:
+                df_historical = fetch_daily_values(
+                    site_id, param_cd=param_cd,
+                    start_date=range_start,
+                    end_date=range_end,
+                    chunk_years=15
+                )
+                if df_historical is not None and not df_historical.empty:
+                    start_date = df_historical.index.min()
+                    break  # Found earliest data, stop checking
+            except Exception:
+                continue
 
         return {
             'available': True,
@@ -277,16 +290,24 @@ def plot_selector():
     plot_names = list(AVAILABLE_PLOTS.keys())
 
     st.caption("Climate-dependent plots (need merged data):")
-    climate_plots = ['anomaly', 'hexbin_temp', 'lagged_precip', 'correlation_matrix', 'precip_discharge']
+    climate_plots = [
+        'anomaly', 'hexbin_temp', 'lagged_precip', 'correlation_matrix',
+        'precip_discharge', 'seasonal_scatter', 'double_mass_curve', 'lag_correlation'
+    ]
     selected_climate = st.multiselect(
         "Climate plots",
         [p for p in plot_names if p in climate_plots],
-        default=['anomaly', 'hexbin_temp', 'lagged_precip'],
+        default=['anomaly'],
         key="climate_plots"
     )
 
-    st.caption("Discharge-only plots (always work):")
-    discharge_plots = ['timeseries', 'flow_duration', 'monthly_boxplot', 'discharge_heatmap', 'temporal_heatmap']
+    st.caption("Discharge-only plots:")
+    discharge_plots = [
+        'timeseries', 'flow_duration', 'monthly_boxplot', 'discharge_heatmap',
+        'temporal_heatmap', 'low_flow_trend', 'annual_trend', 'baseflow_separation',
+        'recession_curves', 'flood_frequency', '7q10_analysis', 'anomaly_detection',
+        'cumulative_departure', 'spectral_analysis'
+    ]
     selected_discharge = st.multiselect(
         "Discharge plots",
         [p for p in plot_names if p in discharge_plots],
@@ -294,7 +315,16 @@ def plot_selector():
         key="discharge_plots"
     )
 
-    return selected_climate + selected_discharge
+    st.caption("Stage-dependent plots (need gage height):")
+    stage_plots = ['rating_curve']
+    selected_stage = st.multiselect(
+        "Stage plots",
+        [p for p in plot_names if p in stage_plots],
+        default=[],
+        key="stage_plots"
+    )
+
+    return selected_climate + selected_discharge + selected_stage
 
 
 def single_plot_selector():
@@ -316,6 +346,17 @@ def process_site_data(site_id: str, lat: float, lon: float, start_str: str, end_
     df_q = fetch_discharge_data(site_id, "00060", start_str, end_str)
     if df_q is None or df_q.empty:
         return None
+
+    # Fetch gage height (stage) data and merge with df_q
+    try:
+        df_stage = fetch_stage_data(site_id, start_str, end_str)
+        if df_stage is not None and not df_stage.empty:
+            # Rename to Gage_Height_ft for consistency with plot expectations
+            df_stage = df_stage.rename(columns={'Stage_ft': 'Gage_Height_ft'})
+            # Merge with df_q on index
+            df_q = df_q.join(df_stage[['Gage_Height_ft']], how='left')
+    except Exception as e:
+        pass  # Stage data is optional, continue without it
 
     # Fetch climate
     df_climate = fetch_climate_cached(lat, lon, start_str, end_str)
