@@ -22,7 +22,7 @@ logger = get_logger(__name__)
 
 # API endpoints
 BASE_URL_DV = "https://waterservices.usgs.gov/nwis/dv/"
-BASE_URL_IV = "https://nwis.waterservices.usgs.gov/nwis/iv/"
+BASE_URL_IV = "https://waterservices.usgs.gov/nwis/iv/"
 
 # Parameter codes
 DEFAULT_PARAM_DISCHARGE = "00060"  # Discharge, cubic feet per second
@@ -274,6 +274,132 @@ def fetch_daily_values(
     return result
 
 
+def fetch_instantaneous_values(
+    site_id: str,
+    param_cd: str = DEFAULT_PARAM_DISCHARGE,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    aggregate_to_daily: bool = True,
+    chunk_days: int = 120
+) -> pd.DataFrame:
+    """
+    Fetch instantaneous values (IV) from USGS NWIS and optionally aggregate to daily.
+
+    IV data is typically recorded at 15-minute intervals. This function fetches
+    the raw IV data and can aggregate it to daily means for compatibility with
+    daily value workflows.
+
+    Args:
+        site_id: USGS site identifier (e.g., '12422500')
+        param_cd: Parameter code (default: discharge)
+        start_date: Start date (YYYY-MM-DD)
+        end_date: End date (YYYY-MM-DD or 'today')
+        aggregate_to_daily: If True, aggregate to daily means (default: True)
+        chunk_days: Days per chunk to avoid API limits (default: 120)
+
+    Returns:
+        DataFrame with datetime index and 'value' column
+    """
+    # Parse dates
+    if end_date is None or end_date == 'today':
+        end = pd.Timestamp.today().normalize()
+    else:
+        end = pd.Timestamp(end_date).normalize()
+
+    if start_date is None:
+        start = end - pd.Timedelta(days=365)  # Default 1 year for IV
+    else:
+        start = pd.Timestamp(start_date).normalize()
+
+    logger.info(f"Fetching instantaneous values: site={site_id}, param={param_cd}, "
+                f"{start.date()} to {end.date()}")
+
+    # Create date chunks (IV has stricter limits than DV)
+    chunks: List[Tuple[pd.Timestamp, pd.Timestamp]] = []
+    current = start
+    while current <= end:
+        chunk_end = min(current + pd.Timedelta(days=chunk_days), end)
+        chunks.append((current, chunk_end))
+        current = chunk_end + pd.Timedelta(days=1)
+
+    # Fetch each chunk
+    parts: List[pd.DataFrame] = []
+    for i, (chunk_start, chunk_end) in enumerate(chunks, 1):
+        try:
+            params = {
+                "format": "json",
+                "sites": site_id,
+                "parameterCd": param_cd,
+                "startDT": chunk_start.date().isoformat(),
+                "endDT": chunk_end.date().isoformat(),
+            }
+            text = http_get_text(BASE_URL_IV, params, retries=4, timeout=30)
+
+            if text:
+                import json
+                json_data = json.loads(text)
+                df_chunk = parse_json_series(json_data)
+
+                if not df_chunk.empty:
+                    logger.info(f"IV Chunk {i}/{len(chunks)}: "
+                               f"{chunk_start.date()}→{chunk_end.date()}, {len(df_chunk)} rows")
+                    parts.append(df_chunk)
+        except Exception as e:
+            logger.warning(f"IV fetch failed for chunk {i}: {e}")
+
+    if not parts:
+        logger.warning(f"No IV data retrieved for site {site_id}")
+        return pd.DataFrame(columns=["value"])
+
+    result = pd.concat(parts).sort_index()
+    result = result[~result.index.duplicated(keep="last")]
+
+    # Aggregate to daily means if requested
+    if aggregate_to_daily and not result.empty:
+        result = result.resample('D').mean().dropna()
+        logger.info(f"Aggregated to {len(result)} daily values")
+
+    return result
+
+
+def check_iv_availability(site_id: str, param_cd: str) -> Optional[Dict[str, Any]]:
+    """
+    Quick check if instantaneous values are available for a parameter.
+    Checks last 30 days of IV data.
+
+    Returns dict with 'available', 'start', 'end' or None if not available.
+    """
+    try:
+        end = pd.Timestamp.today()
+        start = end - pd.Timedelta(days=30)
+
+        params = {
+            "format": "json",
+            "sites": site_id,
+            "parameterCd": param_cd,
+            "startDT": start.date().isoformat(),
+            "endDT": end.date().isoformat(),
+        }
+        text = http_get_text(BASE_URL_IV, params, retries=2, timeout=15)
+
+        if text:
+            import json
+            json_data = json.loads(text)
+            df = parse_json_series(json_data)
+
+            if not df.empty:
+                return {
+                    'available': True,
+                    'type': 'instantaneous',
+                    'recent_start': df.index.min().strftime('%Y-%m-%d'),
+                    'recent_end': df.index.max().strftime('%Y-%m-%d')
+                }
+    except Exception:
+        pass
+
+    return None
+
+
 def fetch_discharge_data(
     site_id: str,
     start_date: Optional[str] = None,
@@ -318,19 +444,25 @@ def fetch_discharge_data(
 def fetch_stage_data(
     site_id: str,
     start_date: Optional[str] = None,
-    end_date: Optional[str] = None
+    end_date: Optional[str] = None,
+    try_iv_fallback: bool = True
 ) -> Optional[pd.DataFrame]:
     """
     Fetch gage height (stage) data.
+
+    First tries daily values (DV). If DV is not available, falls back to
+    instantaneous values (IV) aggregated to daily means.
 
     Args:
         site_id: USGS site identifier
         start_date: Start date (YYYY-MM-DD)
         end_date: End date (YYYY-MM-DD or 'today')
+        try_iv_fallback: If True, try IV endpoint when DV is empty (default: True)
 
     Returns:
         DataFrame with 'Stage_ft' column or None if fetch failed
     """
+    # Try daily values first
     df = fetch_daily_values(
         site_id,
         param_cd=DEFAULT_PARAM_STAGE,
@@ -339,11 +471,28 @@ def fetch_stage_data(
         end_date=end_date
     )
 
-    if df.empty:
-        return None
+    if not df.empty:
+        logger.info(f"Stage data from daily values: {len(df)} rows")
+        df = df.rename(columns={"value": "Stage_ft"})
+        return df
 
-    df = df.rename(columns={"value": "Stage_ft"})
-    return df
+    # Fall back to instantaneous values if DV is empty
+    if try_iv_fallback:
+        logger.info(f"No daily stage data, trying instantaneous values for {site_id}")
+        df = fetch_instantaneous_values(
+            site_id,
+            param_cd=DEFAULT_PARAM_STAGE,
+            start_date=start_date,
+            end_date=end_date,
+            aggregate_to_daily=True
+        )
+
+        if not df.empty:
+            logger.info(f"Stage data from IV (aggregated): {len(df)} rows")
+            df = df.rename(columns={"value": "Stage_ft"})
+            return df
+
+    return None
 
 
 # Legacy compatibility functions

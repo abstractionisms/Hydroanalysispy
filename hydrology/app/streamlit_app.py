@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from hydrology.data.inventory import load_inventory, get_site_info
 from hydrology.data.usgs import (
     fetch_waterml_data, parse_waterml, fetch_daily_values, fetch_stage_data,
+    fetch_instantaneous_values, check_iv_availability,
     DEFAULT_PARAM_DISCHARGE, DEFAULT_PARAM_STAGE
 )
 from hydrology.data.climate import fetch_climate_data, fetch_nearest_station_info
@@ -213,12 +214,17 @@ def display_site_info(site_info: dict, show_check_button: bool = True):
     else:
         availability_text.append("✅ **Discharge**")
 
-    # Gage Height - get actual date range
+    # Gage Height - check both daily values and instantaneous values
     stage_info = check_usgs_availability(site_id, DEFAULT_PARAM_STAGE)
     if stage_info:
-        availability_text.append(f"✅ **Gage Height** ({stage_info['start']} to {stage_info['end']})")
+        availability_text.append(f"✅ **Gage Height** Daily ({stage_info['start']} to {stage_info['end']})")
     else:
-        availability_text.append("❌ **Gage Height** (not available)")
+        # Try instantaneous values if daily not available
+        stage_iv_info = check_iv_availability(site_id, DEFAULT_PARAM_STAGE)
+        if stage_iv_info:
+            availability_text.append(f"✅ **Gage Height** Continuous (recent data available)")
+        else:
+            availability_text.append("❌ **Gage Height** (not available)")
 
     # Climate - based on weather station distance
     if lat and lon:
@@ -508,17 +514,17 @@ def single_analysis_mode(inventory_df):
             return
 
         # Render site header in main area
-            render_site_header(site_id, desc, float(lat) if lat else None, float(lon) if lon else None)
+        render_site_header(site_id, desc, float(lat) if lat else None, float(lon) if lon else None)
 
-            # Show data availability badges
-            has_stage = 'Gage_Height_ft' in data['df_q'].columns if data['df_q'] is not None else False
-            climate_info = get_weather_station_info(float(lat), float(lon)) if lat and lon else None
-            render_availability_badges(True, has_stage, climate_info)
+        # Show data availability badges
+        has_stage = 'Gage_Height_ft' in data['df_q'].columns if data['df_q'] is not None else False
+        climate_info = get_weather_station_info(float(lat), float(lon)) if lat and lon else None
+        render_availability_badges(True, has_stage, climate_info)
 
-            # Show metric cards
-            render_metric_cards(data['df_q'], data['df_merged'])
+        # Show metric cards
+        render_metric_cards(data['df_q'], data['df_merged'])
 
-            st.markdown('---')
+        st.markdown('---')
 
         plot_data = {
             'df_q': data['df_q'],
@@ -572,18 +578,38 @@ def compare_time_periods_mode(inventory_df):
         "2 Years": 730,
         "5 Years": 1825,
         "10 Years": 3650,
-        "Water Year (Oct-Sep)": 365,
+        "Water Year (Oct-Sep)": "water_year",
         "Custom": None
     }
     period_choice = st.sidebar.selectbox("Select period length", list(period_lengths.keys()), key="period_length")
 
+    is_water_year = period_choice == "Water Year (Oct-Sep)"
+
     if period_choice == "Custom":
         custom_days = st.sidebar.number_input("Days", min_value=30, max_value=7300, value=365, key="custom_days")
         period_days = custom_days
+    elif is_water_year:
+        period_days = 365  # Approximate for display
+        st.sidebar.caption("Water Year: Oct 1 → Sep 30")
     else:
         period_days = period_lengths[period_choice]
+        st.sidebar.caption(f"Each period: {period_days} days ({period_days/365:.1f} years)")
 
-    st.sidebar.caption(f"Each period: {period_days} days ({period_days/365:.1f} years)")
+    # Helper functions for water year
+    def get_water_year_start(d: date) -> date:
+        """Get the start of the water year containing date d (Oct 1)."""
+        if d.month >= 10:
+            return date(d.year, 10, 1)
+        else:
+            return date(d.year - 1, 10, 1)
+
+    def get_water_year_end(start: date) -> date:
+        """Get the end of the water year starting on start (Sep 30)."""
+        return date(start.year + 1, 9, 30)
+
+    def shift_water_year(start: date, direction: int) -> date:
+        """Shift to previous (-1) or next (+1) water year."""
+        return date(start.year + direction, 10, 1)
 
     # Period A - start date with shift controls
     st.sidebar.markdown("---")
@@ -591,22 +617,38 @@ def compare_time_periods_mode(inventory_df):
 
     # Initialize session state for Period A start
     if 'period_a_start' not in st.session_state:
-        st.session_state.period_a_start = date(2010, 1, 1)
+        st.session_state.period_a_start = date(2010, 10, 1) if is_water_year else date(2010, 1, 1)
+
+    # For water year, snap to Oct 1
+    if is_water_year and st.session_state.period_a_start.month != 10:
+        st.session_state.period_a_start = get_water_year_start(st.session_state.period_a_start)
 
     col_a1, col_a2, col_a3 = st.sidebar.columns([1, 2, 1])
     with col_a1:
-        if st.button("◀", key="shift_a_back", help=f"Shift back {period_days} days"):
-            st.session_state.period_a_start = st.session_state.period_a_start - timedelta(days=period_days)
+        if st.button("◀", key="shift_a_back", help="Previous period"):
+            if is_water_year:
+                st.session_state.period_a_start = shift_water_year(st.session_state.period_a_start, -1)
+            else:
+                st.session_state.period_a_start = st.session_state.period_a_start - timedelta(days=period_days)
     with col_a2:
         start_a = st.date_input("Start A", st.session_state.period_a_start, key="start_a_input",
                                 min_value=date(1900, 1, 1), max_value=date.today())
+        if is_water_year:
+            start_a = get_water_year_start(start_a)
         st.session_state.period_a_start = start_a
     with col_a3:
-        if st.button("▶", key="shift_a_fwd", help=f"Shift forward {period_days} days"):
-            st.session_state.period_a_start = st.session_state.period_a_start + timedelta(days=period_days)
+        if st.button("▶", key="shift_a_fwd", help="Next period"):
+            if is_water_year:
+                st.session_state.period_a_start = shift_water_year(st.session_state.period_a_start, 1)
+            else:
+                st.session_state.period_a_start = st.session_state.period_a_start + timedelta(days=period_days)
 
-    end_a = start_a + timedelta(days=period_days)
-    st.sidebar.caption(f"End A: {end_a}")
+    if is_water_year:
+        end_a = get_water_year_end(start_a)
+        st.sidebar.caption(f"WY{start_a.year + 1}: {start_a} → {end_a}")
+    else:
+        end_a = start_a + timedelta(days=period_days)
+        st.sidebar.caption(f"End A: {end_a}")
 
     # Period B - start date with shift controls
     st.sidebar.markdown("---")
@@ -614,22 +656,38 @@ def compare_time_periods_mode(inventory_df):
 
     # Initialize session state for Period B start
     if 'period_b_start' not in st.session_state:
-        st.session_state.period_b_start = date(2020, 1, 1)
+        st.session_state.period_b_start = date(2020, 10, 1) if is_water_year else date(2020, 1, 1)
+
+    # For water year, snap to Oct 1
+    if is_water_year and st.session_state.period_b_start.month != 10:
+        st.session_state.period_b_start = get_water_year_start(st.session_state.period_b_start)
 
     col_b1, col_b2, col_b3 = st.sidebar.columns([1, 2, 1])
     with col_b1:
-        if st.button("◀", key="shift_b_back", help=f"Shift back {period_days} days"):
-            st.session_state.period_b_start = st.session_state.period_b_start - timedelta(days=period_days)
+        if st.button("◀", key="shift_b_back", help="Previous period"):
+            if is_water_year:
+                st.session_state.period_b_start = shift_water_year(st.session_state.period_b_start, -1)
+            else:
+                st.session_state.period_b_start = st.session_state.period_b_start - timedelta(days=period_days)
     with col_b2:
         start_b = st.date_input("Start B", st.session_state.period_b_start, key="start_b_input",
                                 min_value=date(1900, 1, 1), max_value=date.today())
+        if is_water_year:
+            start_b = get_water_year_start(start_b)
         st.session_state.period_b_start = start_b
     with col_b3:
-        if st.button("▶", key="shift_b_fwd", help=f"Shift forward {period_days} days"):
-            st.session_state.period_b_start = st.session_state.period_b_start + timedelta(days=period_days)
+        if st.button("▶", key="shift_b_fwd", help="Next period"):
+            if is_water_year:
+                st.session_state.period_b_start = shift_water_year(st.session_state.period_b_start, 1)
+            else:
+                st.session_state.period_b_start = st.session_state.period_b_start + timedelta(days=period_days)
 
-    end_b = start_b + timedelta(days=period_days)
-    st.sidebar.caption(f"End B: {end_b}")
+    if is_water_year:
+        end_b = get_water_year_end(start_b)
+        st.sidebar.caption(f"WY{start_b.year + 1}: {start_b} → {end_b}")
+    else:
+        end_b = start_b + timedelta(days=period_days)
+        st.sidebar.caption(f"End B: {end_b}")
 
     # Plot selection
     st.sidebar.markdown("---")
