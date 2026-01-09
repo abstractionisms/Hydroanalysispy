@@ -32,8 +32,15 @@ from hydrology.app.plot_config import (
     multi_plot_selector, single_plot_selector,
     CLIMATE_PLOTS, DISCHARGE_PLOTS, STAGE_PLOTS
 )
+from hydrology.app.styles import (
+    apply_custom_css, render_site_header, render_availability_badges,
+    render_metric_cards, render_footer
+)
 
 st.set_page_config(page_title="Hydrology Analysis", page_icon="💧", layout="wide")
+
+# Apply custom styling
+apply_custom_css()
 
 # =============================================================================
 # CACHED DATA FUNCTIONS
@@ -236,7 +243,7 @@ def display_site_info(site_info: dict, show_check_button: bool = True):
 
     # Check USGS button for detailed date ranges
     if show_check_button:
-        if st.sidebar.button("🔍 Get exact date ranges", use_container_width=True):
+        if st.sidebar.button("🔍 Get exact date ranges", width='stretch'):
             with st.sidebar:
                 with st.spinner("Querying USGS..."):
                     # Check discharge
@@ -497,7 +504,7 @@ def single_analysis_mode(inventory_df):
 
     # Generate
     st.sidebar.markdown("---")
-    if st.sidebar.button("Generate Plots", type="primary", use_container_width=True):
+    if st.sidebar.button("Generate Plots", type="primary", width='stretch'):
         if not selected_plots:
             st.warning("Select at least one plot type")
             return
@@ -516,7 +523,18 @@ def single_analysis_mode(inventory_df):
             st.error("No discharge data available")
             return
 
-        st.success(f"Discharge: {data['discharge_count']:,} | Climate: {data['climate_count']:,} | Merged: {data['merged_count']:,}")
+        # Render site header in main area
+            render_site_header(site_id, desc, float(lat) if lat else None, float(lon) if lon else None)
+
+            # Show data availability badges
+            has_stage = 'Gage_Height_ft' in data['df_q'].columns if data['df_q'] is not None else False
+            climate_info = get_weather_station_info(float(lat), float(lon)) if lat and lon else None
+            render_availability_badges(True, has_stage, climate_info)
+
+            # Show metric cards
+            render_metric_cards(data['df_q'], data['df_merged'])
+
+            st.markdown('---')
 
         plot_data = {
             'df_q': data['df_q'],
@@ -638,7 +656,7 @@ def compare_time_periods_mode(inventory_df):
 
     # Generate
     st.sidebar.markdown("---")
-    if st.sidebar.button("Compare Periods", type="primary", use_container_width=True):
+    if st.sidebar.button("Compare Periods", type="primary", width='stretch'):
         if not lat or not lon:
             st.error("Site missing coordinates")
             return
@@ -714,7 +732,7 @@ def compare_sites_mode(inventory_df):
 
     # Generate
     st.sidebar.markdown("---")
-    if st.sidebar.button("Compare Sites", type="primary", use_container_width=True):
+    if st.sidebar.button("Compare Sites", type="primary", width='stretch'):
         if len(selected_sites) < 2:
             st.warning("Select at least 2 sites")
             return
@@ -851,7 +869,7 @@ def quad_comparison_mode(inventory_df):
 
     # Generate
     st.sidebar.markdown("---")
-    if st.sidebar.button("Generate 2x2 Comparison", type="primary", use_container_width=True):
+    if st.sidebar.button("Generate 2x2 Comparison", type="primary", width='stretch'):
         site_id_a = site_a.split(" - ")[0]
         site_id_b = site_b.split(" - ")[0]
 
@@ -953,13 +971,13 @@ def site_map_mode(inventory_df):
     st.caption(f"Showing {len(map_data)} sites with coordinates")
 
     # Display map - uses dark theme automatically
-    st.map(map_data, use_container_width=True)
+    st.map(map_data, width='stretch')
 
     # Site list below map
     st.subheader("Site List")
     display_df = inventory_df[['site_id', 'description', 'latitude', 'longitude', 'begin_date']].copy()
     display_df = display_df.dropna(subset=['latitude', 'longitude'])
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(display_df, width='stretch', hide_index=True)
 
 
 # =============================================================================
@@ -995,9 +1013,12 @@ def main():
     elif mode == "2x2 Comparison":
         quad_comparison_mode(inventory_df)
 
-    # Footer
+    # Footer in sidebar
     st.sidebar.markdown("---")
     st.sidebar.caption(f"Sites: {len(inventory_df)} | Plots: {len(AVAILABLE_PLOTS)}")
+
+    # Styled footer in main area
+    render_footer()
 
 
 if __name__ == "__main__":
