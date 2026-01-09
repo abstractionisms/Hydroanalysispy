@@ -4,6 +4,8 @@ USGS NWIS data fetching and parsing for hydrology package.
 Provides robust data fetching from USGS National Water Information System
 with retry logic, chunked requests to avoid throttling, and support for
 both daily values (DV) and instantaneous values (IV).
+
+Updated: 2026-01-09 - Added fetch_instantaneous_values and check_iv_availability
 """
 
 import time
