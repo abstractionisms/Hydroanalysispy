@@ -256,7 +256,7 @@ def display_site_info(site_info: dict, show_check_button: bool = True):
 
 def date_range_selector(key_prefix: str = "", default_start: date = None, default_end: date = None):
     """
-    Date range selector with slider and manual inputs.
+    Date range selector with synced slider and manual inputs.
     Returns (start_date, end_date) tuple.
     """
     if default_start is None:
@@ -264,71 +264,47 @@ def date_range_selector(key_prefix: str = "", default_start: date = None, defaul
     if default_end is None:
         default_end = date.today()
 
-    # Date range slider - allow dates back to 1900
     min_date = date(1900, 1, 1)
     max_date = date.today()
 
-    date_range = st.slider(
-        "Select date range",
-        min_value=min_date,
-        max_value=max_date,
-        value=(default_start, default_end),
-        format="YYYY-MM-DD",
-        key=f"{key_prefix}_slider"
-    )
+    # Initialize session state for this date range
+    start_key = f"{key_prefix}_start_val"
+    end_key = f"{key_prefix}_end_val"
+    
+    if start_key not in st.session_state:
+        st.session_state[start_key] = default_start
+    if end_key not in st.session_state:
+        st.session_state[end_key] = default_end
 
-    # Manual input boxes
+    # Manual input boxes (primary controls)
     col1, col2 = st.columns(2)
     with col1:
-        start = st.date_input("Start", date_range[0], key=f"{key_prefix}_start",
-                             min_value=min_date, max_value=max_date)
+        start = st.date_input(
+            "Start Date",
+            value=st.session_state[start_key],
+            min_value=min_date,
+            max_value=max_date,
+            key=f"{key_prefix}_start"
+        )
     with col2:
-        end = st.date_input("End", date_range[1], key=f"{key_prefix}_end",
-                           min_value=min_date, max_value=max_date)
+        end = st.date_input(
+            "End Date",
+            value=st.session_state[end_key],
+            min_value=min_date,
+            max_value=max_date,
+            key=f"{key_prefix}_end"
+        )
+
+    # Update session state from inputs
+    st.session_state[start_key] = start
+    st.session_state[end_key] = end
 
     return start, end
 
 
 def plot_selector():
     """Plot type selector. Returns list of selected plot names."""
-    plot_names = list(AVAILABLE_PLOTS.keys())
-
-    st.caption("Climate-dependent plots (need merged data):")
-    climate_plots = [
-        'anomaly', 'hexbin_temp', 'lagged_precip', 'correlation_matrix',
-        'precip_discharge', 'seasonal_scatter', 'double_mass_curve', 'lag_correlation'
-    ]
-    selected_climate = st.multiselect(
-        "Climate plots",
-        [p for p in plot_names if p in climate_plots],
-        default=['anomaly'],
-        key="climate_plots"
-    )
-
-    st.caption("Discharge-only plots:")
-    discharge_plots = [
-        'timeseries', 'flow_duration', 'monthly_boxplot', 'discharge_heatmap',
-        'temporal_heatmap', 'low_flow_trend', 'annual_trend', 'baseflow_separation',
-        'recession_curves', 'flood_frequency', '7q10_analysis', 'anomaly_detection',
-        'cumulative_departure', 'spectral_analysis'
-    ]
-    selected_discharge = st.multiselect(
-        "Discharge plots",
-        [p for p in plot_names if p in discharge_plots],
-        default=['timeseries'],
-        key="discharge_plots"
-    )
-
-    st.caption("Stage-dependent plots (need gage height):")
-    stage_plots = ['rating_curve']
-    selected_stage = st.multiselect(
-        "Stage plots",
-        [p for p in plot_names if p in stage_plots],
-        default=[],
-        key="stage_plots"
-    )
-
-    return selected_climate + selected_discharge + selected_stage
+    return multi_plot_selector(AVAILABLE_PLOTS, key_prefix="")
 
 
 def single_plot_selector_widget(key_suffix: str = ""):
