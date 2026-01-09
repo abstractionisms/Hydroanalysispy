@@ -195,87 +195,88 @@ def check_iv_availability(site_id: str, param_cd: str):
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def find_availability_windows(site_id: str, param_cd: str, check_iv: bool = False):
+def find_availability_windows(site_id: str, param_cd: str, check_iv: bool = False, hint_start_year: int = None):
     """
-    Find windows of data availability by sampling multiple decades.
-    Returns list of (start_year, end_year) tuples representing continuous data periods.
+    Fast availability check - only makes 2-3 API calls instead of 25+.
+    Returns list of (start_year, end_year) tuples.
 
-    For gage height, set check_iv=True to also check instantaneous values endpoint.
+    Strategy:
+    1. Check recent data (last 2 years)
+    2. Check historical data (around hint_start_year or 1950)
+    3. If both exist, return single window. If gap detected, note it.
     """
     import requests
 
-    # Sample years to check (roughly every 5 years from 1900 to present)
     current_year = date.today().year
-    sample_years = list(range(1900, current_year + 1, 5))
-    if current_year not in sample_years:
-        sample_years.append(current_year)
+    has_recent = False
+    has_historical = False
+    earliest_year = None
 
-    years_with_data = set()
+    # Check 1: Recent data (last 2 years) - single call
+    try:
+        recent_start = f"{current_year - 2}-01-01"
+        recent_end = f"{current_year}-12-31"
+        df = fetch_daily_values(
+            site_id, param_cd=param_cd,
+            start_date=recent_start, end_date=recent_end,
+            chunk_years=3
+        )
+        if df is not None and not df.empty:
+            has_recent = True
+    except Exception:
+        pass
 
-    # Check Daily Values endpoint first
-    for year in sample_years:
+    # Check 2: Historical data - check around hint year or default to 1960
+    check_year = hint_start_year if hint_start_year else 1960
+    try:
+        hist_start = f"{check_year}-01-01"
+        hist_end = f"{check_year + 5}-12-31"
+        df = fetch_daily_values(
+            site_id, param_cd=param_cd,
+            start_date=hist_start, end_date=hist_end,
+            chunk_years=6
+        )
+        if df is not None and not df.empty:
+            has_historical = True
+            earliest_year = df.index.min().year
+    except Exception:
+        pass
+
+    # If no DV data found and check_iv requested, try IV for recent
+    if not has_recent and not has_historical and check_iv:
         try:
-            start_str = f"{year}-01-01"
-            end_str = f"{year}-12-31"
-
-            df = fetch_daily_values(
-                site_id, param_cd=param_cd,
-                start_date=start_str,
-                end_date=end_str,
-                chunk_years=2
-            )
-            if df is not None and not df.empty:
-                years_with_data.add(year)
+            url = "https://waterservices.usgs.gov/nwis/iv/"
+            params = {
+                "format": "json",
+                "sites": site_id,
+                "parameterCd": param_cd,
+                "startDT": f"{current_year - 1}-01-01",
+                "endDT": date.today().isoformat(),
+            }
+            response = requests.get(url, params=params, timeout=15)
+            if response.status_code == 200:
+                json_data = response.json()
+                time_series = json_data.get('value', {}).get('timeSeries', [])
+                if time_series:
+                    values = time_series[0].get('values', [{}])[0].get('value', [])
+                    if values:
+                        # IV data found
+                        return [(current_year - 1, "present")]
         except Exception:
-            continue
+            pass
 
-    # If checking IV and no DV data found, try IV endpoint for recent years
-    if check_iv and len(years_with_data) == 0:
-        # Check recent years via IV
-        for year in range(current_year - 10, current_year + 1):
-            try:
-                url = "https://waterservices.usgs.gov/nwis/iv/"
-                params = {
-                    "format": "json",
-                    "sites": site_id,
-                    "parameterCd": param_cd,
-                    "startDT": f"{year}-01-01",
-                    "endDT": f"{year}-12-31",
-                }
-                response = requests.get(url, params=params, timeout=15)
-                if response.status_code == 200:
-                    json_data = response.json()
-                    time_series = json_data.get('value', {}).get('timeSeries', [])
-                    if time_series:
-                        values = time_series[0].get('values', [{}])[0].get('value', [])
-                        if values:
-                            years_with_data.add(year)
-            except Exception:
-                continue
-
-    if not years_with_data:
+    # Build result
+    if not has_recent and not has_historical:
         return None
 
-    # Convert to sorted list and find continuous windows
-    sorted_years = sorted(years_with_data)
-    windows = []
-    window_start = sorted_years[0]
-    prev_year = sorted_years[0]
-
-    for year in sorted_years[1:]:
-        # If gap > 10 years, consider it a new window
-        if year - prev_year > 10:
-            windows.append((window_start, prev_year))
-            window_start = year
-        prev_year = year
-
-    # Close the last window
-    if prev_year == current_year or prev_year >= current_year - 2:
-        windows.append((window_start, "present"))
-    else:
-        windows.append((window_start, prev_year))
-
-    return windows
+    if has_recent and has_historical:
+        # Both exist - return single window from earliest to present
+        start_year = earliest_year if earliest_year else check_year
+        return [(start_year, "present")]
+    elif has_recent:
+        return [(current_year - 2, "present")]
+    else:  # has_historical only
+        return [(earliest_year if earliest_year else check_year, check_year + 5)]
 
 
 def format_availability_windows(windows: list) -> str:
@@ -349,11 +350,19 @@ def display_site_info(site_info: dict, show_check_button: bool = True):
     st.sidebar.markdown("---")
     st.sidebar.subheader("Data Availability")
 
+    # Parse begin_date to get hint year for faster lookup
+    hint_year = None
+    if begin_date:
+        try:
+            hint_year = int(str(begin_date)[:4])
+        except (ValueError, TypeError):
+            pass
+
     # Auto-fetch date ranges for all parameters
     availability_text = []
 
-    # Discharge - find availability windows
-    discharge_windows = find_availability_windows(site_id, DEFAULT_PARAM_DISCHARGE, check_iv=False)
+    # Discharge - find availability windows (use begin_date as hint)
+    discharge_windows = find_availability_windows(site_id, DEFAULT_PARAM_DISCHARGE, check_iv=False, hint_start_year=hint_year)
     if discharge_windows:
         windows_str = format_availability_windows(discharge_windows)
         availability_text.append(f"✅ **Discharge** ({windows_str})")
@@ -363,13 +372,13 @@ def display_site_info(site_info: dict, show_check_button: bool = True):
         availability_text.append("❌ **Discharge** (not available)")
 
     # Gage Height - check daily values first, then IV if needed
-    stage_dv_windows = find_availability_windows(site_id, DEFAULT_PARAM_STAGE, check_iv=False)
+    stage_dv_windows = find_availability_windows(site_id, DEFAULT_PARAM_STAGE, check_iv=False, hint_start_year=hint_year)
     if stage_dv_windows:
         windows_str = format_availability_windows(stage_dv_windows)
         availability_text.append(f"✅ **Gage Height** ({windows_str})")
     else:
         # No daily values - check instantaneous values
-        stage_iv_windows = find_availability_windows(site_id, DEFAULT_PARAM_STAGE, check_iv=True)
+        stage_iv_windows = find_availability_windows(site_id, DEFAULT_PARAM_STAGE, check_iv=True, hint_start_year=hint_year)
         if stage_iv_windows:
             windows_str = format_availability_windows(stage_iv_windows)
             availability_text.append(f"✅ **Gage Height** IV only ({windows_str})")
