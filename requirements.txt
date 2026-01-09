@@ -5,7 +5,7 @@ scipy>=1.10.0
 requests>=2.28.0
 
 # Data fetching
-meteostat>=1.6.5
+meteostat==1.6.8
 
 # Visualization
 matplotlib>=3.7.0
