@@ -296,6 +296,78 @@ def format_availability_windows(windows: list) -> str:
     return ", ".join(parts)
 
 
+def analyze_data_coverage(df: pd.DataFrame, start_date: str, end_date: str):
+    """
+    Analyze actual data coverage and detect gaps.
+    Returns dict with coverage info and any significant gaps.
+    """
+    if df is None or df.empty:
+        return None
+
+    # Parse requested range
+    req_start = pd.Timestamp(start_date)
+    req_end = pd.Timestamp(end_date)
+    requested_days = (req_end - req_start).days + 1
+
+    # Actual data range
+    actual_start = df.index.min()
+    actual_end = df.index.max()
+    actual_days = len(df)
+
+    # Calculate coverage percentage
+    coverage_pct = (actual_days / requested_days) * 100 if requested_days > 0 else 0
+
+    # Detect gaps (periods > 30 days with no data)
+    gaps = []
+    if len(df) > 1:
+        # Sort index and find gaps
+        sorted_idx = df.index.sort_values()
+        diffs = sorted_idx.to_series().diff()
+
+        # Find gaps > 30 days
+        gap_threshold = pd.Timedelta(days=30)
+        large_gaps = diffs[diffs > gap_threshold]
+
+        for gap_end, gap_size in large_gaps.items():
+            gap_start = gap_end - gap_size
+            gaps.append({
+                'start': gap_start.strftime('%Y-%m-%d'),
+                'end': gap_end.strftime('%Y-%m-%d'),
+                'days': gap_size.days
+            })
+
+    # Build windows from actual data
+    windows = []
+    if len(df) > 0:
+        sorted_idx = df.index.sort_values()
+        window_start = sorted_idx[0]
+        prev_date = sorted_idx[0]
+
+        for curr_date in sorted_idx[1:]:
+            gap = (curr_date - prev_date).days
+            if gap > 365:  # Gap > 1 year = new window
+                windows.append((window_start.year, prev_date.year))
+                window_start = curr_date
+            prev_date = curr_date
+
+        # Close last window
+        current_year = date.today().year
+        if prev_date.year >= current_year - 1:
+            windows.append((window_start.year, "present"))
+        else:
+            windows.append((window_start.year, prev_date.year))
+
+    return {
+        'actual_start': actual_start.strftime('%Y-%m-%d') if pd.notna(actual_start) else None,
+        'actual_end': actual_end.strftime('%Y-%m-%d') if pd.notna(actual_end) else None,
+        'actual_days': actual_days,
+        'requested_days': requested_days,
+        'coverage_pct': coverage_pct,
+        'gaps': gaps,
+        'windows': windows
+    }
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_discharge_data(site_id: str, param_cd: str, start_str: str, end_str: str):
     """Fetch and parse discharge data - cached."""
@@ -350,40 +422,71 @@ def display_site_info(site_info: dict, show_check_button: bool = True):
     st.sidebar.markdown("---")
     st.sidebar.subheader("Data Availability")
 
-    # Parse begin_date to get hint year for faster lookup
-    hint_year = None
-    if begin_date:
-        try:
-            hint_year = int(str(begin_date)[:4])
-        except (ValueError, TypeError):
-            pass
+    # Check if we have confirmed coverage from a previous data fetch
+    confirmed_key = f"confirmed_coverage_{site_id}"
+    confirmed_coverage = st.session_state.get(confirmed_key)
 
-    # Auto-fetch date ranges for all parameters
     availability_text = []
 
-    # Discharge - find availability windows (use begin_date as hint)
-    discharge_windows = find_availability_windows(site_id, DEFAULT_PARAM_DISCHARGE, check_iv=False, hint_start_year=hint_year)
-    if discharge_windows:
-        windows_str = format_availability_windows(discharge_windows)
-        availability_text.append(f"✅ **Discharge** ({windows_str})")
-    elif begin_date:
-        availability_text.append(f"✅ **Discharge** (from {begin_date})")
-    else:
-        availability_text.append("❌ **Discharge** (not available)")
-
-    # Gage Height - check daily values first, then IV if needed
-    stage_dv_windows = find_availability_windows(site_id, DEFAULT_PARAM_STAGE, check_iv=False, hint_start_year=hint_year)
-    if stage_dv_windows:
-        windows_str = format_availability_windows(stage_dv_windows)
-        availability_text.append(f"✅ **Gage Height** ({windows_str})")
-    else:
-        # No daily values - check instantaneous values
-        stage_iv_windows = find_availability_windows(site_id, DEFAULT_PARAM_STAGE, check_iv=True, hint_start_year=hint_year)
-        if stage_iv_windows:
-            windows_str = format_availability_windows(stage_iv_windows)
-            availability_text.append(f"✅ **Gage Height** IV only ({windows_str})")
+    # Discharge
+    if confirmed_coverage and confirmed_coverage.get('discharge'):
+        dc = confirmed_coverage['discharge']
+        windows_str = format_availability_windows(dc.get('windows', []))
+        coverage_pct = dc.get('coverage_pct', 0)
+        if coverage_pct < 90:
+            availability_text.append(f"⚠️ **Discharge** ({windows_str}) - {coverage_pct:.0f}% coverage")
         else:
-            availability_text.append("❌ **Gage Height** (not available)")
+            availability_text.append(f"✅ **Discharge** ({windows_str})")
+    else:
+        # Fall back to quick estimate
+        hint_year = None
+        if begin_date:
+            try:
+                hint_year = int(str(begin_date)[:4])
+            except (ValueError, TypeError):
+                pass
+
+        discharge_windows = find_availability_windows(site_id, DEFAULT_PARAM_DISCHARGE, check_iv=False, hint_start_year=hint_year)
+        if discharge_windows:
+            windows_str = format_availability_windows(discharge_windows)
+            availability_text.append(f"✅ **Discharge** ({windows_str}) ~est")
+        elif begin_date:
+            availability_text.append(f"✅ **Discharge** (from {begin_date}) ~est")
+        else:
+            availability_text.append("❌ **Discharge** (not available)")
+
+    # Gage Height
+    if confirmed_coverage and confirmed_coverage.get('stage'):
+        sc = confirmed_coverage['stage']
+        windows_str = format_availability_windows(sc.get('windows', []))
+        coverage_pct = sc.get('coverage_pct', 0)
+        if coverage_pct < 90:
+            availability_text.append(f"⚠️ **Gage Height** ({windows_str}) - {coverage_pct:.0f}% coverage")
+        else:
+            availability_text.append(f"✅ **Gage Height** ({windows_str})")
+    elif confirmed_coverage:
+        # We fetched data but no stage was found
+        availability_text.append("❌ **Gage Height** (not in data)")
+    else:
+        # Fall back to quick estimate
+        hint_year = None
+        if begin_date:
+            try:
+                hint_year = int(str(begin_date)[:4])
+            except (ValueError, TypeError):
+                pass
+
+        stage_dv_windows = find_availability_windows(site_id, DEFAULT_PARAM_STAGE, check_iv=False, hint_start_year=hint_year)
+        if stage_dv_windows:
+            windows_str = format_availability_windows(stage_dv_windows)
+            availability_text.append(f"✅ **Gage Height** ({windows_str}) ~est")
+        else:
+            stage_iv_windows = find_availability_windows(site_id, DEFAULT_PARAM_STAGE, check_iv=True, hint_start_year=hint_year)
+            if stage_iv_windows:
+                windows_str = format_availability_windows(stage_iv_windows)
+                availability_text.append(f"✅ **Gage Height** IV ({windows_str}) ~est")
+            else:
+                availability_text.append("❌ **Gage Height** (not available)")
 
     # Climate - based on weather station distance
     if lat and lon:
@@ -517,13 +620,23 @@ def process_site_data(site_id: str, lat: float, lon: float, start_str: str, end_
         if not df_merged.empty:
             analysis_results = analyze_correlation(df_merged)
 
+    # Analyze coverage for discharge and stage
+    discharge_coverage = analyze_data_coverage(df_q, start_str, end_str) if df_q is not None else None
+
+    stage_coverage = None
+    if df_q is not None and 'Gage_Height_ft' in df_q.columns:
+        stage_df = df_q[['Gage_Height_ft']].dropna()
+        stage_coverage = analyze_data_coverage(stage_df, start_str, end_str)
+
     return {
         'df_q': df_q,
         'df_merged': df_merged,
         'analysis_results': analysis_results,
         'discharge_count': len(df_q) if df_q is not None else 0,
         'climate_count': len(df_climate) if df_climate is not None else 0,
-        'merged_count': len(df_merged) if df_merged is not None else 0
+        'merged_count': len(df_merged) if df_merged is not None else 0,
+        'discharge_coverage': discharge_coverage,
+        'stage_coverage': stage_coverage
     }
 
 
@@ -671,6 +784,13 @@ def single_analysis_mode(inventory_df):
         if data is None:
             st.error("No discharge data available")
             return
+
+        # Store confirmed coverage in session state for sidebar update
+        confirmed_key = f"confirmed_coverage_{site_id}"
+        st.session_state[confirmed_key] = {
+            'discharge': data.get('discharge_coverage'),
+            'stage': data.get('stage_coverage')
+        }
 
         # Render site header in main area
         render_site_header(site_id, desc, float(lat) if lat else None, float(lon) if lon else None)
