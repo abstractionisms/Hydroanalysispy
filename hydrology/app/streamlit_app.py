@@ -201,21 +201,24 @@ def display_site_info(site_info: dict, show_check_button: bool = True):
     st.sidebar.markdown("---")
     st.sidebar.subheader("Data Availability")
 
-    # Quick availability indicators
+    # Auto-fetch date ranges for all parameters
     availability_text = []
 
-    # Discharge - always available if in inventory (that's how we filter)
-    if begin_date:
+    # Discharge - get actual date range
+    discharge_info = check_usgs_availability(site_id, DEFAULT_PARAM_DISCHARGE)
+    if discharge_info:
+        availability_text.append(f"✅ **Discharge** ({discharge_info['start']} to {discharge_info['end']})")
+    elif begin_date:
         availability_text.append(f"✅ **Discharge** (from {begin_date})")
     else:
         availability_text.append("✅ **Discharge**")
 
-    # Gage Height - quick check
-    has_stage = quick_param_check(site_id, DEFAULT_PARAM_STAGE)
-    if has_stage:
-        availability_text.append("✅ **Gage Height**")
+    # Gage Height - get actual date range
+    stage_info = check_usgs_availability(site_id, DEFAULT_PARAM_STAGE)
+    if stage_info:
+        availability_text.append(f"✅ **Gage Height** ({stage_info['start']} to {stage_info['end']})")
     else:
-        availability_text.append("❌ **Gage Height**")
+        availability_text.append("❌ **Gage Height** (not available)")
 
     # Climate - based on weather station distance
     if lat and lon:
@@ -240,25 +243,6 @@ def display_site_info(site_info: dict, show_check_button: bool = True):
     # Display all availability indicators
     for text in availability_text:
         st.sidebar.markdown(text)
-
-    # Check USGS button for detailed date ranges
-    if show_check_button:
-        if st.sidebar.button("🔍 Get exact date ranges", width='stretch'):
-            with st.sidebar:
-                with st.spinner("Querying USGS..."):
-                    # Check discharge
-                    discharge_info = check_usgs_availability(site_id, DEFAULT_PARAM_DISCHARGE)
-                    if discharge_info:
-                        st.success(f"Discharge: {discharge_info['start']} to {discharge_info['end']}")
-                    else:
-                        st.warning("Discharge: Not available from USGS")
-
-                    # Check gage height
-                    stage_info = check_usgs_availability(site_id, DEFAULT_PARAM_STAGE)
-                    if stage_info:
-                        st.success(f"Gage Height: {stage_info['start']} to {stage_info['end']}")
-                    else:
-                        st.info("Gage Height: Not available for this site")
 
 
 def date_range_selector(key_prefix: str = "", default_start: date = None, default_end: date = None):
@@ -661,6 +645,9 @@ def compare_time_periods_mode(inventory_df):
             st.error("Site missing coordinates")
             return
 
+        # Render styled site header
+        render_site_header(site_id, desc, float(lat) if lat else None, float(lon) if lon else None)
+
         col1, col2 = st.columns(2)
 
         with col1:
@@ -736,6 +723,14 @@ def compare_sites_mode(inventory_df):
         if len(selected_sites) < 2:
             st.warning("Select at least 2 sites")
             return
+
+        # Show comparison header
+        st.markdown(f"""
+        <div class="site-header">
+            <h1>Multi-Site Comparison</h1>
+            <p>{len(selected_sites)} sites | {start_date} to {end_date}</p>
+        </div>
+        """, unsafe_allow_html=True)
 
         start_str = start_date.strftime('%Y-%m-%d')
         end_str = end_date.strftime('%Y-%m-%d')
