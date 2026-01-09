@@ -1028,39 +1028,68 @@ def compare_time_periods_mode(inventory_df):
 
 def compare_sites_mode(inventory_df):
     """Compare multiple sites for the same time period."""
-    st.sidebar.header("Site Selection")
+    # === SIDEBAR: Site Selection Only ===
+    st.sidebar.header("Select Sites")
 
     site_options = [f"{row['site_id']} - {str(row.get('description', ''))[:40]}"
                     for _, row in inventory_df.iterrows()]
     selected_sites = st.sidebar.multiselect(
-        "Select Sites (2-4)",
+        "Choose 2-4 sites",
         site_options,
         max_selections=4,
         key="compare_sites_multi"
     )
 
+    # Show selected site info in sidebar
+    if selected_sites:
+        st.sidebar.markdown("---")
+        st.sidebar.caption("**Selected Sites:**")
+        for site_str in selected_sites:
+            site_id = site_str.split(" - ")[0]
+            site_info = get_cached_site_info(site_id)
+            if site_info:
+                desc = site_info.get('description', site_id)[:35]
+                st.sidebar.text(f"• {desc}")
+
+    # === MAIN AREA: Configuration & Results ===
+    st.header("Compare Sites")
+
     if len(selected_sites) < 2:
-        st.sidebar.warning("Select 2-4 sites to compare")
+        st.info("👈 Select 2-4 sites from the sidebar to compare")
+        return
 
-    # Date range
-    st.sidebar.markdown("---")
-    st.sidebar.header("Date Range")
-    start_date, end_date = date_range_selector("compare_sites")
+    # Configuration in main area with columns
+    col1, col2, col3 = st.columns([2, 2, 1])
 
-    # Plot selection
-    st.sidebar.markdown("---")
-    st.sidebar.header("Plot to Compare")
-    plot_name = single_plot_selector_widget("_sites")
+    with col1:
+        st.subheader("Date Range")
+        # Date slider
+        min_date = date(1950, 1, 1)
+        max_date = date.today()
 
-    dpi = st.sidebar.slider("DPI", 72, 300, 150, key="compare_sites_dpi")
+        if 'compare_sites_start' not in st.session_state:
+            st.session_state.compare_sites_start = date(2015, 1, 1)
+        if 'compare_sites_end' not in st.session_state:
+            st.session_state.compare_sites_end = date.today()
 
-    # Generate
-    st.sidebar.markdown("---")
-    if st.sidebar.button("Compare Sites", type="primary", width='stretch'):
-        if len(selected_sites) < 2:
-            st.warning("Select at least 2 sites")
-            return
+        start_date = st.date_input("Start", st.session_state.compare_sites_start,
+                                   min_value=min_date, max_value=max_date, key="cs_start")
+        end_date = st.date_input("End", st.session_state.compare_sites_end,
+                                 min_value=min_date, max_value=max_date, key="cs_end")
+        st.session_state.compare_sites_start = start_date
+        st.session_state.compare_sites_end = end_date
 
+    with col2:
+        st.subheader("Plot Type")
+        plot_name = single_plot_selector_widget("_sites")
+
+    with col3:
+        st.subheader("Options")
+        dpi = st.selectbox("Quality", [100, 150, 200], index=1, key="cs_dpi")
+
+    # Generate button in main area
+    st.markdown("---")
+    if st.button("🔍 Compare Sites", type="primary", use_container_width=True):
         # Show comparison header
         st.markdown(f"""
         <div class="site-header">
@@ -1075,7 +1104,8 @@ def compare_sites_mode(inventory_df):
         data_list = []
         titles = []
 
-        for site_str in selected_sites:
+        progress = st.progress(0, text="Loading sites...")
+        for i, site_str in enumerate(selected_sites):
             site_id = site_str.split(" - ")[0]
             site_info = get_cached_site_info(site_id)
 
@@ -1089,8 +1119,8 @@ def compare_sites_mode(inventory_df):
             if not lat or not lon:
                 continue
 
-            with st.spinner(f"Processing {site_id}..."):
-                data = process_site_data(site_id, float(lat), float(lon), start_str, end_str)
+            progress.progress((i + 1) / len(selected_sites), text=f"Processing {site_id}...")
+            data = process_site_data(site_id, float(lat), float(lon), start_str, end_str)
 
             if data:
                 data_list.append({
@@ -1099,6 +1129,8 @@ def compare_sites_mode(inventory_df):
                     'analysis_results': data['analysis_results']
                 })
                 titles.append(f"{desc[:30]}\n({data['merged_count']:,} merged)")
+
+        progress.empty()
 
         if data_list:
             # Determine grid layout
@@ -1114,13 +1146,12 @@ def compare_sites_mode(inventory_df):
             st.pyplot(fig)
             render_export_buttons(fig, "multi_site_comparison", dpi)
             plt.close(fig)
-    else:
-        st.info("Select 2-4 sites, a date range, and a plot type to compare")
 
 
 def quad_comparison_mode(inventory_df):
     """2x2 comparison: 2 sites x 2 equal-length time periods."""
-    st.sidebar.header("Sites")
+    # === SIDEBAR: Site Selection Only ===
+    st.sidebar.header("Select Sites")
 
     site_options = [f"{row['site_id']} - {str(row.get('description', ''))[:40]}"
                     for _, row in inventory_df.iterrows()]
@@ -1128,80 +1159,92 @@ def quad_comparison_mode(inventory_df):
     site_a = st.sidebar.selectbox("Site A", site_options, key="quad_site_a")
     site_b = st.sidebar.selectbox("Site B", site_options, key="quad_site_b", index=min(1, len(site_options)-1))
 
-    # Period length selection
+    # Show selected site info
     st.sidebar.markdown("---")
-    st.sidebar.header("Period Length")
-    period_lengths = {
-        "1 Year": 365,
-        "2 Years": 730,
-        "5 Years": 1825,
-        "10 Years": 3650,
-        "Custom": None
-    }
-    period_choice = st.sidebar.selectbox("Select period length", list(period_lengths.keys()), key="quad_period_length")
+    st.sidebar.caption("**Selected:**")
+    for label, site_str in [("A", site_a), ("B", site_b)]:
+        site_id = site_str.split(" - ")[0]
+        site_info = get_cached_site_info(site_id)
+        if site_info:
+            desc = site_info.get('description', site_id)[:30]
+            st.sidebar.text(f"{label}: {desc}")
 
-    if period_choice == "Custom":
-        custom_days = st.sidebar.number_input("Days", min_value=30, max_value=7300, value=365, key="quad_custom_days")
-        period_days = custom_days
-    else:
+    # === MAIN AREA: Configuration & Results ===
+    st.header("2×2 Comparison")
+    st.caption("Compare 2 sites across 2 time periods")
+
+    # Period length and dates
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.subheader("Period Length")
+        period_lengths = {
+            "1 Year": 365,
+            "2 Years": 730,
+            "5 Years": 1825,
+            "10 Years": 3650,
+        }
+        period_choice = st.selectbox("Duration", list(period_lengths.keys()), key="quad_period_length")
         period_days = period_lengths[period_choice]
+        st.caption(f"{period_days} days")
 
-    st.sidebar.caption(f"Each period: {period_days} days ({period_days/365:.1f} years)")
+    with col2:
+        st.subheader("Period 1")
+        if 'quad_p1_start' not in st.session_state:
+            st.session_state.quad_p1_start = date(2010, 1, 1)
 
-    # Period 1 - start date with shift controls
-    st.sidebar.markdown("---")
-    st.sidebar.header("Period 1")
+        col_p1a, col_p1b, col_p1c = st.columns([1, 3, 1])
+        with col_p1a:
+            if st.button("◀", key="shift_p1_back"):
+                st.session_state.quad_p1_start = st.session_state.quad_p1_start - timedelta(days=period_days)
+        with col_p1b:
+            start_1 = st.date_input("Start", st.session_state.quad_p1_start, key="quad_start_1",
+                                    min_value=date(1900, 1, 1), max_value=date.today(), label_visibility="collapsed")
+            st.session_state.quad_p1_start = start_1
+        with col_p1c:
+            if st.button("▶", key="shift_p1_fwd"):
+                st.session_state.quad_p1_start = st.session_state.quad_p1_start + timedelta(days=period_days)
 
-    if 'quad_p1_start' not in st.session_state:
-        st.session_state.quad_p1_start = date(2010, 1, 1)
+        end_1 = start_1 + timedelta(days=period_days)
+        st.caption(f"→ {end_1}")
 
-    col_p1a, col_p1b, col_p1c = st.sidebar.columns([1, 2, 1])
-    with col_p1a:
-        if st.button("◀", key="shift_p1_back", help=f"Shift back {period_days} days"):
-            st.session_state.quad_p1_start = st.session_state.quad_p1_start - timedelta(days=period_days)
-    with col_p1b:
-        start_1 = st.date_input("Start 1", st.session_state.quad_p1_start, key="quad_start_1",
-                                min_value=date(1900, 1, 1), max_value=date.today())
-        st.session_state.quad_p1_start = start_1
-    with col_p1c:
-        if st.button("▶", key="shift_p1_fwd", help=f"Shift forward {period_days} days"):
-            st.session_state.quad_p1_start = st.session_state.quad_p1_start + timedelta(days=period_days)
+    with col3:
+        st.subheader("Period 2")
+        if 'quad_p2_start' not in st.session_state:
+            st.session_state.quad_p2_start = date(2020, 1, 1)
 
-    end_1 = start_1 + timedelta(days=period_days)
-    st.sidebar.caption(f"End 1: {end_1}")
+        col_p2a, col_p2b, col_p2c = st.columns([1, 3, 1])
+        with col_p2a:
+            if st.button("◀", key="shift_p2_back"):
+                st.session_state.quad_p2_start = st.session_state.quad_p2_start - timedelta(days=period_days)
+        with col_p2b:
+            start_2 = st.date_input("Start", st.session_state.quad_p2_start, key="quad_start_2",
+                                    min_value=date(1900, 1, 1), max_value=date.today(), label_visibility="collapsed")
+            st.session_state.quad_p2_start = start_2
+        with col_p2c:
+            if st.button("▶", key="shift_p2_fwd"):
+                st.session_state.quad_p2_start = st.session_state.quad_p2_start + timedelta(days=period_days)
 
-    # Period 2 - start date with shift controls
-    st.sidebar.markdown("---")
-    st.sidebar.header("Period 2")
+        end_2 = start_2 + timedelta(days=period_days)
+        st.caption(f"→ {end_2}")
 
-    if 'quad_p2_start' not in st.session_state:
-        st.session_state.quad_p2_start = date(2020, 1, 1)
+    # Plot selection row
+    col_plot, col_dpi, col_btn = st.columns([3, 1, 2])
 
-    col_p2a, col_p2b, col_p2c = st.sidebar.columns([1, 2, 1])
-    with col_p2a:
-        if st.button("◀", key="shift_p2_back", help=f"Shift back {period_days} days"):
-            st.session_state.quad_p2_start = st.session_state.quad_p2_start - timedelta(days=period_days)
-    with col_p2b:
-        start_2 = st.date_input("Start 2", st.session_state.quad_p2_start, key="quad_start_2",
-                                min_value=date(1900, 1, 1), max_value=date.today())
-        st.session_state.quad_p2_start = start_2
-    with col_p2c:
-        if st.button("▶", key="shift_p2_fwd", help=f"Shift forward {period_days} days"):
-            st.session_state.quad_p2_start = st.session_state.quad_p2_start + timedelta(days=period_days)
+    with col_plot:
+        st.subheader("Plot Type")
+        plot_name = single_plot_selector_widget("_quad")
 
-    end_2 = start_2 + timedelta(days=period_days)
-    st.sidebar.caption(f"End 2: {end_2}")
+    with col_dpi:
+        st.subheader("Quality")
+        dpi = st.selectbox("DPI", [100, 150, 200], index=1, key="quad_dpi", label_visibility="collapsed")
 
-    # Plot selection
-    st.sidebar.markdown("---")
-    st.sidebar.header("Plot to Compare")
-    plot_name = single_plot_selector_widget("_quad")
+    with col_btn:
+        st.subheader(" ")  # Spacer
+        generate = st.button("🔍 Generate 2×2", type="primary", use_container_width=True)
 
-    dpi = st.sidebar.slider("DPI", 72, 300, 150, key="quad_dpi")
-
-    # Generate
-    st.sidebar.markdown("---")
-    if st.sidebar.button("Generate 2x2 Comparison", type="primary", width='stretch'):
+    # Generate comparison
+    if generate:
         site_id_a = site_a.split(" - ")[0]
         site_id_b = site_b.split(" - ")[0]
 
@@ -1211,6 +1254,8 @@ def quad_comparison_mode(inventory_df):
         if not site_info_a or not site_info_b:
             st.error("Could not load site info")
             return
+
+        st.markdown("---")
 
         # Grid layout:
         #         Period 1    Period 2
@@ -1227,7 +1272,8 @@ def quad_comparison_mode(inventory_df):
         data_list = []
         titles = []
 
-        for site_id, site_info, start_d, end_d, title in configs:
+        progress = st.progress(0, text="Loading data...")
+        for i, (site_id, site_info, start_d, end_d, title) in enumerate(configs):
             lat = site_info.get('latitude')
             lon = site_info.get('longitude')
 
@@ -1236,9 +1282,9 @@ def quad_comparison_mode(inventory_df):
                 titles.append(title + "\n(No coords)")
                 continue
 
-            with st.spinner(f"Processing {site_id} ({start_d} to {end_d})..."):
-                data = process_site_data(site_id, float(lat), float(lon),
-                                        start_d.strftime('%Y-%m-%d'), end_d.strftime('%Y-%m-%d'))
+            progress.progress((i + 1) / 4, text=f"Processing {site_id}...")
+            data = process_site_data(site_id, float(lat), float(lon),
+                                    start_d.strftime('%Y-%m-%d'), end_d.strftime('%Y-%m-%d'))
 
             if data:
                 data_list.append({
@@ -1251,6 +1297,8 @@ def quad_comparison_mode(inventory_df):
                 data_list.append(None)
                 titles.append(title + "\n(No data)")
 
+        progress.empty()
+
         fig = create_comparison_figure(plot_name, data_list, titles, 2, 2, dpi)
 
         # Add row/col labels
@@ -1262,8 +1310,6 @@ def quad_comparison_mode(inventory_df):
         st.pyplot(fig)
         render_export_buttons(fig, "2x2_comparison", dpi)
         plt.close(fig)
-    else:
-        st.info("Select 2 sites, 2 time periods, and a plot type for 2x2 comparison")
 
 
 def render_export_buttons(fig, filename_base: str, dpi: int):
