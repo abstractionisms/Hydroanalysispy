@@ -1,0 +1,45 @@
+# Python
+*.pyc
+__pycache__/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Cache files
+cache/
+*.sqlite
+*.db
+
+# Generated outputs
+outputs/
+*.png
+*.pdf
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Environment
+.env
+.venv/
+venv/
+
+# Legacy/temp
+temp_*.yaml
+temp_*.json
+
+# Local folders (not for public repo)
+archive/
+output_data/
+next scripts/
+.ipynb_checkpoints/
+hydrology.egg-info/

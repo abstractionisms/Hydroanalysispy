@@ -1,0 +1,8 @@
+Script Format for Efficient Data Processing:
+
+Future scripts should adhere to the following structure:
+
+1. Centralized Configuration: Load settings from a standard JSON configuration file (e.g., config2.json).
+2. Standardized Logging: Implement logging using Python's logging module, directing output to a script-specific file within a dedicated logs/ directory.
+3. Structured Plot Outputs: Save all generated plots within a plot/ directory, using script-specific subfolders (e.g., plot/script_name/) and further organizing site-specific plots into plot/script_name/site_id/.
+4. Modular Site Processing: Encapsulate the main processing logic for each site within a dedicated function that accepts site configuration and output paths.
