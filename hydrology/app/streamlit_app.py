@@ -22,7 +22,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from hydrology.data.inventory import load_inventory, get_site_info
 from hydrology.data.usgs import (
     fetch_waterml_data, parse_waterml, fetch_daily_values, fetch_stage_data,
-    fetch_instantaneous_values, check_iv_availability,
     DEFAULT_PARAM_DISCHARGE, DEFAULT_PARAM_STAGE
 )
 from hydrology.data.climate import fetch_climate_data, fetch_nearest_station_info
@@ -146,6 +145,54 @@ def quick_param_check(site_id: str, param_cd: str):
         return df is not None and not df.empty
     except Exception:
         return False
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def check_iv_availability(site_id: str, param_cd: str):
+    """
+    Check if instantaneous values (IV) are available for a parameter.
+    Queries last 30 days of IV data from USGS.
+    Returns dict with availability info or None.
+    """
+    import requests
+    import json
+
+    try:
+        end_date = date.today()
+        start_date = end_date - timedelta(days=30)
+
+        url = "https://waterservices.usgs.gov/nwis/iv/"
+        params = {
+            "format": "json",
+            "sites": site_id,
+            "parameterCd": param_cd,
+            "startDT": start_date.isoformat(),
+            "endDT": end_date.isoformat(),
+        }
+
+        response = requests.get(url, params=params, timeout=15)
+        if response.status_code != 200:
+            return None
+
+        json_data = response.json()
+
+        # Check if there's actual data in the response
+        time_series = json_data.get('value', {}).get('timeSeries', [])
+        if not time_series:
+            return None
+
+        # Get values from first time series
+        values = time_series[0].get('values', [{}])[0].get('value', [])
+        if not values:
+            return None
+
+        return {
+            'available': True,
+            'type': 'instantaneous',
+            'data_points': len(values)
+        }
+    except Exception:
+        return None
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
