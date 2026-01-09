@@ -28,6 +28,10 @@ from hydrology.data.climate import fetch_climate_data, fetch_nearest_station_inf
 from hydrology.visualization import create_multi_plot, PlotLayout
 from hydrology.visualization.plots import AVAILABLE_PLOTS
 from hydrology.scripts.analyze_sites import analyze_correlation
+from hydrology.app.plot_config import (
+    multi_plot_selector, single_plot_selector,
+    CLIMATE_PLOTS, DISCHARGE_PLOTS, STAGE_PLOTS
+)
 
 st.set_page_config(page_title="Hydrology Analysis", page_icon="💧", layout="wide")
 
@@ -327,10 +331,9 @@ def plot_selector():
     return selected_climate + selected_discharge + selected_stage
 
 
-def single_plot_selector():
+def single_plot_selector_widget(key_suffix: str = ""):
     """Select a single plot type for comparison mode."""
-    plot_names = list(AVAILABLE_PLOTS.keys())
-    return st.selectbox("Select plot type to compare", plot_names, key="compare_plot")
+    return single_plot_selector(AVAILABLE_PLOTS, key_suffix=key_suffix)
 
 
 # =============================================================================
@@ -653,7 +656,7 @@ def compare_time_periods_mode(inventory_df):
     # Plot selection
     st.sidebar.markdown("---")
     st.sidebar.header("Plot to Compare")
-    plot_name = single_plot_selector()
+    plot_name = single_plot_selector_widget("_compare")
 
     dpi = st.sidebar.slider("DPI", 72, 300, 150, key="compare_time_dpi")
 
@@ -729,7 +732,7 @@ def compare_sites_mode(inventory_df):
     # Plot selection
     st.sidebar.markdown("---")
     st.sidebar.header("Plot to Compare")
-    plot_name = single_plot_selector()
+    plot_name = single_plot_selector_widget("_sites")
 
     dpi = st.sidebar.slider("DPI", 72, 300, 150, key="compare_sites_dpi")
 
@@ -866,7 +869,7 @@ def quad_comparison_mode(inventory_df):
     # Plot selection
     st.sidebar.markdown("---")
     st.sidebar.header("Plot to Compare")
-    plot_name = single_plot_selector()
+    plot_name = single_plot_selector_widget("_quad")
 
     dpi = st.sidebar.slider("DPI", 72, 300, 150, key="quad_dpi")
 
