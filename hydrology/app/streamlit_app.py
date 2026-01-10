@@ -912,7 +912,7 @@ def single_analysis_mode(inventory_df):
 
     with col_btn:
         st.markdown("<br>", unsafe_allow_html=True)  # Align button with inputs
-        generate = st.button("🔍 Generate Plots", type="primary", use_container_width=True)
+        generate = st.button("🔍 Generate Plots", type="primary", width='stretch')
 
     st.markdown("---")
 
@@ -1139,7 +1139,7 @@ def compare_time_periods_mode(inventory_df):
 
     with col_btn:
         st.subheader(" ")
-        generate = st.button("🔍 Compare Periods", type="primary", use_container_width=True)
+        generate = st.button("🔍 Compare Periods", type="primary", width='stretch')
 
     # Generate comparison
     if generate:
@@ -1256,7 +1256,7 @@ def compare_sites_mode(inventory_df):
 
     # Generate button in main area
     st.markdown("---")
-    if st.button("🔍 Compare Sites", type="primary", use_container_width=True):
+    if st.button("🔍 Compare Sites", type="primary", width='stretch'):
         # Show comparison header (using safe Streamlit components)
         st.header("Multi-Site Comparison")
         st.caption(f"{len(selected_sites)} sites | {start_date} to {end_date}")
@@ -1423,7 +1423,7 @@ def quad_comparison_mode(inventory_df):
 
     with col_btn:
         st.subheader(" ")  # Spacer
-        generate = st.button("🔍 Generate 2×2", type="primary", use_container_width=True)
+        generate = st.button("🔍 Generate 2×2", type="primary", width='stretch')
 
     # Generate comparison
     if generate:
@@ -1943,7 +1943,7 @@ def alert_monitor_mode(inventory_df):
         )
 
         if df_recent is not None and not df_recent.empty:
-            st.line_chart(df_recent['value'], use_container_width=True)
+            st.line_chart(df_recent['value'], width='stretch')
         else:
             st.info("No recent instantaneous data available")
     except Exception as e:
@@ -2021,7 +2021,7 @@ def multisite_analysis_mode(inventory_df):
 
     st.markdown("---")
 
-    if st.button("🔍 Analyze Relationships", type="primary", use_container_width=True):
+    if st.button("🔍 Analyze Relationships", type="primary", width='stretch'):
         # Create analyzer and fetch data
         analyzer = MultiSiteAnalyzer()
 
@@ -2103,7 +2103,7 @@ def multisite_analysis_mode(inventory_df):
 
         # Rename columns for display
         plot_data = synced_data.rename(columns=site_names)
-        st.line_chart(plot_data, use_container_width=True)
+        st.line_chart(plot_data, width='stretch')
 
         # Correlation Matrix with improved visualization
         st.markdown("---")
@@ -2137,7 +2137,7 @@ def multisite_analysis_mode(inventory_df):
                 yaxis_title="",
             )
 
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
             # Correlation interpretation
             avg_corr = corr_matrix.values[~np.eye(len(corr_matrix), dtype=bool)].mean()
@@ -2180,7 +2180,7 @@ def multisite_analysis_mode(inventory_df):
                 })
 
             summary_df = pd.DataFrame(summary_data)
-            st.dataframe(summary_df, use_container_width=True, hide_index=True)
+            st.dataframe(summary_df, width='stretch', hide_index=True)
 
             # Detailed expandable sections
             st.markdown("##### Detailed Analysis")
