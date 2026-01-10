@@ -1730,24 +1730,26 @@ def site_map_mode(inventory_df):
     with col1:
         st.metric("Total Sites", len(map_data))
     with col2:
-        oldest_display = 'N/A'
+        # Debug: show column info
+        oldest_display = f"{len(map_data)}sites"
         try:
-            if 'begin_date' in map_data.columns:
-                # Get non-null dates and find minimum
-                dates = map_data['begin_date'].dropna().astype(str)
-                # Filter out empty strings and whitespace
-                dates = dates[dates.str.strip() != '']
-                if len(dates) > 0:
-                    # Sort as strings (YYYY-MM-DD format sorts correctly)
-                    oldest = sorted(dates.tolist())[0]
-                    if oldest:
-                        oldest_display = oldest[:4]  # Just the year
-                else:
-                    oldest_display = 'Empty'
+            cols = list(map_data.columns)
+            if 'begin_date' in cols:
+                bd_col = map_data['begin_date']
+                non_null = bd_col.dropna()
+                oldest_display = f"{len(non_null)}dates"
+                if len(non_null) > 0:
+                    as_str = non_null.astype(str)
+                    filtered = as_str[as_str.str.strip() != '']
+                    if len(filtered) > 0:
+                        sorted_dates = sorted(filtered.tolist())
+                        oldest_display = sorted_dates[0][:4]
+                    else:
+                        oldest_display = "AllEmpty"
             else:
-                oldest_display = 'NoCol'
+                oldest_display = f"NoBD:{cols[:3]}"
         except Exception as e:
-            oldest_display = f'Err:{type(e).__name__}'
+            oldest_display = f"E:{e}"[:15]
         st.metric("Oldest Record", oldest_display)
     with col3:
         st.metric("Region", "Pacific Northwest")
