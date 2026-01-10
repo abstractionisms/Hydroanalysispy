@@ -1930,13 +1930,13 @@ def alert_monitor_mode(inventory_df):
             else:
                 st.success("✅ No alerts - all conditions normal")
 
-    # Show recent history
+    # Show recent history with context
     st.markdown("---")
-    st.subheader("Recent Discharge History (24h)")
+    st.subheader("Recent Discharge History")
 
     try:
         end_date = datetime.now()
-        start_date = end_date - timedelta(days=1)
+        start_date = end_date - timedelta(days=7)  # Get 7 days for better context
 
         df_recent = fetch_instantaneous_values(
             site_id, param_cd=DEFAULT_PARAM_DISCHARGE,
@@ -1945,7 +1945,147 @@ def alert_monitor_mode(inventory_df):
         )
 
         if df_recent is not None and not df_recent.empty:
-            st.line_chart(df_recent['value'], width='stretch')
+            import plotly.graph_objects as go
+
+            # Create log-scale chart with dynamic y-axis
+            fig = go.Figure()
+
+            fig.add_trace(go.Scatter(
+                x=df_recent.index,
+                y=df_recent['value'],
+                mode='lines',
+                name='Discharge',
+                line=dict(color='#1f77b4', width=2),
+                fill='tozeroy',
+                fillcolor='rgba(31, 119, 180, 0.2)'
+            ))
+
+            # Get current value for annotation
+            current_val = df_recent['value'].iloc[-1] if len(df_recent) > 0 else None
+
+            fig.update_layout(
+                yaxis_type="log",
+                yaxis_title="Discharge (cfs)",
+                xaxis_title="",
+                height=300,
+                margin=dict(l=60, r=20, t=30, b=40),
+                showlegend=False,
+                hovermode='x unified'
+            )
+
+            # Dynamic y-axis range based on data
+            y_min = df_recent['value'].min() * 0.8
+            y_max = df_recent['value'].max() * 1.2
+            fig.update_yaxes(range=[np.log10(max(y_min, 0.1)), np.log10(y_max)])
+
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Historical context and precipitation influence
+            col1, col2 = st.columns(2)
+
+            with col1:
+                # Calculate historical percentile for this time of year
+                try:
+                    # Get historical data for same day of year (past 10 years)
+                    current_doy = end_date.timetuple().tm_yday
+                    hist_start = (end_date - timedelta(days=365*10)).strftime('%Y-%m-%d')
+                    hist_end = end_date.strftime('%Y-%m-%d')
+
+                    df_hist = fetch_daily_values(
+                        site_id, param_cd=DEFAULT_PARAM_DISCHARGE,
+                        start_date=hist_start, end_date=hist_end
+                    )
+
+                    if df_hist is not None and not df_hist.empty:
+                        # Filter to same season (±15 days from current day of year)
+                        df_hist['doy'] = df_hist.index.dayofyear
+                        seasonal_data = df_hist[
+                            (df_hist['doy'] >= current_doy - 15) &
+                            (df_hist['doy'] <= current_doy + 15)
+                        ]['value']
+
+                        if len(seasonal_data) > 10 and current_val:
+                            percentile = (seasonal_data < current_val).mean() * 100
+
+                            # Color based on percentile
+                            if percentile > 90:
+                                pct_color = "🔴"
+                                pct_status = "Very High"
+                            elif percentile > 75:
+                                pct_color = "🟠"
+                                pct_status = "Above Normal"
+                            elif percentile > 25:
+                                pct_color = "🟢"
+                                pct_status = "Normal"
+                            elif percentile > 10:
+                                pct_color = "🟡"
+                                pct_status = "Below Normal"
+                            else:
+                                pct_color = "🔵"
+                                pct_status = "Very Low"
+
+                            st.metric(
+                                "Seasonal Percentile",
+                                f"{percentile:.0f}%",
+                                delta=pct_status,
+                                delta_color="off"
+                            )
+                            st.caption(f"{pct_color} vs. historical {current_doy-15}-{current_doy+15} day-of-year")
+                        else:
+                            st.metric("Seasonal Percentile", "N/A")
+                            st.caption("Insufficient historical data")
+                    else:
+                        st.metric("Seasonal Percentile", "N/A")
+                except Exception:
+                    st.metric("Seasonal Percentile", "N/A")
+
+            with col2:
+                # Recent precipitation influence
+                try:
+                    lat = site_info.get('latitude')
+                    lon = site_info.get('longitude')
+                    if lat and lon:
+                        from hydrology.data.climate import fetch_climate_data
+                        precip_start = (end_date - timedelta(days=7)).strftime('%Y-%m-%d')
+                        precip_end = end_date.strftime('%Y-%m-%d')
+
+                        climate_df = fetch_climate_data(
+                            float(lat), float(lon),
+                            precip_start, precip_end
+                        )
+
+                        if climate_df is not None and 'prcp' in climate_df.columns:
+                            total_precip_mm = climate_df['prcp'].sum()
+                            total_precip_in = total_precip_mm / 25.4
+
+                            # Precipitation influence indicator
+                            if total_precip_in > 2:
+                                precip_icon = "🌧️"
+                                precip_status = "High influence"
+                            elif total_precip_in > 0.5:
+                                precip_icon = "🌦️"
+                                precip_status = "Moderate"
+                            elif total_precip_in > 0.1:
+                                precip_icon = "☁️"
+                                precip_status = "Low"
+                            else:
+                                precip_icon = "☀️"
+                                precip_status = "Minimal"
+
+                            st.metric(
+                                "7-Day Precipitation",
+                                f"{total_precip_in:.2f} in",
+                                delta=precip_status,
+                                delta_color="off"
+                            )
+                            st.caption(f"{precip_icon} Recent weather influence on flow")
+                        else:
+                            st.metric("7-Day Precipitation", "N/A")
+                    else:
+                        st.metric("7-Day Precipitation", "N/A")
+                except Exception:
+                    st.metric("7-Day Precipitation", "N/A")
+
         else:
             st.info("No recent instantaneous data available")
     except Exception as e:
