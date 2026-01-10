@@ -535,6 +535,11 @@ def date_range_selector(key_prefix: str = "", default_start: date = None, defaul
     if end_year_key not in st.session_state:
         st.session_state[end_year_key] = default_end.year
 
+    # Date input keys
+    start_key = f"{key_prefix}_start"
+    end_key = f"{key_prefix}_end"
+    today = date.today()
+
     # Year sliders
     col1, col2 = st.columns(2)
     with col1:
@@ -545,7 +550,10 @@ def date_range_selector(key_prefix: str = "", default_start: date = None, defaul
             value=st.session_state[start_year_key],
             key=f"{key_prefix}_start_slider"
         )
-        st.session_state[start_year_key] = start_year
+        # Sync date input when slider year changes
+        if st.session_state[start_year_key] != start_year:
+            st.session_state[start_year_key] = start_year
+            st.session_state[start_key] = date(start_year, 1, 1)
         start = date(start_year, 1, 1)
 
     with col2:
@@ -556,19 +564,19 @@ def date_range_selector(key_prefix: str = "", default_start: date = None, defaul
             value=st.session_state[end_year_key],
             key=f"{key_prefix}_end_slider"
         )
-        st.session_state[end_year_key] = end_year
-        end = min(date(end_year, 12, 31), date.today())
+        # Sync date input when slider year changes
+        if st.session_state[end_year_key] != end_year:
+            st.session_state[end_year_key] = end_year
+            st.session_state[end_key] = min(date(end_year, 12, 31), today)
+        end = min(date(end_year, 12, 31), today)
 
-    # Fine-tune with date inputs (collapsed by default)
     # Sanitize session state to prevent cached dates exceeding max_value
-    start_key = f"{key_prefix}_start"
-    end_key = f"{key_prefix}_end"
-    today = date.today()
     if start_key in st.session_state and st.session_state[start_key] > today:
         st.session_state[start_key] = today
     if end_key in st.session_state and st.session_state[end_key] > today:
         st.session_state[end_key] = today
 
+    # Fine-tune with date inputs (collapsed by default)
     with st.expander("Fine-tune dates"):
         col3, col4 = st.columns(2)
         with col3:
