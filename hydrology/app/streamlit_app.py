@@ -11,6 +11,7 @@ Features:
 
 import streamlit as st
 import pandas as pd
+import numpy as np
 from datetime import datetime, date, timedelta
 from pathlib import Path
 import matplotlib.pyplot as plt
@@ -1970,137 +1971,312 @@ def multisite_analysis_mode(inventory_df):
 
     # Main content
     st.header("🔗 Multi-Site Analysis")
-    st.caption("Analyze correlations and upstream/downstream relationships")
+    st.caption("Analyze correlations and upstream/downstream relationships between monitoring sites")
 
     if len(selected_sites) < 2:
         st.info("👈 Select 2-6 sites from the sidebar to analyze their relationships")
 
-        # Show example use cases
-        st.markdown("""
-        ### What this analysis provides:
-        - **Correlation Matrix**: How strongly sites are correlated
-        - **Lag Analysis**: Travel time between upstream/downstream sites
-        - **Relationship Detection**: Automatically identify upstream/downstream pairs
-        - **Flow Contribution**: Estimate contribution from tributaries
-        """)
+        # Show example use cases with better formatting
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("""
+            #### 📊 Correlation Analysis
+            - Compare discharge patterns between sites
+            - Identify sites that respond similarly to events
+            - Find correlated tributaries
+            """)
+        with col2:
+            st.markdown("""
+            #### ⏱️ Lag & Travel Time
+            - Estimate water travel time between sites
+            - Identify upstream/downstream relationships
+            - Detect flow routing patterns
+            """)
         return
 
     # Extract site IDs
     site_ids = [extract_site_id(s) for s in selected_sites]
 
-    # Display selected sites
-    st.subheader("Selected Sites")
+    # Display selected sites in a nice card layout
+    st.subheader("📍 Selected Sites")
     site_cols = st.columns(min(len(site_ids), 3))
     for i, sid in enumerate(site_ids):
         info = get_cached_site_info(sid)
         with site_cols[i % 3]:
-            st.markdown(f"**{sid}**")
-            if info:
-                st.caption(info.get('description', '')[:50])
+            with st.container():
+                st.markdown(f"**`{sid}`**")
+                if info:
+                    st.caption(info.get('description', '')[:50])
 
     st.markdown("---")
 
-    if st.button("🔍 Analyze Relationships", type="primary"):
-        # Show debug info
-        st.info(f"📅 Date range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
-        st.info(f"📍 Sites: {', '.join(site_ids)}")
+    if st.button("🔍 Analyze Relationships", type="primary", use_container_width=True):
+        # Create analyzer and fetch data
+        analyzer = MultiSiteAnalyzer()
 
-        with st.spinner("Fetching data and analyzing correlations..."):
-            # Create analyzer and fetch data
-            analyzer = MultiSiteAnalyzer()
+        for sid in site_ids:
+            info = get_cached_site_info(sid)
+            name = info.get('description', sid) if info else sid
+            lat = info.get('latitude') if info else None
+            lon = info.get('longitude') if info else None
+            analyzer.add_site(sid, name=name[:40], latitude=lat, longitude=lon)
 
-            for sid in site_ids:
-                info = get_cached_site_info(sid)
-                name = info.get('description', sid) if info else sid
-                lat = info.get('latitude') if info else None
-                lon = info.get('longitude') if info else None
-                analyzer.add_site(sid, name=name[:40], latitude=lat, longitude=lon)
+        # Fetch data
+        start_str = start_date.strftime('%Y-%m-%d')
+        end_str = end_date.strftime('%Y-%m-%d')
 
-            # Fetch data - try each site individually to see what fails
-            start_str = start_date.strftime('%Y-%m-%d')
-            end_str = end_date.strftime('%Y-%m-%d')
+        from hydrology.data.usgs import fetch_daily_values
 
-            from hydrology.data.usgs import fetch_daily_values
+        # Progress tracking
+        progress_bar = st.progress(0, text="Fetching site data...")
+        fetch_results = []
 
-            for sid in site_ids:
-                st.write(f"Fetching {sid}...")
-                try:
-                    df = fetch_daily_values(
-                        sid, param_cd='00060',
-                        start_date=start_str, end_date=end_str
-                    )
-                    if df is not None and not df.empty:
-                        analyzer.data[sid] = df
-                        st.success(f"✅ {sid}: {len(df)} rows")
-                    else:
-                        st.warning(f"⚠️ {sid}: No data returned")
-                except Exception as e:
-                    st.error(f"❌ {sid}: {type(e).__name__}: {e}")
-
-            # Get synchronized data
-            synced_data = analyzer.get_synchronized_data()
-
-            if synced_data.empty:
-                st.error("Could not get synchronized data for selected sites")
-                st.warning("This can happen if sites have no overlapping data in the selected time range.")
-                return
-
-            st.success(f"Analyzed {len(synced_data)} days of overlapping data")
-
-            # Correlation Matrix
-            st.subheader("📊 Correlation Matrix")
-            corr_matrix = analyzer.get_correlation_matrix()
-
-            if not corr_matrix.empty:
-                # Display as heatmap-style table
-                st.dataframe(
-                    corr_matrix.style.background_gradient(cmap='RdYlGn', vmin=0, vmax=1)
-                    .format("{:.3f}"),
-                    width='stretch'
+        for i, sid in enumerate(site_ids):
+            progress_bar.progress((i + 1) / len(site_ids), text=f"Fetching {sid}...")
+            try:
+                df = fetch_daily_values(
+                    sid, param_cd='00060',
+                    start_date=start_str, end_date=end_str
                 )
+                if df is not None and not df.empty:
+                    analyzer.data[sid] = df
+                    fetch_results.append((sid, len(df), "success"))
+                else:
+                    fetch_results.append((sid, 0, "empty"))
+            except Exception as e:
+                fetch_results.append((sid, 0, f"error: {e}"))
 
-            st.markdown("---")
+        progress_bar.empty()
 
-            # Analyze all pairs
-            st.subheader("🔄 Pairwise Analysis")
-            results = analyzer.analyze_all_pairs()
+        # Show fetch results in expander (cleaner UI)
+        with st.expander("📋 Data Fetch Details", expanded=False):
+            for sid, count, status in fetch_results:
+                if status == "success":
+                    st.success(f"✅ {sid}: {count:,} records")
+                elif status == "empty":
+                    st.warning(f"⚠️ {sid}: No data")
+                else:
+                    st.error(f"❌ {sid}: {status}")
 
-            if results:
-                for result in results:
-                    with st.expander(f"{result.site_a} ↔ {result.site_b}"):
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Correlation", f"{result.correlation:.3f}")
-                        with col2:
-                            st.metric("Optimal Lag", f"{result.lag_days} days")
-                        with col3:
-                            relationship_icons = {
-                                'upstream': '⬆️ Upstream',
-                                'downstream': '⬇️ Downstream',
-                                'parallel': '↔️ Parallel',
-                                'unknown': '❓ Unknown'
-                            }
-                            st.metric("Relationship", relationship_icons.get(result.relationship, result.relationship))
+        # Get synchronized data
+        synced_data = analyzer.get_synchronized_data()
 
-                        st.caption(f"Based on {result.n_observations} observations, p-value: {result.p_value:.2e}")
+        if synced_data.empty:
+            st.error("❌ Could not synchronize data for selected sites")
+            st.warning("Sites may have no overlapping data in the selected time range. Try extending the analysis period.")
+            return
 
-            st.markdown("---")
+        # Summary metrics
+        st.markdown("---")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("📅 Overlapping Days", f"{len(synced_data):,}")
+        with col2:
+            st.metric("📆 Date Range", f"{synced_data.index.min().strftime('%Y-%m-%d')}")
+        with col3:
+            st.metric("📆 To", f"{synced_data.index.max().strftime('%Y-%m-%d')}")
 
-            # Upstream/Downstream Detection
-            st.subheader("🌊 Detected Relationships")
-            relationships = analyzer.identify_upstream_downstream()
+        # Time series visualization
+        st.markdown("---")
+        st.subheader("📈 Synchronized Time Series")
 
+        # Create site name mapping for cleaner labels
+        site_names = {}
+        for sid in site_ids:
+            info = get_cached_site_info(sid)
+            if info:
+                name = info.get('description', sid)[:25]
+                site_names[sid] = f"{sid} - {name}"
+            else:
+                site_names[sid] = sid
+
+        # Rename columns for display
+        plot_data = synced_data.rename(columns=site_names)
+        st.line_chart(plot_data, use_container_width=True)
+
+        # Correlation Matrix with improved visualization
+        st.markdown("---")
+        st.subheader("📊 Correlation Matrix")
+
+        corr_matrix = analyzer.get_correlation_matrix()
+
+        if not corr_matrix.empty:
+            # Create a nicer heatmap display
+            import plotly.express as px
+            import plotly.graph_objects as go
+
+            # Create heatmap with plotly for better interactivity
+            fig = go.Figure(data=go.Heatmap(
+                z=corr_matrix.values,
+                x=corr_matrix.columns,
+                y=corr_matrix.index,
+                colorscale='RdYlGn',
+                zmin=0,
+                zmax=1,
+                text=[[f"{val:.3f}" for val in row] for row in corr_matrix.values],
+                texttemplate="%{text}",
+                textfont={"size": 12},
+                hovertemplate="Site A: %{y}<br>Site B: %{x}<br>Correlation: %{z:.3f}<extra></extra>"
+            ))
+
+            fig.update_layout(
+                height=350,
+                margin=dict(l=20, r=20, t=30, b=20),
+                xaxis_title="",
+                yaxis_title="",
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Correlation interpretation
+            avg_corr = corr_matrix.values[~np.eye(len(corr_matrix), dtype=bool)].mean()
+            if avg_corr > 0.8:
+                st.success(f"🔗 **High correlation** (avg: {avg_corr:.2f}) - Sites respond similarly to hydrologic events")
+            elif avg_corr > 0.5:
+                st.info(f"🔗 **Moderate correlation** (avg: {avg_corr:.2f}) - Sites show related but distinct patterns")
+            else:
+                st.warning(f"🔗 **Low correlation** (avg: {avg_corr:.2f}) - Sites may be in different drainage areas or have different drivers")
+
+        # Pairwise Analysis
+        st.markdown("---")
+        st.subheader("🔄 Pairwise Relationships")
+
+        results = analyzer.analyze_all_pairs()
+
+        if results:
+            # Create summary table
+            summary_data = []
+            for result in results:
+                site_a_info = get_cached_site_info(result.site_a)
+                site_b_info = get_cached_site_info(result.site_b)
+                name_a = site_a_info.get('description', '')[:20] if site_a_info else ''
+                name_b = site_b_info.get('description', '')[:20] if site_b_info else ''
+
+                relationship_display = {
+                    'upstream': '⬆️ A upstream of B',
+                    'downstream': '⬇️ A downstream of B',
+                    'parallel': '↔️ Parallel/Same timing',
+                    'unknown': '❓ Undetermined'
+                }.get(result.relationship, result.relationship)
+
+                summary_data.append({
+                    'Site A': f"{result.site_a}",
+                    'Site B': f"{result.site_b}",
+                    'Correlation': f"{result.correlation:.3f}",
+                    'Lag (days)': result.lag_days,
+                    'Relationship': relationship_display,
+                    'Observations': f"{result.n_observations:,}"
+                })
+
+            summary_df = pd.DataFrame(summary_data)
+            st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
+            # Detailed expandable sections
+            st.markdown("##### Detailed Analysis")
+            for result in results:
+                site_a_info = get_cached_site_info(result.site_a)
+                site_b_info = get_cached_site_info(result.site_b)
+                name_a = site_a_info.get('description', '')[:30] if site_a_info else result.site_a
+                name_b = site_b_info.get('description', '')[:30] if site_b_info else result.site_b
+
+                with st.expander(f"**{result.site_a}** ↔ **{result.site_b}**"):
+                    col1, col2, col3, col4 = st.columns(4)
+
+                    with col1:
+                        corr_color = "normal" if result.correlation > 0.7 else ("off" if result.correlation < 0.3 else "normal")
+                        st.metric("Correlation", f"{result.correlation:.3f}")
+
+                    with col2:
+                        st.metric("Optimal Lag", f"{result.lag_days} days")
+
+                    with col3:
+                        if result.lag_days != 0:
+                            travel_time = abs(result.lag_days * 24)
+                            st.metric("Travel Time", f"~{travel_time}h")
+                        else:
+                            st.metric("Travel Time", "Same day")
+
+                    with col4:
+                        relationship_icons = {
+                            'upstream': '⬆️ Upstream',
+                            'downstream': '⬇️ Downstream',
+                            'parallel': '↔️ Parallel',
+                            'unknown': '❓ Unknown'
+                        }
+                        st.metric("Relationship", relationship_icons.get(result.relationship, result.relationship))
+
+                    st.caption(f"Based on {result.n_observations:,} observations | p-value: {result.p_value:.2e}")
+
+                    # Interpretation
+                    if result.relationship == 'upstream':
+                        st.info(f"📍 {result.site_a} appears to be **upstream** of {result.site_b} with ~{result.lag_days} day travel time")
+                    elif result.relationship == 'downstream':
+                        st.info(f"📍 {result.site_a} appears to be **downstream** of {result.site_b}")
+                    elif result.relationship == 'parallel':
+                        st.info("📍 Sites respond at the **same time** - likely parallel tributaries or very close together")
+                    else:
+                        st.info("📍 Relationship unclear - sites may be in different watersheds or have weak connection")
+
+        # Relationship Summary
+        st.markdown("---")
+        st.subheader("🌊 Relationship Summary")
+
+        relationships = analyzer.identify_upstream_downstream()
+
+        # Count relationship types
+        has_upstream_downstream = False
+        parallel_pairs = []
+        unknown_pairs = []
+
+        for result in results:
+            if result.relationship in ['upstream', 'downstream']:
+                has_upstream_downstream = True
+            elif result.relationship == 'parallel':
+                parallel_pairs.append((result.site_a, result.site_b))
+            else:
+                unknown_pairs.append((result.site_a, result.site_b))
+
+        if has_upstream_downstream:
+            # Show upstream/downstream relationships
+            st.markdown("##### 🔀 Flow Direction")
             for sid, rels in relationships.items():
                 if rels['upstream'] or rels['downstream']:
                     info = get_cached_site_info(sid)
                     name = info.get('description', sid)[:30] if info else sid
 
-                    upstream_str = ", ".join(rels['upstream']) if rels['upstream'] else "None"
-                    downstream_str = ", ".join(rels['downstream']) if rels['downstream'] else "None"
+                    with st.container():
+                        st.markdown(f"**{sid}** ({name})")
+                        if rels['downstream']:
+                            st.markdown(f"  └─ ⬆️ Flows to: {', '.join(rels['downstream'])}")
+                        if rels['upstream']:
+                            st.markdown(f"  └─ ⬇️ Receives from: {', '.join(rels['upstream'])}")
+        else:
+            st.info("ℹ️ **No clear upstream/downstream relationships detected**")
+            st.markdown("""
+            This typically means:
+            - Sites respond to events on the **same day** (too close together for daily data to detect lag)
+            - Sites may be **parallel tributaries** rather than on the same flow path
+            - Sites could be in **different watersheds** with independent hydrology
+            """)
 
-                    st.markdown(f"**{sid}** ({name})")
-                    st.markdown(f"  - ⬆️ Upstream of: {downstream_str}")
-                    st.markdown(f"  - ⬇️ Downstream of: {upstream_str}")
+        if parallel_pairs:
+            st.markdown("##### ↔️ Parallel/Same-Timing Sites")
+            for a, b in parallel_pairs:
+                st.markdown(f"- {a} ↔ {b}")
+
+        if unknown_pairs and not parallel_pairs and not has_upstream_downstream:
+            st.markdown("##### ❓ Weakly Connected Sites")
+            for a, b in unknown_pairs:
+                st.markdown(f"- {a} ↔ {b}")
+
+        # Tips
+        with st.expander("💡 Tips for Better Results"):
+            st.markdown("""
+            - **Short lag times**: If sites are close together, travel time may be less than 1 day. Try using instantaneous data for better resolution.
+            - **Low correlation**: Sites may be in different sub-watersheds or have different water sources (groundwater vs surface).
+            - **Parallel relationships**: Common for tributary sites that both feed into a main stem.
+            - **More data**: Longer time series (3+ years) generally produce more reliable relationship detection.
+            """)
 
 
 # =============================================================================
