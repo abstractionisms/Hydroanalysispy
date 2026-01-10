@@ -538,3 +538,195 @@ def fetch_waterml_data(
         logger.error(f"WaterML fetch failed: {site_id}: {e}")
 
     return None
+
+
+# =============================================================================
+# Peak Streamflow Data
+# =============================================================================
+
+# Peak streamflow service URL
+BASE_URL_PEAK = "https://nwis.waterdata.usgs.gov/nwis/peak"
+
+
+def fetch_peak_streamflow(
+    site_id: str,
+    start_year: Optional[int] = None,
+    end_year: Optional[int] = None,
+    top_n: Optional[int] = None
+) -> pd.DataFrame:
+    """
+    Fetch annual peak streamflow data from USGS Peak Streamflow Service.
+
+    Peak streamflow represents the highest instantaneous discharge recorded
+    each water year (Oct 1 - Sep 30). This data is essential for flood
+    frequency analysis and return period estimation.
+
+    Args:
+        site_id: USGS site identifier (e.g., '12422500')
+        start_year: Starting water year (optional)
+        end_year: Ending water year (optional)
+        top_n: If provided, return only the top N peaks by discharge
+
+    Returns:
+        DataFrame with columns:
+        - peak_date: Date of peak (datetime)
+        - peak_discharge_cfs: Peak discharge in cubic feet per second
+        - peak_gage_height_ft: Gage height at peak (if available)
+        - water_year: Water year of the peak
+
+    Example:
+        >>> df = fetch_peak_streamflow('12422500', top_n=10)
+        >>> print(df[['peak_date', 'peak_discharge_cfs']].head())
+    """
+    logger.info(f"Fetching peak streamflow for site {site_id}")
+
+    # Build request parameters
+    params = {
+        'site_no': site_id,
+        'agency_cd': 'USGS',
+        'format': 'rdb',
+    }
+
+    if start_year:
+        params['begin_date'] = f"{start_year}-10-01"
+    if end_year:
+        params['end_date'] = f"{end_year}-09-30"
+
+    try:
+        text = http_get_text(BASE_URL_PEAK, params, retries=4, timeout=30)
+    except Exception as e:
+        logger.error(f"Failed to fetch peak streamflow for {site_id}: {e}")
+        return pd.DataFrame()
+
+    if not text:
+        return pd.DataFrame()
+
+    # Parse RDB format (tab-delimited with comment headers)
+    df = _parse_peak_rdb(text)
+
+    if df.empty:
+        logger.warning(f"No peak streamflow data found for {site_id}")
+        return df
+
+    # Sort by discharge (descending) and optionally limit
+    df = df.sort_values('peak_discharge_cfs', ascending=False)
+
+    if top_n:
+        df = df.head(top_n)
+
+    logger.info(f"Retrieved {len(df)} peak streamflow records for {site_id}")
+    return df.reset_index(drop=True)
+
+
+def _parse_peak_rdb(rdb_text: str) -> pd.DataFrame:
+    """
+    Parse USGS RDB (tab-delimited) format for peak streamflow data.
+
+    RDB format has:
+    - Comment lines starting with '#'
+    - Header line with column names
+    - Format line with column widths (e.g., '5s', '15n')
+    - Data lines
+
+    Args:
+        rdb_text: Raw RDB text from USGS
+
+    Returns:
+        DataFrame with parsed peak data
+    """
+    lines = rdb_text.strip().split('\n')
+
+    # Find data start (skip comments and format line)
+    data_start = 0
+    headers = []
+    for i, line in enumerate(lines):
+        if line.startswith('#'):
+            continue
+        if not headers:
+            # First non-comment line is headers
+            headers = line.split('\t')
+            continue
+        if line and (line[0].isdigit() or line.startswith('USGS')):
+            # Found first data line
+            data_start = i
+            break
+        # Skip format line (contains 's', 'n', 'd' type indicators)
+
+    if not headers or data_start == 0:
+        return pd.DataFrame()
+
+    # Parse data lines
+    records = []
+    for line in lines[data_start:]:
+        if not line or line.startswith('#'):
+            continue
+        values = line.split('\t')
+        if len(values) >= len(headers):
+            records.append(dict(zip(headers, values[:len(headers)])))
+
+    if not records:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(records)
+
+    # Map to standard column names
+    result = pd.DataFrame()
+
+    # Peak date
+    if 'peak_dt' in df.columns:
+        result['peak_date'] = pd.to_datetime(df['peak_dt'], errors='coerce')
+    elif 'peak_va' in df.columns and 'peak_cd' in df.columns:
+        # Some formats have date parts separate
+        pass
+
+    # Peak discharge
+    if 'peak_va' in df.columns:
+        result['peak_discharge_cfs'] = pd.to_numeric(df['peak_va'], errors='coerce')
+
+    # Gage height
+    if 'gage_ht' in df.columns:
+        result['peak_gage_height_ft'] = pd.to_numeric(df['gage_ht'], errors='coerce')
+
+    # Water year (Oct-Sep, so year is +1 for Oct-Dec)
+    if 'peak_date' in result.columns:
+        dates = result['peak_date']
+        result['water_year'] = dates.apply(
+            lambda d: d.year + 1 if pd.notna(d) and d.month >= 10 else (d.year if pd.notna(d) else None)
+        )
+
+    # Drop rows without valid discharge
+    result = result.dropna(subset=['peak_discharge_cfs'])
+
+    return result
+
+
+def get_top_flood_events(
+    site_id: str,
+    n_events: int = 10,
+    min_year: Optional[int] = None
+) -> pd.DataFrame:
+    """
+    Get the top N flood events for a site, ordered by peak discharge.
+
+    Args:
+        site_id: USGS site identifier
+        n_events: Number of top events to return
+        min_year: Only include events from this year onward
+
+    Returns:
+        DataFrame with top flood events, sorted by discharge (highest first)
+
+    Example:
+        >>> events = get_top_flood_events('12422500', n_events=5)
+        >>> for _, event in events.iterrows():
+        ...     print(f"{event['peak_date'].year}: {event['peak_discharge_cfs']:,.0f} cfs")
+    """
+    df = fetch_peak_streamflow(site_id, start_year=min_year)
+
+    if df.empty:
+        return df
+
+    # Sort by discharge and take top N
+    df = df.sort_values('peak_discharge_cfs', ascending=False).head(n_events)
+
+    return df.reset_index(drop=True)

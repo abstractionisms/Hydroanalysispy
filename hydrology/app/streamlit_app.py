@@ -35,6 +35,10 @@ from hydrology.analysis.alerts import (
     AlertMonitor, AlertThreshold, create_flood_alert, create_low_flow_alert
 )
 from hydrology.analysis.multisite import MultiSiteAnalyzer, quick_correlation_check
+from hydrology.analysis.flood_events import FloodEventAnalyzer, calculate_event_statistics
+from hydrology.data.usgs import fetch_peak_streamflow, get_top_flood_events
+from hydrology.data.national_inventory import get_national_inventory, get_region_inventory, get_inventory_summary
+from hydrology.core.huc_regions import HUC2_REGIONS, get_region_name, get_region_center, US_CENTER
 from hydrology.visualization import create_multi_plot, PlotLayout
 from hydrology.visualization.plots import AVAILABLE_PLOTS
 from hydrology.scripts.analyze_sites import analyze_correlation
@@ -2618,6 +2622,535 @@ def nwm_comparison_mode(inventory_df):
 
 
 # =============================================================================
+# FLOOD ANIMATION MODE
+# =============================================================================
+
+def flood_animation_mode(inventory_df):
+    """Animated replay of historical flood events across multiple sites."""
+    import plotly.graph_objects as go
+
+    st.sidebar.header("Site Selection")
+
+    # Site selection
+    site_options = [f"{row['site_id']} - {str(row.get('description', ''))[:40]}"
+                    for _, row in inventory_df.iterrows()]
+    selected = st.sidebar.selectbox("Select Primary Site", site_options, key="flood_site")
+    site_id = extract_site_id(selected)
+
+    site_info = get_cached_site_info(site_id)
+    if not site_info:
+        st.error(f"Site {site_id} not found")
+        return
+
+    desc = site_info.get('description', site_id)
+
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Animation Settings")
+
+    # Search distance for related sites
+    distance_km = st.sidebar.slider("Search Distance (km)", 25, 200, 100)
+
+    # Event window
+    days_before = st.sidebar.slider("Days Before Peak", 2, 10, 5)
+    days_after = st.sidebar.slider("Days After Peak", 5, 20, 10)
+
+    # Main content
+    st.header("🌊 Flood Animation")
+    st.caption(f"Replay historical flood events at {desc}")
+
+    st.markdown("""
+    Visualize how flood events propagate through a river system. Select a historical
+    flood event and watch how discharge changes across upstream and downstream monitoring sites.
+    """)
+
+    st.markdown("---")
+
+    # Initialize analyzer
+    analyzer = FloodEventAnalyzer(site_id)
+
+    # Fetch and display top events
+    st.subheader("📊 Top Flood Events")
+
+    with st.spinner("Fetching peak streamflow data..."):
+        events = analyzer.get_top_events(n=10, min_year=1980)
+
+    if not events:
+        st.warning("No peak streamflow data found for this site.")
+        st.info("Try selecting a different site with longer historical records.")
+        return
+
+    # Create event selection
+    event_options = []
+    for e in events:
+        date_str = e.peak_date.strftime('%Y-%m-%d') if e.peak_date else 'Unknown'
+        event_options.append(f"{date_str} - {e.peak_discharge_cfs:,.0f} cfs (Rank #{e.rank})")
+
+    selected_event_idx = st.selectbox(
+        "Select Flood Event",
+        range(len(event_options)),
+        format_func=lambda i: event_options[i],
+        key="flood_event_select"
+    )
+
+    selected_event = events[selected_event_idx]
+
+    # Display event info
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Peak Discharge", f"{selected_event.peak_discharge_cfs:,.0f} cfs")
+    with col2:
+        st.metric("Date", selected_event.peak_date.strftime('%Y-%m-%d') if selected_event.peak_date else "Unknown")
+    with col3:
+        st.metric("Rank", f"#{selected_event.rank} of all time")
+
+    st.markdown("---")
+
+    # Discover related sites
+    st.subheader("🔗 Related Monitoring Sites")
+
+    with st.spinner("Discovering upstream/downstream sites..."):
+        related_sites = analyzer.discover_related_sites(
+            distance_km=distance_km,
+            max_sites=7
+        )
+
+    if related_sites:
+        st.success(f"Found {len(related_sites)} related sites within {distance_km} km")
+
+        # Show site table
+        site_df = pd.DataFrame(related_sites)
+        if not site_df.empty:
+            display_cols = ['site_id', 'name', 'direction', 'distance_km']
+            available_cols = [c for c in display_cols if c in site_df.columns]
+            st.dataframe(site_df[available_cols], use_container_width=True)
+    else:
+        st.info("No upstream/downstream sites found within the search distance.")
+
+    st.markdown("---")
+
+    # Animation button
+    if st.button("🎬 Generate Animation", type="primary"):
+        st.subheader("📈 Flood Event Animation")
+
+        with st.spinner("Fetching instantaneous data for all sites..."):
+            animation = analyzer.prepare_animation(
+                selected_event,
+                days_before=days_before,
+                days_after=days_after,
+                distance_km=distance_km,
+                frame_interval_minutes=180,  # 3-hour frames
+                max_sites=8
+            )
+
+        if not animation.sites:
+            st.error("Could not fetch data for animation.")
+            return
+
+        # Calculate statistics
+        stats = calculate_event_statistics(animation)
+
+        # Display stats
+        st.write(f"**Sites with data:** {stats['sites_with_data']} of {stats['total_sites']}")
+        if stats.get('propagation_time_hours'):
+            st.write(f"**Propagation time:** {stats['propagation_time_hours']:.1f} hours")
+
+        # Build combined DataFrame
+        combined_df = animation.to_dataframe()
+
+        if combined_df.empty:
+            st.warning("No overlapping data found for the selected time period.")
+            return
+
+        # Create Plotly animation figure
+        fig = go.Figure()
+
+        # Color palette for sites
+        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+                  '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+
+        # Add a trace for each site
+        for i, site in enumerate(animation.sites):
+            if site.data is not None and not site.data.empty:
+                color = colors[i % len(colors)]
+
+                # Site label
+                label = f"{site.site_id}"
+                if site.direction and site.direction != 'origin':
+                    label += f" ({site.direction[:2].upper()})"
+                if site.distance_km:
+                    label += f" - {site.distance_km:.0f}km"
+
+                fig.add_trace(go.Scatter(
+                    x=site.data.index,
+                    y=site.data['value'],
+                    mode='lines',
+                    name=label,
+                    line=dict(color=color, width=2),
+                    hovertemplate=f"{label}<br>%{{x}}<br>%{{y:,.0f}} cfs<extra></extra>"
+                ))
+
+                # Add peak marker
+                if site.peak_time and site.peak_value:
+                    fig.add_trace(go.Scatter(
+                        x=[site.peak_time],
+                        y=[site.peak_value],
+                        mode='markers',
+                        marker=dict(size=12, color=color, symbol='star'),
+                        name=f"{site.site_id} Peak",
+                        showlegend=False,
+                        hovertemplate=f"Peak: {site.peak_value:,.0f} cfs<extra></extra>"
+                    ))
+
+        # Add vertical line for event peak
+        if selected_event.peak_date:
+            fig.add_vline(
+                x=selected_event.peak_date,
+                line_dash="dash",
+                line_color="red",
+                annotation_text="Event Peak",
+                annotation_position="top right"
+            )
+
+        # Update layout
+        fig.update_layout(
+            title=f"Flood Event: {selected_event.peak_date.strftime('%Y-%m-%d') if selected_event.peak_date else 'Unknown'}",
+            xaxis_title="Date/Time",
+            yaxis_title="Discharge (cfs)",
+            yaxis_type="log",
+            height=500,
+            hovermode='x unified',
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            )
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Site summary cards
+        st.subheader("📍 Site Peak Summary")
+
+        cols = st.columns(min(len(animation.sites), 4))
+        for i, site in enumerate(animation.sites):
+            with cols[i % len(cols)]:
+                with st.container():
+                    st.markdown(f"**{site.site_id}**")
+                    if site.site_name:
+                        st.caption(site.site_name[:30])
+
+                    if site.peak_value:
+                        st.metric("Peak", f"{site.peak_value:,.0f} cfs")
+                    if site.lag_hours is not None:
+                        lag_str = f"+{site.lag_hours:.1f}h" if site.lag_hours >= 0 else f"{site.lag_hours:.1f}h"
+                        st.metric("Lag", lag_str)
+                    if site.direction:
+                        st.caption(f"📍 {site.direction.title()}")
+
+    # Info section
+    with st.expander("ℹ️ About Flood Animation"):
+        st.markdown("""
+        **How it works:**
+        1. Select a primary monitoring site
+        2. The system finds the top historical flood events (annual peaks)
+        3. Related sites upstream and downstream are discovered via NLDI
+        4. Instantaneous (15-min) data is fetched for the event window
+        5. The animation shows how discharge changed across all sites
+
+        **Peak Detection:**
+        Uses USGS Peak Streamflow Service which records the highest instantaneous
+        discharge each water year (Oct 1 - Sep 30).
+
+        **Site Discovery:**
+        Uses NLDI (Hydro Network-Linked Data Index) to navigate the river network
+        and find monitoring stations upstream and downstream of the selected site.
+
+        **Lag Time:**
+        Shows how many hours each site's peak occurred relative to the primary site.
+        Positive values mean the peak came later (downstream propagation).
+        """)
+
+
+# =============================================================================
+# WATERSHED VIEW MODE
+# =============================================================================
+
+def watershed_view_mode(inventory_df):
+    """National watershed view with all US USGS gages organized by HUC-2 regions."""
+
+    st.sidebar.header("Region Selection")
+
+    # View level selector
+    view_level = st.sidebar.radio(
+        "View Level",
+        ["National Overview", "By Region", "By State"],
+        horizontal=True,
+        key="watershed_view_level"
+    )
+
+    selected_huc2 = None
+    selected_state = None
+
+    if view_level == "By Region":
+        # Region selector
+        region_options = {f"{huc2} - {info['name']}": huc2
+                         for huc2, info in sorted(HUC2_REGIONS.items())}
+        selected_region = st.sidebar.selectbox(
+            "Select HUC-2 Region",
+            list(region_options.keys()),
+            key="watershed_region"
+        )
+        selected_huc2 = region_options[selected_region]
+
+    elif view_level == "By State":
+        # State selector - get unique states from HUC regions
+        all_states = set()
+        for info in HUC2_REGIONS.values():
+            all_states.update(info.get('states', []))
+        selected_state = st.sidebar.selectbox(
+            "Select State",
+            sorted(all_states),
+            key="watershed_state"
+        )
+
+    # Main content
+    st.header("🗺️ National Watershed View")
+
+    if view_level == "National Overview":
+        st.caption("All active USGS streamflow monitoring sites across the United States")
+    elif view_level == "By Region" and selected_huc2:
+        region_name = get_region_name(selected_huc2)
+        st.caption(f"USGS sites in {region_name} (HUC-2: {selected_huc2})")
+    elif view_level == "By State" and selected_state:
+        st.caption(f"USGS sites in {selected_state}")
+
+    st.markdown("---")
+
+    # Load inventory button
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        load_button = st.button("🔄 Load Site Inventory", type="primary")
+
+    with col2:
+        force_refresh = st.checkbox("Force refresh cache", value=False)
+
+    if load_button or 'watershed_data' in st.session_state:
+        with st.spinner("Loading national inventory... (this may take a moment on first load)"):
+            try:
+                if view_level == "National Overview":
+                    sites_df = get_national_inventory(force_refresh=force_refresh)
+                elif view_level == "By Region" and selected_huc2:
+                    sites_df = get_region_inventory(selected_huc2, force_refresh=force_refresh)
+                elif view_level == "By State" and selected_state:
+                    full_df = get_national_inventory(force_refresh=force_refresh)
+                    sites_df = full_df[full_df['state_cd'] == selected_state] if not full_df.empty else pd.DataFrame()
+                else:
+                    sites_df = pd.DataFrame()
+
+                st.session_state['watershed_data'] = sites_df
+            except Exception as e:
+                st.error(f"Failed to load inventory: {e}")
+                return
+
+        if 'watershed_data' not in st.session_state or st.session_state['watershed_data'].empty:
+            st.warning("No site data available. Try loading the inventory.")
+            return
+
+        sites_df = st.session_state['watershed_data']
+
+        # Summary metrics
+        st.subheader("📊 Summary")
+
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Sites", f"{len(sites_df):,}")
+        with col2:
+            if 'huc2' in sites_df.columns:
+                st.metric("Regions", sites_df['huc2'].nunique())
+        with col3:
+            if 'state_cd' in sites_df.columns:
+                st.metric("States", sites_df['state_cd'].nunique())
+        with col4:
+            if 'drainage_area' in sites_df.columns:
+                avg_area = sites_df['drainage_area'].mean()
+                st.metric("Avg Drainage", f"{avg_area:,.0f} sq mi" if pd.notna(avg_area) else "N/A")
+
+        st.markdown("---")
+
+        # Regional breakdown (for national view)
+        if view_level == "National Overview" and 'huc2' in sites_df.columns:
+            st.subheader("📈 Sites by Region")
+
+            region_counts = sites_df.groupby('huc2').size().reset_index(name='count')
+            region_counts['region_name'] = region_counts['huc2'].apply(get_region_name)
+            region_counts = region_counts.sort_values('count', ascending=False)
+
+            # Show as bar chart
+            import plotly.express as px
+            fig = px.bar(
+                region_counts,
+                x='region_name',
+                y='count',
+                title='Active Sites by HUC-2 Region',
+                labels={'count': 'Number of Sites', 'region_name': 'Region'},
+                color='count',
+                color_continuous_scale='Blues'
+            )
+            fig.update_layout(height=400, showlegend=False)
+            fig.update_xaxes(tickangle=45)
+            st.plotly_chart(fig, use_container_width=True)
+
+        st.markdown("---")
+
+        # Map visualization
+        st.subheader("🗺️ Site Map")
+
+        # Limit sites for performance
+        max_map_sites = st.slider("Max sites to display", 100, 5000, 1000, step=100)
+
+        if len(sites_df) > max_map_sites:
+            st.info(f"Showing {max_map_sites:,} of {len(sites_df):,} sites for performance")
+            map_df = sites_df.sample(n=max_map_sites, random_state=42)
+        else:
+            map_df = sites_df
+
+        # Filter out sites without coordinates
+        map_df = map_df.dropna(subset=['latitude', 'longitude'])
+
+        if map_df.empty:
+            st.warning("No sites with valid coordinates to display.")
+            return
+
+        # Determine map center
+        if view_level == "By Region" and selected_huc2:
+            center = get_region_center(selected_huc2)
+            zoom = HUC2_REGIONS.get(selected_huc2, {}).get('zoom', 6)
+        elif view_level == "By State" and selected_state:
+            center = [map_df['latitude'].mean(), map_df['longitude'].mean()]
+            zoom = 6
+        else:
+            center = US_CENTER
+            zoom = 4
+
+        # Create folium map
+        m = folium.Map(
+            location=center,
+            zoom_start=zoom,
+            tiles='CartoDB positron'
+        )
+
+        # Add marker cluster
+        marker_cluster = MarkerCluster(
+            name="USGS Sites",
+            options={
+                'maxClusterRadius': 50,
+                'disableClusteringAtZoom': 10,
+                'spiderfyOnMaxZoom': True,
+            }
+        )
+
+        # Add markers
+        for _, row in map_df.iterrows():
+            site_id = row.get('site_id', 'Unknown')
+            site_name = row.get('site_name', '')[:50] if pd.notna(row.get('site_name')) else ''
+            huc = row.get('huc_cd', '')
+            drainage = row.get('drainage_area', '')
+
+            popup_html = f"""
+            <b>{site_id}</b><br>
+            {site_name}<br>
+            HUC: {huc}<br>
+            Drainage: {drainage} sq mi
+            """
+
+            folium.CircleMarker(
+                location=[row['latitude'], row['longitude']],
+                radius=5,
+                color='#1f77b4',
+                fill=True,
+                fill_opacity=0.7,
+                popup=folium.Popup(popup_html, max_width=300),
+                tooltip=f"{site_id}"
+            ).add_to(marker_cluster)
+
+        marker_cluster.add_to(m)
+
+        # Display map
+        st_folium(m, width=None, height=500)
+
+        st.markdown("---")
+
+        # Site table
+        st.subheader("📋 Site List")
+
+        # Search filter
+        search = st.text_input("Search sites", placeholder="Enter site ID or name...")
+
+        display_df = sites_df.copy()
+        if search:
+            mask = (
+                display_df['site_id'].astype(str).str.contains(search, case=False, na=False) |
+                display_df['site_name'].astype(str).str.contains(search, case=False, na=False)
+            )
+            display_df = display_df[mask]
+
+        # Select columns to display
+        display_cols = ['site_id', 'site_name', 'state_cd', 'huc2', 'drainage_area', 'begin_date']
+        available_cols = [c for c in display_cols if c in display_df.columns]
+
+        st.dataframe(
+            display_df[available_cols].head(500),
+            use_container_width=True,
+            hide_index=True
+        )
+
+        if len(display_df) > 500:
+            st.caption(f"Showing first 500 of {len(display_df):,} sites")
+
+    # Info section
+    with st.expander("ℹ️ About Watershed View"):
+        st.markdown("""
+        **Data Source:**
+        USGS NWIS (National Water Information System) site inventory for all active
+        streamflow monitoring sites with daily discharge data.
+
+        **HUC Regions:**
+        The US is divided into 21 major water resource regions (HUC-2).
+        Each region contains nested subbasins (HUC-4, HUC-6, HUC-8, etc.).
+
+        **Performance:**
+        The national inventory contains ~10,000-15,000 active sites.
+        Data is cached locally and refreshed weekly.
+
+        **Regions:**
+        - 01: New England
+        - 02: Mid-Atlantic
+        - 03: South Atlantic-Gulf
+        - 04: Great Lakes
+        - 05: Ohio
+        - 06: Tennessee
+        - 07: Upper Mississippi
+        - 08: Lower Mississippi
+        - 09: Souris-Red-Rainy
+        - 10: Missouri
+        - 11: Arkansas-White-Red
+        - 12: Texas-Gulf
+        - 13: Rio Grande
+        - 14: Upper Colorado
+        - 15: Lower Colorado
+        - 16: Great Basin
+        - 17: Pacific Northwest
+        - 18: California
+        - 19: Alaska
+        - 20: Hawaii
+        - 21: Caribbean
+        """)
+
+
+# =============================================================================
 # MAIN
 # =============================================================================
 
@@ -2641,7 +3174,9 @@ def main():
             "2x2 Comparison",
             "🚨 Alert Monitor",
             "🔗 Multi-Site Analysis",
-            "🌊 NWM Comparison"
+            "🌊 NWM Comparison",
+            "🌊 Flood Animation",
+            "🗺️ Watershed View"
         ],
         key="mode"
     )
@@ -2664,6 +3199,10 @@ def main():
         multisite_analysis_mode(inventory_df)
     elif mode == "🌊 NWM Comparison":
         nwm_comparison_mode(inventory_df)
+    elif mode == "🌊 Flood Animation":
+        flood_animation_mode(inventory_df)
+    elif mode == "🗺️ Watershed View":
+        watershed_view_mode(inventory_df)
 
     # Footer in sidebar
     st.sidebar.markdown("---")
