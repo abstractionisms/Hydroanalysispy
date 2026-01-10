@@ -1726,6 +1726,7 @@ def site_map_mode(inventory_df):
     folium.LayerControl().add_to(m)
 
     # Display info
+    st.write(f"DEBUG: map_data has {len(map_data)} rows, columns: {list(map_data.columns)}")
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Total Sites", len(map_data))
