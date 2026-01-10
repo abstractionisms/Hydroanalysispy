@@ -2801,16 +2801,26 @@ def flood_animation_mode(inventory_df):
                         hovertemplate=f"Peak: {site.peak_value:,.0f} cfs<extra></extra>"
                     ))
 
-        # Add vertical line for event peak
+        # Add vertical line for event peak using add_shape to avoid datetime arithmetic issues
         if selected_event.peak_date:
-            # Convert to Python datetime to avoid pandas Timestamp arithmetic issues in Plotly
-            peak_dt = selected_event.peak_date.to_pydatetime() if hasattr(selected_event.peak_date, 'to_pydatetime') else selected_event.peak_date
-            fig.add_vline(
-                x=peak_dt,
-                line_dash="dash",
-                line_color="red",
-                annotation_text="Event Peak",
-                annotation_position="top right"
+            peak_str = selected_event.peak_date.strftime('%Y-%m-%d %H:%M:%S') if hasattr(selected_event.peak_date, 'strftime') else str(selected_event.peak_date)
+            fig.add_shape(
+                type="line",
+                x0=peak_str,
+                x1=peak_str,
+                y0=0,
+                y1=1,
+                yref="paper",
+                line=dict(color="red", width=2, dash="dash")
+            )
+            fig.add_annotation(
+                x=peak_str,
+                y=1,
+                yref="paper",
+                text="Event Peak",
+                showarrow=False,
+                font=dict(color="red"),
+                yanchor="bottom"
             )
 
         # Update layout
