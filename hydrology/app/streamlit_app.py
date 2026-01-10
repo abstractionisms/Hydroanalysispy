@@ -1530,9 +1530,23 @@ def site_map_mode(inventory_df):
     # Map options in sidebar
     st.sidebar.header("Map Options")
 
-    show_huc = st.sidebar.checkbox("Show HUC Boundaries", value=True)
-    huc_level = st.sidebar.selectbox("HUC Level", [2, 4, 6, 8], index=2,
-                                      help="2=Regions, 4=Subregions, 6=Basins, 8=Subbasins")
+    show_huc = st.sidebar.checkbox("Show Watershed Boundaries", value=True)
+
+    # User-friendly watershed boundary options
+    huc_options = {
+        "Major Regions (HUC2)": 2,
+        "Subregions - Puget Sound, Columbia, etc. (HUC4)": 4,
+        "Basins (HUC6)": 6,
+        "Subbasins - Detailed (HUC8)": 8
+    }
+    huc_choice = st.sidebar.selectbox(
+        "Watershed Detail Level",
+        list(huc_options.keys()),
+        index=1,  # Default to Subregions
+        help="Choose how detailed the watershed boundaries should be"
+    )
+    huc_level = huc_options[huc_choice]
+
     use_clustering = st.sidebar.checkbox("Cluster Markers", value=False,
                                          help="Group nearby sites when zoomed out")
 
@@ -1548,7 +1562,7 @@ def site_map_mode(inventory_df):
         control_scale=True
     )
 
-    # Add HUC watershed boundaries via WMS
+    # Add HUC watershed boundaries via WMS (static image, no hover effects)
     if show_huc:
         # USGS National Map WMS for Watershed Boundary Dataset
         wms_url = "https://hydro.nationalmap.gov/arcgis/services/wbd/MapServer/WMSServer"
@@ -1558,13 +1572,14 @@ def site_map_mode(inventory_df):
 
         folium.raster_layers.WmsTileLayer(
             url=wms_url,
-            name=f"HUC{huc_level} Boundaries",
-            layers=huc_layers.get(huc_level, "3"),
+            name=f"Watershed Boundaries",
+            layers=huc_layers.get(huc_level, "2"),
             fmt="image/png",
             transparent=True,
-            opacity=0.5,
+            opacity=0.4,
             overlay=True,
-            control=True
+            control=True,
+            version="1.3.0"
         ).add_to(m)
 
     # Create marker group (clustered or regular)
