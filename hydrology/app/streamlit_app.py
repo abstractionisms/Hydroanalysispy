@@ -1742,8 +1742,12 @@ def site_map_mode(inventory_df):
                     oldest = sorted(dates.tolist())[0]
                     if oldest:
                         oldest_display = oldest[:4]  # Just the year
+                else:
+                    oldest_display = 'Empty'
+            else:
+                oldest_display = 'NoCol'
         except Exception as e:
-            oldest_display = f'Err'
+            oldest_display = f'Err:{type(e).__name__}'
         st.metric("Oldest Record", oldest_display)
     with col3:
         st.metric("Region", "Pacific Northwest")
