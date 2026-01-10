@@ -10,6 +10,7 @@ from typing import Optional, Tuple, Dict
 from meteostat import Point, Daily
 
 from ..core.logging_setup import get_logger
+from ..core.timezone import ensure_utc
 
 logger = get_logger(__name__)
 
@@ -89,10 +90,7 @@ def fetch_climate_data(
         climate_df = climate_df.rename(columns=rename_map)
 
         # Ensure UTC index
-        if climate_df.index.tz is None:
-            climate_df.index = climate_df.index.tz_localize('UTC')
-        else:
-            climate_df.index = climate_df.index.tz_convert('UTC')
+        climate_df = ensure_utc(climate_df)
 
         # Fill missing values
         if 'Precip_mm' in climate_df.columns:

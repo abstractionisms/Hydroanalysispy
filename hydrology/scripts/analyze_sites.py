@@ -25,6 +25,7 @@ from hydrology.data.usgs import fetch_waterml_data
 from hydrology.data.climate import fetch_climate_data
 from hydrology.visualization import create_multi_plot, PlotLayout
 from hydrology.analysis.trends import calculate_annual_means
+from hydrology.core.timezone import ensure_utc
 
 logger = setup_logging(__name__, 'analyze_sites.log')
 
@@ -86,8 +87,8 @@ def analyze_correlation(df_merged):
             if df_analysis[col1].nunique() > 1 and df_analysis[col2].nunique() > 1:
                 _, p_val = stats.pearsonr(df_analysis[col1], df_analysis[col2])
                 results['p_values'][tuple(sorted((col1, col2)))] = p_val
-        except:
-            pass
+        except (ValueError, TypeError) as e:
+            logger.debug(f"Statistical calculation error: {e}")
 
     # Lagged precip correlation
     if 'Precip_mm' in cols and 'Discharge_cfs' in cols:
@@ -100,8 +101,8 @@ def analyze_correlation(df_merged):
                 corr, p_val = stats.pearsonr(df_lag['Discharge_cfs'], df_lag['Precip_mm_lag1'])
                 results['lagged_precip_corr'] = corr
                 results['lagged_precip_p'] = p_val
-        except:
-            pass
+        except (ValueError, TypeError) as e:
+            logger.debug(f"Statistical calculation error: {e}")
 
     return results
 
@@ -156,16 +157,9 @@ def process_site(site_config: Dict[str, Any], analysis_config: Dict[str, Any]) -
     if df_q is not None and not df_q.empty and df_climate is not None and not df_climate.empty:
         logger.info(f"Merging discharge and climate data: {site_id}")
 
-        # Ensure both DataFrames have UTC timezone for compatibility
-        if df_q.index.tz is None:
-            df_q.index = df_q.index.tz_localize('UTC')
-        else:
-            df_q.index = df_q.index.tz_convert('UTC')
-
-        if df_climate.index.tz is None:
-            df_climate.index = df_climate.index.tz_localize('UTC')
-        else:
-            df_climate.index = df_climate.index.tz_convert('UTC')
+        # Normalize timezones to UTC
+        df_q = ensure_utc(df_q)
+        df_climate = ensure_utc(df_climate)
 
         df_merged = pd.merge(df_q, df_climate, left_index=True, right_index=True, how='inner')
 

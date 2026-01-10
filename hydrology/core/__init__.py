@@ -14,6 +14,7 @@ from .paths import (
 )
 from .logging_setup import setup_logging
 from .config import load_config, get_site_config, ConfigurationError
+from .timezone import normalize_index_timezone, ensure_utc, remove_timezone
 
 __all__ = [
     'PROJECT_ROOT',
@@ -30,4 +31,7 @@ __all__ = [
     'load_config',
     'get_site_config',
     'ConfigurationError',
+    'normalize_index_timezone',
+    'ensure_utc',
+    'remove_timezone',
 ]

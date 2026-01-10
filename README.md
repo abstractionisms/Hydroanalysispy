@@ -4,7 +4,16 @@ A Streamlit web application for analyzing USGS water discharge data with climate
 
 ## Features
 
-- **Interactive Site Map** - View 736+ USGS monitoring sites across the Pacific Northwest
+- **Interactive Site Map** - Explore 736+ USGS monitoring sites across the Pacific Northwest
+  - Folium-based map with dark theme
+  - Hover tooltips showing site ID and description
+  - Click popups with coordinates and record start date
+  - Color-coded markers by record age (green=recent, yellow=older, red=historic)
+  - Marker clustering to reduce clutter
+  - HUC watershed boundary overlays (Regions, Subregions, Basins, Subbasins)
+  - Watershed quick-jump dropdown for WA, OR, and ID regions
+  - Filtered site lists by selected watershed
+  - Click table rows to zoom to specific gages
 - **23 Plot Types** - Time series, flow duration curves, flood frequency, baseflow separation, recession analysis, climate correlations, heatmaps, and more
 - **5 Analysis Modes**:
   - **Site Map** - Interactive map of all monitoring sites
@@ -59,5 +68,7 @@ MIT License - see [LICENSE](LICENSE) file.
 ## Acknowledgments
 
 - USGS for streamflow data via NWIS API
+- USGS for HUC watershed boundary WMS layers
 - Meteostat for climate data
 - Streamlit for the web framework
+- Folium for interactive mapping

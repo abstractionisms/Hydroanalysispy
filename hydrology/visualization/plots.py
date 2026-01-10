@@ -61,6 +61,7 @@ DEFAULT_CONFIG = {
     'hexbin_gridsize': 30,
     'n_scatter_annotations': 10,
     'p_significance_level': 0.05,
+    'epsilon': 1e-10,  # Small value for division safety
 }
 
 # Plot labels
@@ -440,7 +441,7 @@ def plot_timeseries(ax, df_q: pd.DataFrame = None, config: Dict[str, Any] = None
                                     arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=-.2"),
                                     ha='center', va='bottom', fontsize=7, color=color1,
                                     bbox=dict(boxstyle='round,pad=0.1', fc='white', alpha=0.6, ec='none'))
-                    except:
+                    except (ValueError, IndexError, TypeError):
                         pass
 
             # Last point
@@ -577,8 +578,6 @@ def plot_monthly_boxplot(ax, df_q: pd.DataFrame = None, config: Dict[str, Any] =
         return
 
     try:
-        import calendar
-        import seaborn as sns
 
         # Prepare data
         df_copy = df_q.copy()
@@ -979,7 +978,9 @@ def plot_low_flow_trend(ax, df_q: pd.DataFrame = None, config: Dict[str, Any] = 
         trend_x = np.linspace(x_years.min(), x_years.max(), 100)
         trend_y = np.poly1d(z)(trend_x)
         slope = z[0]
-        trend_pct = (slope * len(x_years)) / y_vals.mean() * 100 if y_vals.mean() != 0 else 0
+        epsilon = cfg.get('epsilon', 1e-10)
+        y_mean = y_vals.mean()
+        trend_pct = (slope * len(x_years)) / max(abs(y_mean), epsilon) * 100 if y_mean != 0 else 0
 
         ax.bar(x_years, y_vals, color='#d62728', alpha=0.7, width=0.7, label='Annual 7-Day Low')
         ax.plot(trend_x, trend_y, 'k--', lw=2, label=f'Trend ({trend_pct:+.1f}%)')
@@ -1200,7 +1201,7 @@ def plot_recession_curves(ax, df_q: pd.DataFrame = None, config: Dict[str, Any] 
                     # Normalize and plot
                     ax.plot(t, Q_rec / Q0, color=colors[idx % len(colors)],
                            alpha=0.5, linewidth=1)
-            except:
+            except (ValueError, RuntimeError):
                 continue
 
         if not K_values:
@@ -1794,7 +1795,9 @@ def plot_cumulative_departure(ax, df_q: pd.DataFrame = None, config: Dict[str, A
         cum_departure = departure.cumsum()
 
         # Normalize by mean for interpretability (in units of "mean flow days")
-        cum_departure_norm = cum_departure / Q_mean
+        # Use epsilon to avoid division by zero
+        epsilon = cfg.get("epsilon", 1e-10)
+        cum_departure_norm = cum_departure / max(Q_mean, epsilon)
 
         # Find periods of positive and negative departure
         positive_mask = cum_departure_norm >= 0

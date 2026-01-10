@@ -32,6 +32,7 @@ from hydrology.visualization import create_multi_plot, PlotLayout
 from hydrology.visualization.plots import AVAILABLE_PLOTS
 from hydrology.scripts.analyze_sites import analyze_correlation
 from hydrology.core.logging_setup import get_logger
+from hydrology.core.timezone import ensure_utc
 
 logger = get_logger(__name__)
 from hydrology.app.plot_config import (
@@ -717,16 +718,9 @@ def process_site_data(site_id: str, lat: float, lon: float, start_str: str, end_
     analysis_results = None
 
     if df_q is not None and not df_q.empty and df_climate is not None and not df_climate.empty:
-        # Timezone handling
-        if df_q.index.tz is None:
-            df_q.index = df_q.index.tz_localize('UTC')
-        else:
-            df_q.index = df_q.index.tz_convert('UTC')
-
-        if df_climate.index.tz is None:
-            df_climate.index = df_climate.index.tz_localize('UTC')
-        else:
-            df_climate.index = df_climate.index.tz_convert('UTC')
+        # Normalize timezones to UTC
+        df_q = ensure_utc(df_q)
+        df_climate = ensure_utc(df_climate)
 
         df_merged = pd.merge(df_q, df_climate, left_index=True, right_index=True, how='inner')
 
@@ -1704,7 +1698,7 @@ def site_map_mode(inventory_df):
                 color = 'orange'
             else:
                 color = 'red'
-        except:
+        except (ValueError, TypeError):
             color = 'gray'
 
         folium.CircleMarker(
