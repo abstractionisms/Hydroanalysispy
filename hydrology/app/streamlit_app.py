@@ -1121,16 +1121,14 @@ def compare_sites_mode(inventory_df):
         key="compare_sites_multi"
     )
 
-    # Show selected site info in sidebar
+    # Show selected site info and data availability in sidebar
     if selected_sites:
         st.sidebar.markdown("---")
-        st.sidebar.caption("**Selected Sites:**")
         for site_str in selected_sites:
             site_id = site_str.split(" - ")[0]
             site_info = get_cached_site_info(site_id)
             if site_info:
-                desc = site_info.get('description', site_id)[:35]
-                st.sidebar.text(f"• {desc}")
+                display_site_info(site_info, show_check_button=False)
 
     # === MAIN AREA: Configuration & Results ===
     st.header("Compare Sites")
@@ -1139,32 +1137,17 @@ def compare_sites_mode(inventory_df):
         st.info("👈 Select 2-4 sites from the sidebar to compare")
         return
 
+    # Date range using year sliders (like single analysis mode)
+    st.subheader("Date Range")
+    start_date, end_date = date_range_selector("compare_sites", default_start=date(2015, 1, 1))
+
+    st.markdown("---")
+
     # Configuration in main area with columns
     col1, col2, col3 = st.columns([2, 2, 1])
 
     with col1:
-        st.subheader("Date Range")
-        # Date slider
-        min_date = date(1950, 1, 1)
-        max_date = date.today()
-
-        if 'compare_sites_start' not in st.session_state:
-            st.session_state.compare_sites_start = date(2015, 1, 1)
-        if 'compare_sites_end' not in st.session_state:
-            st.session_state.compare_sites_end = date.today()
-
-        # Sanitize cached dates that exceed today
-        if 'cs_start' in st.session_state and st.session_state.cs_start > max_date:
-            st.session_state.cs_start = max_date
-        if 'cs_end' in st.session_state and st.session_state.cs_end > max_date:
-            st.session_state.cs_end = max_date
-
-        start_date = st.date_input("Start", st.session_state.compare_sites_start,
-                                   min_value=min_date, max_value=max_date, key="cs_start")
-        end_date = st.date_input("End", st.session_state.compare_sites_end,
-                                 min_value=min_date, max_value=max_date, key="cs_end")
-        st.session_state.compare_sites_start = start_date
-        st.session_state.compare_sites_end = end_date
+        pass  # Date range moved above
 
     with col2:
         st.subheader("Plot Type")
@@ -1255,15 +1238,14 @@ def quad_comparison_mode(inventory_df):
     site_a = st.sidebar.selectbox("Site A", site_options, key="quad_site_a")
     site_b = st.sidebar.selectbox("Site B", site_options, key="quad_site_b", index=min(1, len(site_options)-1))
 
-    # Show selected site info
+    # Show selected site info and data availability
     st.sidebar.markdown("---")
-    st.sidebar.caption("**Selected:**")
-    for label, site_str in [("A", site_a), ("B", site_b)]:
+    for label, site_str in [("Site A", site_a), ("Site B", site_b)]:
         site_id = site_str.split(" - ")[0]
         site_info = get_cached_site_info(site_id)
         if site_info:
-            desc = site_info.get('description', site_id)[:30]
-            st.sidebar.text(f"{label}: {desc}")
+            st.sidebar.caption(f"**{label}:**")
+            display_site_info(site_info, show_check_button=False)
 
     # === MAIN AREA: Configuration & Results ===
     st.header("2×2 Comparison")
