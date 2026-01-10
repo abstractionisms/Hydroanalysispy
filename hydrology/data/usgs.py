@@ -202,6 +202,11 @@ def fetch_daily_values(
     else:
         start = pd.Timestamp(start_date).normalize()
 
+    # Validate date order
+    if start > end:
+        logger.warning(f"Start date ({start.date()}) after end date ({end.date()}) - swapping")
+        start, end = end, start
+
     logger.info(f"Fetching daily values: site={site_id}, param={param_cd}, "
                 f"{start.date()} to {end.date()}")
 

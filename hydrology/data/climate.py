@@ -46,6 +46,11 @@ def fetch_climate_data(
         ...                              pd.Timestamp('2023-12-31'))
         >>> print(climate[['Temp_C', 'Precip_mm']].describe())
     """
+    # Validate date order
+    if start_date > end_date:
+        logger.warning(f"Start date ({start_date.date()}) after end date ({end_date.date()}) - swapping")
+        start_date, end_date = end_date, start_date
+
     logger.info(f"Fetching climate data: Lat={latitude:.4f}, Lon={longitude:.4f}, "
                 f"{start_date.date()} to {end_date.date()}")
 
