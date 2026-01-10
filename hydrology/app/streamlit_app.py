@@ -26,9 +26,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from hydrology.data.inventory import load_inventory, get_site_info
 from hydrology.data.usgs import (
     fetch_waterml_data, parse_waterml, fetch_daily_values, fetch_stage_data,
-    DEFAULT_PARAM_DISCHARGE, DEFAULT_PARAM_STAGE
+    fetch_instantaneous_values, DEFAULT_PARAM_DISCHARGE, DEFAULT_PARAM_STAGE
 )
 from hydrology.data.climate import fetch_climate_data, fetch_nearest_station_info
+from hydrology.data.nwm import NWMClient, compare_nwm_usgs, get_forecast_skill
+from hydrology.analysis.alerts import (
+    AlertMonitor, AlertThreshold, create_flood_alert, create_low_flow_alert
+)
+from hydrology.analysis.multisite import MultiSiteAnalyzer, quick_correlation_check
 from hydrology.visualization import create_multi_plot, PlotLayout
 from hydrology.visualization.plots import AVAILABLE_PLOTS
 from hydrology.scripts.analyze_sites import analyze_correlation
@@ -1771,7 +1776,7 @@ def site_map_mode(inventory_df):
             # Use dataframe with row selection
             selection = st.dataframe(
                 display_df,
-                use_container_width=True,
+                width='stretch',
                 hide_index=True,
                 selection_mode="single-row",
                 on_select="rerun"
@@ -1795,6 +1800,436 @@ def site_map_mode(inventory_df):
 
 
 # =============================================================================
+# ALERT MONITOR MODE
+# =============================================================================
+
+def alert_monitor_mode(inventory_df):
+    """Real-time alert monitoring for threshold exceedances."""
+    st.sidebar.header("Alert Configuration")
+
+    # Site selection
+    site_options = [f"{row['site_id']} - {str(row.get('description', ''))[:40]}"
+                    for _, row in inventory_df.iterrows()]
+    selected = st.sidebar.selectbox("Monitor Site", site_options, key="alert_site")
+    site_id = extract_site_id(selected)
+
+    site_info = get_cached_site_info(site_id)
+    if not site_info:
+        st.error(f"Site {site_id} not found")
+        return
+
+    desc = site_info.get('description', site_id)
+
+    # Main content
+    st.header("🚨 Alert Monitor")
+    st.caption(f"Real-time threshold monitoring for {desc}")
+
+    # Alert configuration
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("Flood Alerts")
+        flood_enabled = st.checkbox("Enable flood alerts", value=True)
+        if flood_enabled:
+            action_stage = st.number_input("Action Stage (ft)", value=10.0, step=0.5,
+                                          help="Minor flooding threshold")
+            flood_stage = st.number_input("Flood Stage (ft)", value=12.0, step=0.5,
+                                         help="Moderate flooding threshold")
+            major_flood = st.number_input("Major Flood Stage (ft)", value=15.0, step=0.5,
+                                         help="Major flooding threshold")
+
+    with col2:
+        st.subheader("Low Flow Alerts")
+        low_flow_enabled = st.checkbox("Enable low flow alerts", value=False)
+        if low_flow_enabled:
+            low_flow_threshold = st.number_input("Low Flow (cfs)", value=100.0, step=10.0,
+                                                help="Low flow warning threshold")
+            critical_flow = st.number_input("Critical Flow (cfs)", value=50.0, step=10.0,
+                                           help="Critical low flow threshold")
+
+    st.markdown("---")
+
+    # Check current conditions
+    if st.button("🔍 Check Current Conditions", type="primary"):
+        with st.spinner("Fetching current data..."):
+            # Create alert monitor with configured thresholds
+            monitor = AlertMonitor()
+
+            if flood_enabled:
+                thresholds = create_flood_alert(site_id, flood_stage, action_stage, major_flood)
+                for t in thresholds:
+                    monitor.add_threshold(t)
+
+            if low_flow_enabled:
+                thresholds = create_low_flow_alert(site_id, low_flow_threshold, critical_flow)
+                for t in thresholds:
+                    monitor.add_threshold(t)
+
+            # Check for alerts
+            alerts = monitor.check_site(site_id, use_instantaneous=True)
+
+            # Display current conditions
+            st.subheader("Current Conditions")
+
+            # Try to get latest reading
+            try:
+                end_date = datetime.now()
+                start_date = end_date - timedelta(days=1)
+
+                df_instant = fetch_instantaneous_values(
+                    site_id, DEFAULT_PARAM_DISCHARGE,
+                    start_date.strftime('%Y-%m-%d'),
+                    end_date.strftime('%Y-%m-%d')
+                )
+
+                if df_instant is not None and not df_instant.empty:
+                    latest = df_instant.iloc[-1]
+                    latest_time = df_instant.index[-1]
+
+                    col_a, col_b, col_c = st.columns(3)
+                    with col_a:
+                        st.metric("Latest Discharge", f"{latest['value']:.1f} cfs")
+                    with col_b:
+                        st.metric("Reading Time", latest_time.strftime('%Y-%m-%d %H:%M'))
+                    with col_c:
+                        if alerts:
+                            st.metric("Active Alerts", len(alerts))
+                        else:
+                            st.metric("Status", "✅ Normal")
+                else:
+                    st.warning("Could not fetch current instantaneous data")
+
+            except Exception as e:
+                st.error(f"Error fetching data: {e}")
+
+            # Display any alerts
+            if alerts:
+                st.subheader("⚠️ Active Alerts")
+                for alert in alerts:
+                    severity_colors = {
+                        'critical': '🔴',
+                        'warning': '🟡',
+                        'info': '🔵'
+                    }
+                    icon = severity_colors.get(alert.severity, '⚪')
+                    st.error(f"{icon} **{alert.severity.upper()}**: {alert.message}")
+            else:
+                st.success("✅ No alerts - all conditions normal")
+
+    # Show recent history
+    st.markdown("---")
+    st.subheader("Recent Discharge History (24h)")
+
+    try:
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=1)
+
+        df_recent = fetch_instantaneous_values(
+            site_id, DEFAULT_PARAM_DISCHARGE,
+            start_date.strftime('%Y-%m-%d'),
+            end_date.strftime('%Y-%m-%d')
+        )
+
+        if df_recent is not None and not df_recent.empty:
+            st.line_chart(df_recent['value'], use_container_width=True)
+        else:
+            st.info("No recent instantaneous data available")
+    except Exception as e:
+        st.warning(f"Could not load recent history: {e}")
+
+
+# =============================================================================
+# MULTI-SITE ANALYSIS MODE
+# =============================================================================
+
+def multisite_analysis_mode(inventory_df):
+    """Analyze correlations and relationships between multiple sites."""
+    st.sidebar.header("Site Selection")
+
+    # Multi-site selection
+    site_options = [f"{row['site_id']} - {str(row.get('description', ''))[:40]}"
+                    for _, row in inventory_df.iterrows()]
+
+    selected_sites = st.sidebar.multiselect(
+        "Select Sites (2-6)",
+        site_options,
+        max_selections=6,
+        key="multisite_selection"
+    )
+
+    if len(selected_sites) < 2:
+        st.sidebar.warning("Select at least 2 sites")
+
+    st.sidebar.markdown("---")
+
+    # Date range
+    st.sidebar.subheader("Analysis Period")
+    years_back = st.sidebar.slider("Years of data", 1, 10, 3)
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=years_back * 365)
+
+    # Main content
+    st.header("🔗 Multi-Site Analysis")
+    st.caption("Analyze correlations and upstream/downstream relationships")
+
+    if len(selected_sites) < 2:
+        st.info("👈 Select 2-6 sites from the sidebar to analyze their relationships")
+
+        # Show example use cases
+        st.markdown("""
+        ### What this analysis provides:
+        - **Correlation Matrix**: How strongly sites are correlated
+        - **Lag Analysis**: Travel time between upstream/downstream sites
+        - **Relationship Detection**: Automatically identify upstream/downstream pairs
+        - **Flow Contribution**: Estimate contribution from tributaries
+        """)
+        return
+
+    # Extract site IDs
+    site_ids = [extract_site_id(s) for s in selected_sites]
+
+    # Display selected sites
+    st.subheader("Selected Sites")
+    site_cols = st.columns(min(len(site_ids), 3))
+    for i, sid in enumerate(site_ids):
+        info = get_cached_site_info(sid)
+        with site_cols[i % 3]:
+            st.markdown(f"**{sid}**")
+            if info:
+                st.caption(info.get('description', '')[:50])
+
+    st.markdown("---")
+
+    if st.button("🔍 Analyze Relationships", type="primary"):
+        with st.spinner("Fetching data and analyzing correlations..."):
+            # Create analyzer and fetch data
+            analyzer = MultiSiteAnalyzer()
+
+            for sid in site_ids:
+                info = get_cached_site_info(sid)
+                name = info.get('description', sid) if info else sid
+                lat = info.get('latitude') if info else None
+                lon = info.get('longitude') if info else None
+                analyzer.add_site(sid, name=name[:40], latitude=lat, longitude=lon)
+
+            # Fetch data
+            analyzer.fetch_data(
+                start_date.strftime('%Y-%m-%d'),
+                end_date.strftime('%Y-%m-%d')
+            )
+
+            # Get synchronized data
+            synced_data = analyzer.get_synchronized_data()
+
+            if synced_data.empty:
+                st.error("Could not get synchronized data for selected sites")
+                return
+
+            st.success(f"Analyzed {len(synced_data)} days of overlapping data")
+
+            # Correlation Matrix
+            st.subheader("📊 Correlation Matrix")
+            corr_matrix = analyzer.get_correlation_matrix()
+
+            if not corr_matrix.empty:
+                # Display as heatmap-style table
+                st.dataframe(
+                    corr_matrix.style.background_gradient(cmap='RdYlGn', vmin=0, vmax=1)
+                    .format("{:.3f}"),
+                    width='stretch'
+                )
+
+            st.markdown("---")
+
+            # Analyze all pairs
+            st.subheader("🔄 Pairwise Analysis")
+            results = analyzer.analyze_all_pairs()
+
+            if results:
+                for result in results:
+                    with st.expander(f"{result.site_a} ↔ {result.site_b}"):
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Correlation", f"{result.correlation:.3f}")
+                        with col2:
+                            st.metric("Optimal Lag", f"{result.lag_days} days")
+                        with col3:
+                            relationship_icons = {
+                                'upstream': '⬆️ Upstream',
+                                'downstream': '⬇️ Downstream',
+                                'parallel': '↔️ Parallel',
+                                'unknown': '❓ Unknown'
+                            }
+                            st.metric("Relationship", relationship_icons.get(result.relationship, result.relationship))
+
+                        st.caption(f"Based on {result.n_observations} observations, p-value: {result.p_value:.2e}")
+
+            st.markdown("---")
+
+            # Upstream/Downstream Detection
+            st.subheader("🌊 Detected Relationships")
+            relationships = analyzer.identify_upstream_downstream()
+
+            for sid, rels in relationships.items():
+                if rels['upstream'] or rels['downstream']:
+                    info = get_cached_site_info(sid)
+                    name = info.get('description', sid)[:30] if info else sid
+
+                    upstream_str = ", ".join(rels['upstream']) if rels['upstream'] else "None"
+                    downstream_str = ", ".join(rels['downstream']) if rels['downstream'] else "None"
+
+                    st.markdown(f"**{sid}** ({name})")
+                    st.markdown(f"  - ⬆️ Upstream of: {downstream_str}")
+                    st.markdown(f"  - ⬇️ Downstream of: {upstream_str}")
+
+
+# =============================================================================
+# NWM COMPARISON MODE
+# =============================================================================
+
+def nwm_comparison_mode(inventory_df):
+    """Compare USGS observations with National Water Model forecasts."""
+    st.sidebar.header("Site Selection")
+
+    # Site selection
+    site_options = [f"{row['site_id']} - {str(row.get('description', ''))[:40]}"
+                    for _, row in inventory_df.iterrows()]
+    selected = st.sidebar.selectbox("Select Site", site_options, key="nwm_site")
+    site_id = extract_site_id(selected)
+
+    site_info = get_cached_site_info(site_id)
+    if not site_info:
+        st.error(f"Site {site_id} not found")
+        return
+
+    desc = site_info.get('description', site_id)
+
+    st.sidebar.markdown("---")
+
+    # Comparison period
+    st.sidebar.subheader("Comparison Period")
+    days_back = st.sidebar.slider("Days to compare", 7, 90, 30)
+
+    # Main content
+    st.header("🌊 NWM Comparison")
+    st.caption(f"Compare USGS observations with National Water Model for {desc}")
+
+    st.markdown("""
+    The **National Water Model (NWM)** produces streamflow forecasts for the entire US river network.
+    This tool compares NWM analysis data with actual USGS observations to assess model accuracy.
+    """)
+
+    st.markdown("---")
+
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        if st.button("🔍 Compare with NWM", type="primary"):
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=days_back)
+
+            with st.spinner("Fetching NWM reach ID..."):
+                client = NWMClient()
+                reach_id = client.get_reach_id(site_id)
+
+                if reach_id:
+                    st.info(f"NWM Reach ID: {reach_id}")
+                else:
+                    st.warning("Could not find NWM reach ID for this site. The site may not be in the NWM network.")
+
+            with st.spinner("Comparing NWM with USGS observations..."):
+                comparison = compare_nwm_usgs(
+                    site_id,
+                    start_date.strftime('%Y-%m-%d'),
+                    end_date.strftime('%Y-%m-%d')
+                )
+
+                if comparison is None:
+                    st.error("Could not complete comparison. This may be due to:")
+                    st.markdown("""
+                    - Site not in NWM network
+                    - NWM API unavailable
+                    - Insufficient overlapping data
+                    """)
+                    return
+
+                # Display metrics
+                st.subheader("📊 Model Performance Metrics")
+
+                col_a, col_b, col_c, col_d = st.columns(4)
+
+                with col_a:
+                    nse = comparison.nash_sutcliffe
+                    nse_color = "normal" if nse > 0.5 else "off"
+                    st.metric("Nash-Sutcliffe", f"{nse:.3f}",
+                             help="NSE > 0.5 is generally considered good")
+
+                with col_b:
+                    st.metric("Correlation", f"{comparison.correlation:.3f}")
+
+                with col_c:
+                    st.metric("RMSE", f"{comparison.rmse:.1f} cfs")
+
+                with col_d:
+                    st.metric("Bias", f"{comparison.bias:+.1f} cfs",
+                             help="Positive = NWM overestimates")
+
+                # Additional metrics
+                st.markdown("---")
+                col_e, col_f, col_g = st.columns(3)
+
+                with col_e:
+                    st.metric("MAE", f"{comparison.mae:.1f} cfs")
+
+                with col_f:
+                    st.metric("Percent Bias", f"{comparison.percent_bias:+.1f}%")
+
+                with col_g:
+                    st.metric("N Observations", comparison.n_observations)
+
+                # Skill rating
+                st.markdown("---")
+                st.subheader("🎯 Forecast Skill Rating")
+
+                skill_result = get_forecast_skill(site_id, n_days=days_back)
+
+                if 'rating' in skill_result:
+                    rating = skill_result['rating']
+                    rating_colors = {
+                        'Excellent': '🟢',
+                        'Good': '🟡',
+                        'Fair': '🟠',
+                        'Poor': '🔴',
+                        'Very Poor': '⚫'
+                    }
+                    icon = rating_colors.get(rating, '⚪')
+                    st.markdown(f"### {icon} {rating}")
+
+                    st.markdown("""
+                    **Rating Criteria:**
+                    - 🟢 Excellent: NSE > 0.75, Correlation > 0.9
+                    - 🟡 Good: NSE > 0.5, Correlation > 0.8
+                    - 🟠 Fair: NSE > 0.25, Correlation > 0.6
+                    - 🔴 Poor: NSE > 0, Correlation < 0.6
+                    - ⚫ Very Poor: NSE < 0
+                    """)
+
+    with col2:
+        st.markdown("### About NWM")
+        st.markdown("""
+        **Data Sources:**
+        - Analysis (hindcast)
+        - Short-range (0-18h)
+        - Medium-range (0-10 days)
+        - Long-range (0-30 days)
+
+        **Resolution:**
+        - 2.7 million river reaches
+        - Hourly to 6-hourly output
+        """)
+
+
+# =============================================================================
 # MAIN
 # =============================================================================
 
@@ -1810,7 +2245,16 @@ def main():
     # Mode selection
     mode = st.sidebar.radio(
         "Analysis Mode",
-        ["Site Map", "Single Analysis", "Compare Time Periods", "Compare Sites", "2x2 Comparison"],
+        [
+            "Site Map",
+            "Single Analysis",
+            "Compare Time Periods",
+            "Compare Sites",
+            "2x2 Comparison",
+            "🚨 Alert Monitor",
+            "🔗 Multi-Site Analysis",
+            "🌊 NWM Comparison"
+        ],
         key="mode"
     )
 
@@ -1826,6 +2270,12 @@ def main():
         compare_sites_mode(inventory_df)
     elif mode == "2x2 Comparison":
         quad_comparison_mode(inventory_df)
+    elif mode == "🚨 Alert Monitor":
+        alert_monitor_mode(inventory_df)
+    elif mode == "🔗 Multi-Site Analysis":
+        multisite_analysis_mode(inventory_df)
+    elif mode == "🌊 NWM Comparison":
+        nwm_comparison_mode(inventory_df)
 
     # Footer in sidebar
     st.sidebar.markdown("---")
