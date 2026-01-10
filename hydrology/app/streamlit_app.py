@@ -1547,8 +1547,8 @@ def site_map_mode(inventory_df):
     )
     huc_level = huc_options[huc_choice]
 
-    use_clustering = st.sidebar.checkbox("Cluster Markers", value=False,
-                                         help="Group nearby sites when zoomed out")
+    use_clustering = st.sidebar.checkbox("Cluster Nearby Sites", value=True,
+                                         help="Group nearby sites into clusters (uncheck to see all individual markers)")
 
     # Calculate map center from data
     center_lat = map_data['latitude'].mean()
@@ -1628,13 +1628,13 @@ def site_map_mode(inventory_df):
 
         folium.CircleMarker(
             location=[lat, lon],
-            radius=6,
+            radius=4,
             popup=folium.Popup(popup_html, max_width=250),
             tooltip=tooltip,
             color=color,
             fill=True,
             fillColor=color,
-            fillOpacity=0.7,
+            fillOpacity=0.8,
             weight=1
         ).add_to(marker_group)
 
