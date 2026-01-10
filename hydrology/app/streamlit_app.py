@@ -916,7 +916,7 @@ def single_analysis_mode(inventory_df):
 
     with col_btn:
         st.markdown("<br>", unsafe_allow_html=True)  # Align button with inputs
-        generate = st.button("🔍 Generate Plots", type="primary", width='stretch')
+        generate = st.button("🔍 Generate Plots", type="primary", use_container_width=True)
 
     st.markdown("---")
 
@@ -1143,7 +1143,7 @@ def compare_time_periods_mode(inventory_df):
 
     with col_btn:
         st.subheader(" ")
-        generate = st.button("🔍 Compare Periods", type="primary", width='stretch')
+        generate = st.button("🔍 Compare Periods", type="primary", use_container_width=True)
 
     # Generate comparison
     if generate:
@@ -1260,7 +1260,7 @@ def compare_sites_mode(inventory_df):
 
     # Generate button in main area
     st.markdown("---")
-    if st.button("🔍 Compare Sites", type="primary", width='stretch'):
+    if st.button("🔍 Compare Sites", type="primary", use_container_width=True):
         # Show comparison header (using safe Streamlit components)
         st.header("Multi-Site Comparison")
         st.caption(f"{len(selected_sites)} sites | {start_date} to {end_date}")
@@ -1427,7 +1427,7 @@ def quad_comparison_mode(inventory_df):
 
     with col_btn:
         st.subheader(" ")  # Spacer
-        generate = st.button("🔍 Generate 2×2", type="primary", width='stretch')
+        generate = st.button("🔍 Generate 2×2", type="primary", use_container_width=True)
 
     # Generate comparison
     if generate:
@@ -1794,7 +1794,7 @@ def site_map_mode(inventory_df):
             # Use dataframe with row selection
             selection = st.dataframe(
                 display_df,
-                width='stretch',
+                use_container_width=True,
                 hide_index=True,
                 selection_mode="single-row",
                 on_select="rerun"
@@ -2175,7 +2175,7 @@ def multisite_analysis_mode(inventory_df):
 
     st.markdown("---")
 
-    if st.button("🔍 Analyze Relationships", type="primary", width='stretch'):
+    if st.button("🔍 Analyze Relationships", type="primary", use_container_width=True):
         # Create analyzer and fetch data
         analyzer = MultiSiteAnalyzer()
 
@@ -2257,7 +2257,7 @@ def multisite_analysis_mode(inventory_df):
 
         # Rename columns for display
         plot_data = synced_data.rename(columns=site_names)
-        st.line_chart(plot_data, width='stretch')
+        st.line_chart(plot_data, use_container_width=True)
 
         # Correlation Matrix with improved visualization
         st.markdown("---")
@@ -2291,7 +2291,7 @@ def multisite_analysis_mode(inventory_df):
                 yaxis_title="",
             )
 
-            st.plotly_chart(fig, width='stretch')
+            st.plotly_chart(fig, use_container_width=True)
 
             # Correlation interpretation
             avg_corr = corr_matrix.values[~np.eye(len(corr_matrix), dtype=bool)].mean()
@@ -2334,7 +2334,7 @@ def multisite_analysis_mode(inventory_df):
                 })
 
             summary_df = pd.DataFrame(summary_data)
-            st.dataframe(summary_df, width='stretch', hide_index=True)
+            st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
             # Detailed expandable sections
             st.markdown("##### Detailed Analysis")
@@ -2803,8 +2803,10 @@ def flood_animation_mode(inventory_df):
 
         # Add vertical line for event peak
         if selected_event.peak_date:
+            # Convert to Python datetime to avoid pandas Timestamp arithmetic issues in Plotly
+            peak_dt = selected_event.peak_date.to_pydatetime() if hasattr(selected_event.peak_date, 'to_pydatetime') else selected_event.peak_date
             fig.add_vline(
-                x=selected_event.peak_date,
+                x=peak_dt,
                 line_dash="dash",
                 line_color="red",
                 annotation_text="Event Peak",
