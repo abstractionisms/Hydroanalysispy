@@ -1592,7 +1592,7 @@ def site_map_mode(inventory_df):
             key="site_zoom_select"
         )
 
-        # If a site is selected, override center/zoom
+        # If a site is selected from dropdown, override center/zoom
         if selected_site != "(Select a site to zoom)":
             site_id = selected_site.split(" - ")[0]
             site_row = filtered_sites[filtered_sites['site_id'] == site_id]
@@ -1600,6 +1600,18 @@ def site_map_mode(inventory_df):
                 center_lat = site_row.iloc[0]['latitude']
                 center_lon = site_row.iloc[0]['longitude']
                 zoom_start = 12  # Zoom in close to the site
+
+    # Check if a site was selected from the table (overrides dropdown)
+    if 'table_selected_site' in st.session_state:
+        table_site = st.session_state['table_selected_site']
+        center_lat = table_site['lat']
+        center_lon = table_site['lon']
+        zoom_start = 12
+        st.sidebar.success(f"📍 {table_site['site_id']}")
+        st.sidebar.caption(table_site['description'][:50])
+        if st.sidebar.button("Clear Selection", key="clear_table_selection"):
+            del st.session_state['table_selected_site']
+            st.rerun()
 
     st.sidebar.markdown("---")
 
@@ -1757,8 +1769,31 @@ def site_map_mode(inventory_df):
             st.info("No sites found in this watershed area")
         else:
             display_df = filtered_sites[['site_id', 'description', 'latitude', 'longitude', 'begin_date']].copy()
-            st.caption("💡 Use the site dropdown in the sidebar to zoom to a specific gage")
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
+            display_df = display_df.reset_index(drop=True)
+
+            st.caption("👆 Click a row to zoom to that site")
+
+            # Use dataframe with row selection
+            selection = st.dataframe(
+                display_df,
+                use_container_width=True,
+                hide_index=True,
+                selection_mode="single-row",
+                on_select="rerun"
+            )
+
+            # Handle row selection - store in session state for next rerun
+            if selection and selection.selection and selection.selection.rows:
+                selected_row_idx = selection.selection.rows[0]
+                if selected_row_idx < len(display_df):
+                    selected_row = display_df.iloc[selected_row_idx]
+                    st.session_state['table_selected_site'] = {
+                        'site_id': selected_row['site_id'],
+                        'lat': selected_row['latitude'],
+                        'lon': selected_row['longitude'],
+                        'description': selected_row['description']
+                    }
+                    st.rerun()
 
 
 # =============================================================================
