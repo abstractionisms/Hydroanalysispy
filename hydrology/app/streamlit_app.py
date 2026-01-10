@@ -911,7 +911,7 @@ def single_analysis_mode(inventory_df):
 
     with col_btn:
         st.markdown("<br>", unsafe_allow_html=True)  # Align button with inputs
-        generate = st.button("🔍 Generate Plots", type="primary", use_container_width=True)
+        generate = st.button("🔍 Generate Plots", type="primary", width='stretch')
 
     st.markdown("---")
 
@@ -1138,7 +1138,7 @@ def compare_time_periods_mode(inventory_df):
 
     with col_btn:
         st.subheader(" ")
-        generate = st.button("🔍 Compare Periods", type="primary", use_container_width=True)
+        generate = st.button("🔍 Compare Periods", type="primary", width='stretch')
 
     # Generate comparison
     if generate:
@@ -1255,7 +1255,7 @@ def compare_sites_mode(inventory_df):
 
     # Generate button in main area
     st.markdown("---")
-    if st.button("🔍 Compare Sites", type="primary", use_container_width=True):
+    if st.button("🔍 Compare Sites", type="primary", width='stretch'):
         # Show comparison header (using safe Streamlit components)
         st.header("Multi-Site Comparison")
         st.caption(f"{len(selected_sites)} sites | {start_date} to {end_date}")
@@ -1422,7 +1422,7 @@ def quad_comparison_mode(inventory_df):
 
     with col_btn:
         st.subheader(" ")  # Spacer
-        generate = st.button("🔍 Generate 2×2", type="primary", use_container_width=True)
+        generate = st.button("🔍 Generate 2×2", type="primary", width='stretch')
 
     # Generate comparison
     if generate:
@@ -1782,18 +1782,21 @@ def site_map_mode(inventory_df):
                 on_select="rerun"
             )
 
-            # Handle row selection - store in session state for next rerun
+            # Handle row selection - store in session state (on_select="rerun" handles the rerun)
             if selection and selection.selection and selection.selection.rows:
                 selected_row_idx = selection.selection.rows[0]
                 if selected_row_idx < len(display_df):
                     selected_row = display_df.iloc[selected_row_idx]
-                    st.session_state['table_selected_site'] = {
-                        'site_id': selected_row['site_id'],
-                        'lat': selected_row['latitude'],
-                        'lon': selected_row['longitude'],
-                        'description': selected_row['description']
-                    }
-                    st.rerun()
+                    new_site_id = selected_row['site_id']
+                    # Only update if it's a different site (prevents rerun loop)
+                    current = st.session_state.get('table_selected_site', {})
+                    if current.get('site_id') != new_site_id:
+                        st.session_state['table_selected_site'] = {
+                            'site_id': new_site_id,
+                            'lat': selected_row['latitude'],
+                            'lon': selected_row['longitude'],
+                            'description': selected_row['description']
+                        }
 
 
 # =============================================================================
