@@ -770,20 +770,38 @@ def create_comparison_figure(plot_name: str, data_list: list, titles: list,
 
         if plot_func and data is not None:
             try:
-                # Check data availability
+                # Check data availability in detail
                 plot_requires = plot_info.get('requires', [])
-                has_merged = data.get('df_merged') is not None and not data['df_merged'].empty if 'df_merged' in data else False
-                has_discharge = data.get('df_q') is not None and not data['df_q'].empty if 'df_q' in data else False
+                df_q = data.get('df_q')
+                df_merged = data.get('df_merged')
 
-                # Only block if NO data at all is available
-                if 'df_q' in plot_requires and not has_discharge and not has_merged:
-                    ax.text(0.5, 0.5, "No Discharge Data\nfor this period",
-                           ha='center', va='center', transform=ax.transAxes, fontsize=12)
+                has_discharge = df_q is not None and not df_q.empty
+                has_merged = df_merged is not None and not df_merged.empty
+                has_gage = has_discharge and 'Gage_Height_ft' in df_q.columns and df_q['Gage_Height_ft'].notna().any()
+                has_climate = has_merged and 'Precip_mm' in df_merged.columns
+
+                # Build detailed availability message
+                missing = []
+                if 'df_q' in plot_requires and not has_discharge:
+                    missing.append("Discharge")
+                if 'df_merged' in plot_requires and not has_merged:
+                    if not has_discharge:
+                        missing.append("Discharge")
+                    if not has_climate:
+                        missing.append("Climate")
+
+                if missing:
+                    msg = f"Missing: {', '.join(missing)}"
+                    ax.text(0.5, 0.5, msg, ha='center', va='center',
+                           transform=ax.transAxes, fontsize=11, color='red')
+                    ax.text(0.5, 0.35, f"Q: {'✓' if has_discharge else '✗'}  Gage: {'✓' if has_gage else '✗'}  Climate: {'✓' if has_climate else '✗'}",
+                           ha='center', va='center', transform=ax.transAxes, fontsize=9, color='gray')
                 else:
                     # Let plot functions handle missing data gracefully with fallbacks
                     plot_func(ax, **data, config={})
                 ax.set_title(title, fontsize=10)
             except Exception as e:
+                logger.error(f"Plot error for {title}: {e}")
                 ax.text(0.5, 0.5, f"Plot Error:\n{str(e)[:50]}",
                        ha='center', va='center', transform=ax.transAxes, fontsize=10)
                 ax.set_title(title, fontsize=10)
