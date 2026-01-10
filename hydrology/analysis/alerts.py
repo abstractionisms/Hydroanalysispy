@@ -7,7 +7,7 @@ parameters with configurable notification options.
 Features:
 - Define alert thresholds (flood stage, low flow, rate of change)
 - Check current conditions against thresholds
-- Send notifications via email, webhook, or logging
+- Send notifications via webhook or logging
 - Track alert history
 
 Example:
@@ -25,10 +25,8 @@ Example:
 """
 
 import json
-import smtplib
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field, asdict
-from email.mime.text import MIMEText
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Callable, Any
@@ -143,45 +141,13 @@ class AlertNotifier:
 
     Supports multiple notification methods:
     - Logging (always enabled)
-    - Email (requires SMTP configuration)
     - Webhook (POST to URL)
     - Custom callback functions
     """
 
     def __init__(self):
-        self.email_config: Optional[Dict] = None
         self.webhook_url: Optional[str] = None
         self.custom_callbacks: List[Callable[[Alert], None]] = []
-
-    def configure_email(
-        self,
-        smtp_server: str,
-        smtp_port: int,
-        username: str,
-        password: str,
-        from_addr: str,
-        to_addrs: List[str]
-    ):
-        """
-        Configure email notifications.
-
-        Args:
-            smtp_server: SMTP server hostname
-            smtp_port: SMTP server port
-            username: SMTP username
-            password: SMTP password
-            from_addr: Sender email address
-            to_addrs: List of recipient email addresses
-        """
-        self.email_config = {
-            'server': smtp_server,
-            'port': smtp_port,
-            'username': username,
-            'password': password,
-            'from': from_addr,
-            'to': to_addrs
-        }
-        logger.info(f"Email notifications configured: {smtp_server}")
 
     def configure_webhook(self, url: str):
         """
@@ -224,14 +190,6 @@ class AlertNotifier:
         )
         success = True
 
-        # Email notification
-        if self.email_config:
-            try:
-                self._send_email(alert)
-                success = True
-            except Exception as e:
-                logger.error(f"Email notification failed: {e}")
-
         # Webhook notification
         if self.webhook_url:
             try:
@@ -249,41 +207,6 @@ class AlertNotifier:
                 logger.error(f"Custom callback failed: {e}")
 
         return success
-
-    def _send_email(self, alert: Alert):
-        """Send email notification."""
-        if not self.email_config:
-            return
-
-        subject = f"[{alert.threshold.severity.upper()}] Hydrology Alert - Site {alert.threshold.site_id}"
-        body = f"""
-Hydrology Alert Triggered
-========================
-
-Site ID: {alert.threshold.site_id}
-Parameter: {alert.threshold.parameter}
-Condition: {alert.threshold.condition} {alert.threshold.value}
-Current Value: {alert.current_value:.2f}
-Severity: {alert.threshold.severity}
-Time: {alert.timestamp.strftime('%Y-%m-%d %H:%M:%S')}
-
-Message: {alert.threshold.message}
-
----
-This is an automated alert from the Hydrology Analysis System.
-"""
-
-        msg = MIMEText(body)
-        msg['Subject'] = subject
-        msg['From'] = self.email_config['from']
-        msg['To'] = ', '.join(self.email_config['to'])
-
-        with smtplib.SMTP(self.email_config['server'], self.email_config['port']) as server:
-            server.starttls()
-            server.login(self.email_config['username'], self.email_config['password'])
-            server.send_message(msg)
-
-        logger.info(f"Email notification sent for alert {alert.alert_id}")
 
     def _send_webhook(self, alert: Alert):
         """Send webhook notification."""
