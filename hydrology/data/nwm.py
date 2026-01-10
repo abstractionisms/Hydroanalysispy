@@ -555,6 +555,6 @@ def get_comparison_data(
     client = NWMClient()
 
     nwm_data = client.get_analysis(site_id, start_date, end_date)
-    usgs_data = fetch_daily_values(site_id, '00060', start_date, end_date)
+    usgs_data = fetch_daily_values(site_id, param_cd='00060', start_date=start_date, end_date=end_date)
 
     return nwm_data, usgs_data

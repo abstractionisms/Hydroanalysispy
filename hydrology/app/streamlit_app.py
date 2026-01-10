@@ -1877,9 +1877,9 @@ def alert_monitor_mode(inventory_df):
                 start_date = end_date - timedelta(days=1)
 
                 df_instant = fetch_instantaneous_values(
-                    site_id, DEFAULT_PARAM_DISCHARGE,
-                    start_date.strftime('%Y-%m-%d'),
-                    end_date.strftime('%Y-%m-%d')
+                    site_id, param_cd=DEFAULT_PARAM_DISCHARGE,
+                    start_date=start_date.strftime('%Y-%m-%d'),
+                    end_date=end_date.strftime('%Y-%m-%d')
                 )
 
                 if df_instant is not None and not df_instant.empty:
@@ -1925,9 +1925,9 @@ def alert_monitor_mode(inventory_df):
         start_date = end_date - timedelta(days=1)
 
         df_recent = fetch_instantaneous_values(
-            site_id, DEFAULT_PARAM_DISCHARGE,
-            start_date.strftime('%Y-%m-%d'),
-            end_date.strftime('%Y-%m-%d')
+            site_id, param_cd=DEFAULT_PARAM_DISCHARGE,
+            start_date=start_date.strftime('%Y-%m-%d'),
+            end_date=end_date.strftime('%Y-%m-%d')
         )
 
         if df_recent is not None and not df_recent.empty:

@@ -153,7 +153,10 @@ class MultiSiteAnalyzer:
         """
         for site_id in self.sites:
             try:
-                df = fetch_daily_values(site_id, param_code, start_date, end_date)
+                df = fetch_daily_values(
+                    site_id, param_cd=param_code,
+                    start_date=start_date, end_date=end_date
+                )
                 if df is not None and not df.empty:
                     self.data[site_id] = df
                     logger.info(f"Fetched {len(df)} records for site {site_id}")

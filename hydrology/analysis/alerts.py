@@ -396,15 +396,15 @@ class AlertMonitor:
 
                 if use_instantaneous:
                     df = fetch_instantaneous_values(
-                        site_id, param_code,
-                        start_date.strftime('%Y-%m-%d'),
-                        end_date.strftime('%Y-%m-%d')
+                        site_id, param_cd=param_code,
+                        start_date=start_date.strftime('%Y-%m-%d'),
+                        end_date=end_date.strftime('%Y-%m-%d')
                     )
                 else:
                     df = fetch_daily_values(
-                        site_id, param_code,
-                        start_date.strftime('%Y-%m-%d'),
-                        end_date.strftime('%Y-%m-%d')
+                        site_id, param_cd=param_code,
+                        start_date=start_date.strftime('%Y-%m-%d'),
+                        end_date=end_date.strftime('%Y-%m-%d')
                     )
 
                 if df is None or df.empty:
