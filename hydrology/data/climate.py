@@ -158,6 +158,14 @@ def fetch_nearest_station_info(
             'distance_km': station.get('distance', 0) / 1000,  # Meteostat returns meters
         }
 
+        # Include data coverage dates if available
+        daily_start = station.get('daily_start', None)
+        daily_end = station.get('daily_end', None)
+        if daily_start is not None:
+            station_dict['daily_start'] = str(daily_start)[:10] if daily_start else None
+        if daily_end is not None:
+            station_dict['daily_end'] = str(daily_end)[:10] if daily_end else None
+
         logger.info(f"Nearest station: {station_dict['name']} "
                    f"({station_dict.get('distance_km', '?')} km away)")
 

@@ -488,21 +488,35 @@ def display_site_info(site_info: dict, show_check_button: bool = True):
             else:
                 availability_text.append("❌ **Gage Height** (not available)")
 
-    # Climate - based on weather station distance
+    # Climate - based on weather station distance and data coverage
     if lat and lon:
         station = get_weather_station_info(float(lat), float(lon))
         if station:
             dist = station.get('distance_km')
-            name = station.get('name', 'Unknown')
+            name = station.get('name', 'Unknown')[:25]  # Truncate long names
+            daily_start = station.get('daily_start')
+            daily_end = station.get('daily_end')
+
+            # Build coverage string
+            if daily_start and daily_end:
+                coverage = f"{daily_start[:4]}-{daily_end[:4]}"
+            elif daily_start:
+                coverage = f"{daily_start[:4]}-present"
+            else:
+                coverage = "varies"
+
             if dist is not None:
                 if dist < 20:
-                    availability_text.append(f"✅ **Climate** ({name}, {dist:.1f} km)")
+                    availability_text.append(f"✅ **Climate** ({name})")
+                    availability_text.append(f"   ↳ {dist:.1f} km, {coverage}")
                 elif dist < 50:
-                    availability_text.append(f"⚠️ **Climate** ({name}, {dist:.1f} km)")
+                    availability_text.append(f"⚠️ **Climate** ({name})")
+                    availability_text.append(f"   ↳ {dist:.1f} km, {coverage}")
                 else:
-                    availability_text.append(f"⚠️ **Climate** ({name}, {dist:.0f} km - distant)")
+                    availability_text.append(f"⚠️ **Climate** ({name})")
+                    availability_text.append(f"   ↳ {dist:.0f} km (distant), {coverage}")
             else:
-                availability_text.append(f"⚠️ **Climate** ({name})")
+                availability_text.append(f"⚠️ **Climate** ({name}, {coverage})")
         else:
             availability_text.append("❌ **Climate** (no station found)")
     else:
