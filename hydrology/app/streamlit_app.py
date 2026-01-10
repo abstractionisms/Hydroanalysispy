@@ -1776,7 +1776,7 @@ def site_map_mode(inventory_df):
             # Use dataframe with row selection
             selection = st.dataframe(
                 display_df,
-                use_container_width=True,
+                width='stretch',
                 hide_index=True,
                 selection_mode="single-row",
                 on_select="rerun"
