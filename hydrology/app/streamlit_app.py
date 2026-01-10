@@ -515,7 +515,7 @@ def display_site_info(site_info: dict, show_check_button: bool = True):
 
 def date_range_selector(key_prefix: str = "", default_start: date = None, default_end: date = None):
     """
-    Date range selector with synced slider and manual inputs.
+    Date range selector with year sliders and manual date inputs.
     Returns (start_date, end_date) tuple.
     """
     if default_start is None:
@@ -523,40 +523,63 @@ def date_range_selector(key_prefix: str = "", default_start: date = None, defaul
     if default_end is None:
         default_end = date.today()
 
-    min_date = date(1900, 1, 1)
-    max_date = date.today()
+    min_year = 1900
+    current_year = date.today().year
 
-    # Initialize session state for this date range
-    start_key = f"{key_prefix}_start_val"
-    end_key = f"{key_prefix}_end_val"
-    
-    if start_key not in st.session_state:
-        st.session_state[start_key] = default_start
-    if end_key not in st.session_state:
-        st.session_state[end_key] = default_end
+    # Initialize session state for years
+    start_year_key = f"{key_prefix}_start_year"
+    end_year_key = f"{key_prefix}_end_year"
 
-    # Manual input boxes (primary controls)
+    if start_year_key not in st.session_state:
+        st.session_state[start_year_key] = default_start.year
+    if end_year_key not in st.session_state:
+        st.session_state[end_year_key] = default_end.year
+
+    # Year sliders
     col1, col2 = st.columns(2)
     with col1:
-        start = st.date_input(
-            "Start Date",
-            value=st.session_state[start_key],
-            min_value=min_date,
-            max_value=max_date,
-            key=f"{key_prefix}_start"
+        start_year = st.slider(
+            "Start Year",
+            min_value=min_year,
+            max_value=current_year,
+            value=st.session_state[start_year_key],
+            key=f"{key_prefix}_start_slider"
         )
-    with col2:
-        end = st.date_input(
-            "End Date",
-            value=st.session_state[end_key],
-            min_value=min_date,
-            max_value=max_date,
-            key=f"{key_prefix}_end"
-        )
+        st.session_state[start_year_key] = start_year
+        start = date(start_year, 1, 1)
 
-    # Update session state from inputs
-    st.session_state[start_key] = start
-    st.session_state[end_key] = end
+    with col2:
+        end_year = st.slider(
+            "End Year",
+            min_value=min_year,
+            max_value=current_year,
+            value=st.session_state[end_year_key],
+            key=f"{key_prefix}_end_slider"
+        )
+        st.session_state[end_year_key] = end_year
+        end = date(end_year, 12, 31)
+
+    # Fine-tune with date inputs (collapsed by default)
+    with st.expander("Fine-tune dates"):
+        col3, col4 = st.columns(2)
+        with col3:
+            start = st.date_input(
+                "Start Date",
+                value=start,
+                min_value=date(1900, 1, 1),
+                max_value=date.today(),
+                key=f"{key_prefix}_start"
+            )
+        with col4:
+            end = st.date_input(
+                "End Date",
+                value=end,
+                min_value=date(1900, 1, 1),
+                max_value=date.today(),
+                key=f"{key_prefix}_end"
+            )
+
+    st.caption(f"Range: {start} → {end}")
 
     return start, end
 
@@ -900,61 +923,81 @@ def compare_time_periods_mode(inventory_df):
         else:
             st.caption(f"{period_days} days")
 
+    # Initialize session state for years
+    if 'period_a_year' not in st.session_state:
+        st.session_state.period_a_year = 2010
+    if 'period_b_year' not in st.session_state:
+        st.session_state.period_b_year = 2020
+
+    current_year = date.today().year
+
     with col2:
         st.subheader("Period A")
-        if 'period_a_start' not in st.session_state:
-            st.session_state.period_a_start = date(2010, 10, 1) if is_water_year else date(2010, 1, 1)
+        # Year slider
+        year_a = st.slider(
+            "Year",
+            min_value=1900,
+            max_value=current_year,
+            value=st.session_state.period_a_year,
+            key="slider_a",
+            label_visibility="collapsed"
+        )
+        st.session_state.period_a_year = year_a
 
-        col_a1, col_a2, col_a3 = st.columns([1, 3, 1])
-        with col_a1:
-            if st.button("◀", key="shift_a_back"):
-                if is_water_year:
-                    st.session_state.period_a_start = date(st.session_state.period_a_start.year - 1, 10, 1)
-                else:
-                    st.session_state.period_a_start = st.session_state.period_a_start - timedelta(days=period_days)
-        with col_a2:
-            start_a = st.date_input("Start", st.session_state.period_a_start, key="start_a_input",
-                                    min_value=date(1900, 1, 1), max_value=date.today(), label_visibility="collapsed")
+        # Compute start date from year
+        if is_water_year:
+            start_a = date(year_a, 10, 1)
+        else:
+            start_a = date(year_a, 1, 1)
+
+        # Show date input for fine-tuning (optional)
+        with st.expander("Fine-tune date"):
+            start_a = st.date_input(
+                "Start date",
+                value=start_a,
+                min_value=date(1900, 1, 1),
+                max_value=date.today(),
+                key="start_a_input"
+            )
             if is_water_year:
                 start_a = get_water_year_start(start_a)
-            st.session_state.period_a_start = start_a
-        with col_a3:
-            if st.button("▶", key="shift_a_fwd"):
-                if is_water_year:
-                    st.session_state.period_a_start = date(st.session_state.period_a_start.year + 1, 10, 1)
-                else:
-                    st.session_state.period_a_start = st.session_state.period_a_start + timedelta(days=period_days)
 
         end_a = get_water_year_end(start_a) if is_water_year else start_a + timedelta(days=period_days)
-        st.caption(f"→ {end_a}")
+        st.caption(f"{start_a} → {end_a}")
 
     with col3:
         st.subheader("Period B")
-        if 'period_b_start' not in st.session_state:
-            st.session_state.period_b_start = date(2020, 10, 1) if is_water_year else date(2020, 1, 1)
+        # Year slider
+        year_b = st.slider(
+            "Year",
+            min_value=1900,
+            max_value=current_year,
+            value=st.session_state.period_b_year,
+            key="slider_b",
+            label_visibility="collapsed"
+        )
+        st.session_state.period_b_year = year_b
 
-        col_b1, col_b2, col_b3 = st.columns([1, 3, 1])
-        with col_b1:
-            if st.button("◀", key="shift_b_back"):
-                if is_water_year:
-                    st.session_state.period_b_start = date(st.session_state.period_b_start.year - 1, 10, 1)
-                else:
-                    st.session_state.period_b_start = st.session_state.period_b_start - timedelta(days=period_days)
-        with col_b2:
-            start_b = st.date_input("Start", st.session_state.period_b_start, key="start_b_input",
-                                    min_value=date(1900, 1, 1), max_value=date.today(), label_visibility="collapsed")
+        # Compute start date from year
+        if is_water_year:
+            start_b = date(year_b, 10, 1)
+        else:
+            start_b = date(year_b, 1, 1)
+
+        # Show date input for fine-tuning (optional)
+        with st.expander("Fine-tune date"):
+            start_b = st.date_input(
+                "Start date",
+                value=start_b,
+                min_value=date(1900, 1, 1),
+                max_value=date.today(),
+                key="start_b_input"
+            )
             if is_water_year:
                 start_b = get_water_year_start(start_b)
-            st.session_state.period_b_start = start_b
-        with col_b3:
-            if st.button("▶", key="shift_b_fwd"):
-                if is_water_year:
-                    st.session_state.period_b_start = date(st.session_state.period_b_start.year + 1, 10, 1)
-                else:
-                    st.session_state.period_b_start = st.session_state.period_b_start + timedelta(days=period_days)
 
         end_b = get_water_year_end(start_b) if is_water_year else start_b + timedelta(days=period_days)
-        st.caption(f"→ {end_b}")
+        st.caption(f"{start_b} → {end_b}")
 
     # Plot selection row
     col_plot, col_dpi, col_btn = st.columns([3, 1, 2])
