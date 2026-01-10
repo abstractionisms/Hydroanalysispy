@@ -627,7 +627,20 @@ def date_range_selector(key_prefix: str = "", default_start: date = None, defaul
                 key=end_key
             )
 
-    st.caption(f"Range: {start} → {end}")
+    # Validate date order - swap if needed
+    if start > end:
+        st.warning("⚠️ Start date was after end date - dates have been swapped.")
+        start, end = end, start
+        # Update session state to reflect the swap
+        st.session_state[start_key] = start
+        st.session_state[end_key] = end
+
+    # Show date range with validation
+    days_diff = (end - start).days
+    if days_diff < 30:
+        st.caption(f"Range: {start} → {end} ({days_diff} days) ⚠️ Short range")
+    else:
+        st.caption(f"Range: {start} → {end} ({days_diff:,} days)")
 
     return start, end
 
@@ -1115,19 +1128,21 @@ def compare_time_periods_mode(inventory_df):
         if data_a:
             data_list.append({'df_q': data_a['df_q'], 'df_merged': data_a['df_merged'],
                              'analysis_results': data_a['analysis_results']})
+            titles.append(f"{desc[:25]}\n{start_a} to {end_a}\n({data_a['discharge_count']:,} Q, {data_a['merged_count']:,} merged)")
         else:
             data_list.append(None)
             st.warning(f"No data available for Period A ({start_a} to {end_a})")
-        titles.append(f"{desc}\n{start_a} to {end_a}")
+            titles.append(f"{desc[:25]}\n{start_a} to {end_a}\n(No data)")
 
         # Period B - always add (None if no data)
         if data_b:
             data_list.append({'df_q': data_b['df_q'], 'df_merged': data_b['df_merged'],
                              'analysis_results': data_b['analysis_results']})
+            titles.append(f"{desc[:25]}\n{start_b} to {end_b}\n({data_b['discharge_count']:,} Q, {data_b['merged_count']:,} merged)")
         else:
             data_list.append(None)
             st.warning(f"No data available for Period B ({start_b} to {end_b})")
-        titles.append(f"{desc}\n{start_b} to {end_b}")
+            titles.append(f"{desc[:25]}\n{start_b} to {end_b}\n(No data)")
 
         # Always create 2-column comparison (even with missing data)
         if data_a or data_b:  # At least one period has data
@@ -1232,10 +1247,13 @@ def compare_sites_mode(inventory_df):
                     'df_merged': data['df_merged'],
                     'analysis_results': data['analysis_results']
                 })
-                titles.append(f"{desc[:30]}\n({data['merged_count']:,} merged)")
+                # Include date range and data count in title
+                q_count = data['discharge_count']
+                m_count = data['merged_count']
+                titles.append(f"{desc[:30]}\n{start_str} to {end_str} ({q_count:,} Q, {m_count:,} merged)")
             else:
                 data_list.append(None)
-                titles.append(f"{desc[:30]}\n(No data)")
+                titles.append(f"{desc[:30]}\n{start_str} to {end_str} (No data)")
 
         progress.empty()
 
@@ -1408,7 +1426,10 @@ def quad_comparison_mode(inventory_df):
                     'df_merged': data['df_merged'],
                     'analysis_results': data['analysis_results']
                 })
-                titles.append(title)
+                # Add data counts to title
+                q_count = data['discharge_count']
+                m_count = data['merged_count']
+                titles.append(f"{title}\n({q_count:,} Q, {m_count:,} merged)")
             else:
                 data_list.append(None)
                 titles.append(title + "\n(No data)")
