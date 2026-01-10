@@ -1726,32 +1726,24 @@ def site_map_mode(inventory_df):
     folium.LayerControl().add_to(m)
 
     # Display info
-    st.write(f"DEBUG: map_data has {len(map_data)} rows, columns: {list(map_data.columns)}")
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Total Sites", len(map_data))
     with col2:
-        # Debug: show column info
-        oldest_display = f"{len(map_data)}sites"
+        # Find oldest discharge record
+        oldest_display = 'N/A'
         try:
-            cols = list(map_data.columns)
-            if 'begin_date' in cols:
-                bd_col = map_data['begin_date']
-                non_null = bd_col.dropna()
-                oldest_display = f"{len(non_null)}dates"
-                if len(non_null) > 0:
-                    as_str = non_null.astype(str)
-                    filtered = as_str[as_str.str.strip() != '']
-                    if len(filtered) > 0:
-                        sorted_dates = sorted(filtered.tolist())
-                        oldest_display = sorted_dates[0][:4]
-                    else:
-                        oldest_display = "AllEmpty"
-            else:
-                oldest_display = f"NoBD:{cols[:3]}"
+            if 'begin_date' in map_data.columns:
+                # Get dates, convert to string, filter to only valid dates (start with digit)
+                dates = map_data['begin_date'].dropna().astype(str)
+                # Filter: must start with a digit (valid date like "1929-05-10")
+                valid_dates = dates[dates.str.match(r'^\d')]
+                if len(valid_dates) > 0:
+                    # Sort and get oldest (earliest date)
+                    sorted_dates = sorted(valid_dates.tolist())
+                    oldest_display = sorted_dates[0][:4]  # Just the year
         except Exception as e:
-            oldest_display = f"E:{e}"[:15]
-        st.write(f"DEBUG oldest_display = '{oldest_display}'")
+            oldest_display = 'Error'
         st.metric("Oldest Record", oldest_display)
     with col3:
         st.metric("Region", "Pacific Northwest")
