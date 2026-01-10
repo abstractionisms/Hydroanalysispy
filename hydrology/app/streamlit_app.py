@@ -1731,14 +1731,17 @@ def site_map_mode(inventory_df):
         st.metric("Total Sites", len(map_data))
     with col2:
         oldest_display = 'N/A'
-        if 'begin_date' in map_data:
-            dates = map_data['begin_date'].dropna()
-            if len(dates) > 0:
-                oldest = dates.min()
-                if pd.notna(oldest):
-                    # Handle both string and datetime formats
-                    oldest_str = str(oldest)
-                    oldest_display = oldest_str[:4] if len(oldest_str) >= 4 else oldest_str
+        try:
+            if 'begin_date' in map_data.columns:
+                dates = map_data['begin_date'].dropna()
+                if len(dates) > 0:
+                    oldest = dates.min()
+                    if oldest and str(oldest) not in ['', 'nan', 'NaT', 'None']:
+                        oldest_str = str(oldest)
+                        # Extract year from date string (format: YYYY-MM-DD)
+                        oldest_display = oldest_str[:4] if len(oldest_str) >= 4 else oldest_str
+        except Exception as e:
+            oldest_display = 'Error'
         st.metric("Oldest Record", oldest_display)
     with col3:
         st.metric("Region", "Pacific Northwest")
