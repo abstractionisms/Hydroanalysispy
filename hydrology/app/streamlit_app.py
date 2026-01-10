@@ -277,7 +277,7 @@ def get_parameter_availability(site_id: str) -> dict:
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def find_availability_windows(site_id: str, param_cd: str, check_iv: bool = False, hint_start_year: int = None):
+def find_availability_windows(site_id: str, param_cd: str, check_iv: bool = False):
     """
     Find data availability for a parameter using USGS series catalog.
     Returns list of (start_year, end_year) tuples.
@@ -496,20 +496,11 @@ def display_site_info(site_info: dict, show_check_button: bool = True):
         else:
             availability_text.append(f"✅ **Discharge** ({windows_str})")
     else:
-        # Fall back to quick estimate
-        hint_year = None
-        if begin_date:
-            try:
-                hint_year = int(str(begin_date)[:4])
-            except (ValueError, TypeError):
-                pass
-
-        discharge_windows = find_availability_windows(site_id, DEFAULT_PARAM_DISCHARGE, check_iv=False, hint_start_year=hint_year)
+        # Get exact availability from USGS series catalog
+        discharge_windows = find_availability_windows(site_id, DEFAULT_PARAM_DISCHARGE)
         if discharge_windows:
             windows_str = format_availability_windows(discharge_windows)
-            availability_text.append(f"✅ **Discharge** ({windows_str}) ~est")
-        elif begin_date:
-            availability_text.append(f"✅ **Discharge** (from {begin_date}) ~est")
+            availability_text.append(f"✅ **Discharge** ({windows_str})")
         else:
             availability_text.append("❌ **Discharge** (not available)")
 
@@ -526,23 +517,17 @@ def display_site_info(site_info: dict, show_check_button: bool = True):
         # We fetched data but no stage was found
         availability_text.append("❌ **Gage Height** (not in data)")
     else:
-        # Fall back to quick estimate
-        hint_year = None
-        if begin_date:
-            try:
-                hint_year = int(str(begin_date)[:4])
-            except (ValueError, TypeError):
-                pass
-
-        stage_dv_windows = find_availability_windows(site_id, DEFAULT_PARAM_STAGE, check_iv=False, hint_start_year=hint_year)
+        # Get exact availability from USGS series catalog
+        stage_dv_windows = find_availability_windows(site_id, DEFAULT_PARAM_STAGE)
         if stage_dv_windows:
             windows_str = format_availability_windows(stage_dv_windows)
-            availability_text.append(f"✅ **Gage Height** ({windows_str}) ~est")
+            availability_text.append(f"✅ **Gage Height** ({windows_str})")
         else:
-            stage_iv_windows = find_availability_windows(site_id, DEFAULT_PARAM_STAGE, check_iv=True, hint_start_year=hint_year)
+            # Try instantaneous values as fallback
+            stage_iv_windows = find_availability_windows(site_id, DEFAULT_PARAM_STAGE, check_iv=True)
             if stage_iv_windows:
                 windows_str = format_availability_windows(stage_iv_windows)
-                availability_text.append(f"✅ **Gage Height** IV ({windows_str}) ~est")
+                availability_text.append(f"✅ **Gage Height** IV ({windows_str})")
             else:
                 availability_text.append("❌ **Gage Height** (not available)")
 
