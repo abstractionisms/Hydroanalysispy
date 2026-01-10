@@ -1119,15 +1119,19 @@ def compare_sites_mode(inventory_df):
         for i, site_str in enumerate(selected_sites):
             site_id = site_str.split(" - ")[0]
             site_info = get_cached_site_info(site_id)
+            desc = site_info.get('description', site_id) if site_info else site_id
 
             if not site_info:
+                data_list.append(None)
+                titles.append(f"{desc[:30]}\n(Site not found)")
                 continue
 
             lat = site_info.get('latitude')
             lon = site_info.get('longitude')
-            desc = site_info.get('description', site_id)
 
             if not lat or not lon:
+                data_list.append(None)
+                titles.append(f"{desc[:30]}\n(No coordinates)")
                 continue
 
             progress.progress((i + 1) / len(selected_sites), text=f"Processing {site_id}...")
@@ -1140,23 +1144,28 @@ def compare_sites_mode(inventory_df):
                     'analysis_results': data['analysis_results']
                 })
                 titles.append(f"{desc[:30]}\n({data['merged_count']:,} merged)")
+            else:
+                data_list.append(None)
+                titles.append(f"{desc[:30]}\n(No data)")
 
         progress.empty()
 
-        if data_list:
-            # Determine grid layout
-            n = len(data_list)
-            if n <= 2:
-                nrows, ncols = 1, n
-            elif n <= 4:
-                nrows, ncols = 2, 2
-            else:
-                nrows, ncols = 2, 3
+        # Always show grid for all selected sites
+        n = len(selected_sites)
+        if n <= 2:
+            nrows, ncols = 1, n
+        elif n <= 4:
+            nrows, ncols = 2, 2
+        else:
+            nrows, ncols = 2, 3
 
+        if any(d is not None for d in data_list):
             fig = create_comparison_figure(plot_name, data_list, titles, nrows, ncols, dpi)
             st.pyplot(fig)
             render_export_buttons(fig, "multi_site_comparison", dpi)
             plt.close(fig)
+        else:
+            st.error("No data available for any of the selected sites")
 
 
 def quad_comparison_mode(inventory_df):
