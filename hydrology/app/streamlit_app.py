@@ -722,7 +722,8 @@ def create_comparison_figure(plot_name: str, data_list: list, titles: list,
 
 def single_analysis_mode(inventory_df):
     """Standard single site analysis mode."""
-    st.sidebar.header("Site Selection")
+    # === SIDEBAR: Site Selection Only ===
+    st.sidebar.header("Select Site")
 
     site_options = [f"{row['site_id']} - {str(row.get('description', ''))[:40]}"
                     for _, row in inventory_df.iterrows()]
@@ -740,19 +741,25 @@ def single_analysis_mode(inventory_df):
 
     display_site_info(site_info)
 
-    # Date range
-    st.sidebar.markdown("---")
-    st.sidebar.header("Date Range")
+    # === MAIN AREA: Configuration & Results ===
+    st.header("Single Site Analysis")
+    st.caption(f"Site: {desc}")
+
+    # Date range section
+    st.subheader("Date Range")
     start_date, end_date = date_range_selector("single")
 
-    # Plot selection
-    st.sidebar.markdown("---")
-    st.sidebar.header("Plot Selection")
+    st.markdown("---")
+
+    # Plot selection section
+    st.subheader("Plot Selection")
     selected_plots = plot_selector()
 
-    # Layout
-    st.sidebar.markdown("---")
-    st.sidebar.header("Layout")
+    st.markdown("---")
+
+    # Layout and Generate row
+    col_layout, col_dpi, col_btn = st.columns([2, 1, 2])
+
     layout_options = {
         'Auto': PlotLayout.AUTO,
         'Vertical': PlotLayout.VERTICAL,
@@ -761,12 +768,21 @@ def single_analysis_mode(inventory_df):
         'Grid 3x2': PlotLayout.GRID_3x2,
         'Grid 2x5': PlotLayout.GRID_2x5,
     }
-    layout = st.sidebar.selectbox("Layout", list(layout_options.keys()))
-    dpi = st.sidebar.slider("DPI", 72, 300, 150)
 
-    # Generate
-    st.sidebar.markdown("---")
-    if st.sidebar.button("Generate Plots", type="primary", width='stretch'):
+    with col_layout:
+        layout = st.selectbox("Layout", list(layout_options.keys()))
+
+    with col_dpi:
+        dpi = st.number_input("DPI", min_value=72, max_value=300, value=150)
+
+    with col_btn:
+        st.markdown("<br>", unsafe_allow_html=True)  # Align button with inputs
+        generate = st.button("🔍 Generate Plots", type="primary", use_container_width=True)
+
+    st.markdown("---")
+
+    # Generate plots
+    if generate:
         if not selected_plots:
             st.warning("Select at least one plot type")
             return
@@ -826,16 +842,17 @@ def single_analysis_mode(inventory_df):
             render_export_buttons(fig, site_id, dpi)
             plt.close(fig)
     else:
-        st.info("Select a site and date range, then click 'Generate Plots'")
+        st.info("👈 Select plots above, then click 'Generate Plots'")
 
 
 def compare_time_periods_mode(inventory_df):
     """Compare same site across two equal-length time periods."""
-    st.sidebar.header("Site Selection")
+    # === SIDEBAR: Site Selection Only ===
+    st.sidebar.header("Select Site")
 
     site_options = [f"{row['site_id']} - {str(row.get('description', ''))[:40]}"
                     for _, row in inventory_df.iterrows()]
-    selected = st.sidebar.selectbox("Select Site", site_options, key="compare_time_site")
+    selected = st.sidebar.selectbox("Choose site", site_options, key="compare_time_site")
     site_id = selected.split(" - ")[0]
 
     site_info = get_cached_site_info(site_id)
@@ -849,135 +866,113 @@ def compare_time_periods_mode(inventory_df):
 
     display_site_info(site_info, show_check_button=False)
 
-    # Period length selection
-    st.sidebar.markdown("---")
-    st.sidebar.header("Period Length")
-    period_lengths = {
-        "1 Year": 365,
-        "2 Years": 730,
-        "5 Years": 1825,
-        "10 Years": 3650,
-        "Water Year (Oct-Sep)": "water_year",
-        "Custom": None
-    }
-    period_choice = st.sidebar.selectbox("Select period length", list(period_lengths.keys()), key="period_length")
-
-    is_water_year = period_choice == "Water Year (Oct-Sep)"
-
-    if period_choice == "Custom":
-        custom_days = st.sidebar.number_input("Days", min_value=30, max_value=7300, value=365, key="custom_days")
-        period_days = custom_days
-    elif is_water_year:
-        period_days = 365  # Approximate for display
-        st.sidebar.caption("Water Year: Oct 1 → Sep 30")
-    else:
-        period_days = period_lengths[period_choice]
-        st.sidebar.caption(f"Each period: {period_days} days ({period_days/365:.1f} years)")
+    # === MAIN AREA: Configuration & Results ===
+    st.header("Compare Time Periods")
+    st.caption(f"Site: {desc}")
 
     # Helper functions for water year
     def get_water_year_start(d: date) -> date:
-        """Get the start of the water year containing date d (Oct 1)."""
         if d.month >= 10:
             return date(d.year, 10, 1)
         else:
             return date(d.year - 1, 10, 1)
 
     def get_water_year_end(start: date) -> date:
-        """Get the end of the water year starting on start (Sep 30)."""
         return date(start.year + 1, 9, 30)
 
-    def shift_water_year(start: date, direction: int) -> date:
-        """Shift to previous (-1) or next (+1) water year."""
-        return date(start.year + direction, 10, 1)
+    # Period length and dates in main area
+    col1, col2, col3 = st.columns(3)
 
-    # Period A - start date with shift controls
-    st.sidebar.markdown("---")
-    st.sidebar.header("Period A")
-
-    # Initialize session state for Period A start
-    if 'period_a_start' not in st.session_state:
-        st.session_state.period_a_start = date(2010, 10, 1) if is_water_year else date(2010, 1, 1)
-
-    # For water year, snap to Oct 1
-    if is_water_year and st.session_state.period_a_start.month != 10:
-        st.session_state.period_a_start = get_water_year_start(st.session_state.period_a_start)
-
-    col_a1, col_a2, col_a3 = st.sidebar.columns([1, 2, 1])
-    with col_a1:
-        if st.button("◀", key="shift_a_back", help="Previous period"):
-            if is_water_year:
-                st.session_state.period_a_start = shift_water_year(st.session_state.period_a_start, -1)
-            else:
-                st.session_state.period_a_start = st.session_state.period_a_start - timedelta(days=period_days)
-    with col_a2:
-        start_a = st.date_input("Start A", st.session_state.period_a_start, key="start_a_input",
-                                min_value=date(1900, 1, 1), max_value=date.today())
+    with col1:
+        st.subheader("Period Length")
+        period_lengths = {
+            "1 Year": 365,
+            "2 Years": 730,
+            "5 Years": 1825,
+            "10 Years": 3650,
+            "Water Year": "water_year",
+        }
+        period_choice = st.selectbox("Duration", list(period_lengths.keys()), key="period_length")
+        is_water_year = period_choice == "Water Year"
+        period_days = 365 if is_water_year else period_lengths[period_choice]
         if is_water_year:
-            start_a = get_water_year_start(start_a)
-        st.session_state.period_a_start = start_a
-    with col_a3:
-        if st.button("▶", key="shift_a_fwd", help="Next period"):
+            st.caption("Oct 1 → Sep 30")
+        else:
+            st.caption(f"{period_days} days")
+
+    with col2:
+        st.subheader("Period A")
+        if 'period_a_start' not in st.session_state:
+            st.session_state.period_a_start = date(2010, 10, 1) if is_water_year else date(2010, 1, 1)
+
+        col_a1, col_a2, col_a3 = st.columns([1, 3, 1])
+        with col_a1:
+            if st.button("◀", key="shift_a_back"):
+                if is_water_year:
+                    st.session_state.period_a_start = date(st.session_state.period_a_start.year - 1, 10, 1)
+                else:
+                    st.session_state.period_a_start = st.session_state.period_a_start - timedelta(days=period_days)
+        with col_a2:
+            start_a = st.date_input("Start", st.session_state.period_a_start, key="start_a_input",
+                                    min_value=date(1900, 1, 1), max_value=date.today(), label_visibility="collapsed")
             if is_water_year:
-                st.session_state.period_a_start = shift_water_year(st.session_state.period_a_start, 1)
-            else:
-                st.session_state.period_a_start = st.session_state.period_a_start + timedelta(days=period_days)
+                start_a = get_water_year_start(start_a)
+            st.session_state.period_a_start = start_a
+        with col_a3:
+            if st.button("▶", key="shift_a_fwd"):
+                if is_water_year:
+                    st.session_state.period_a_start = date(st.session_state.period_a_start.year + 1, 10, 1)
+                else:
+                    st.session_state.period_a_start = st.session_state.period_a_start + timedelta(days=period_days)
 
-    if is_water_year:
-        end_a = get_water_year_end(start_a)
-        st.sidebar.caption(f"WY{start_a.year + 1}: {start_a} → {end_a}")
-    else:
-        end_a = start_a + timedelta(days=period_days)
-        st.sidebar.caption(f"End A: {end_a}")
+        end_a = get_water_year_end(start_a) if is_water_year else start_a + timedelta(days=period_days)
+        st.caption(f"→ {end_a}")
 
-    # Period B - start date with shift controls
-    st.sidebar.markdown("---")
-    st.sidebar.header("Period B")
+    with col3:
+        st.subheader("Period B")
+        if 'period_b_start' not in st.session_state:
+            st.session_state.period_b_start = date(2020, 10, 1) if is_water_year else date(2020, 1, 1)
 
-    # Initialize session state for Period B start
-    if 'period_b_start' not in st.session_state:
-        st.session_state.period_b_start = date(2020, 10, 1) if is_water_year else date(2020, 1, 1)
-
-    # For water year, snap to Oct 1
-    if is_water_year and st.session_state.period_b_start.month != 10:
-        st.session_state.period_b_start = get_water_year_start(st.session_state.period_b_start)
-
-    col_b1, col_b2, col_b3 = st.sidebar.columns([1, 2, 1])
-    with col_b1:
-        if st.button("◀", key="shift_b_back", help="Previous period"):
+        col_b1, col_b2, col_b3 = st.columns([1, 3, 1])
+        with col_b1:
+            if st.button("◀", key="shift_b_back"):
+                if is_water_year:
+                    st.session_state.period_b_start = date(st.session_state.period_b_start.year - 1, 10, 1)
+                else:
+                    st.session_state.period_b_start = st.session_state.period_b_start - timedelta(days=period_days)
+        with col_b2:
+            start_b = st.date_input("Start", st.session_state.period_b_start, key="start_b_input",
+                                    min_value=date(1900, 1, 1), max_value=date.today(), label_visibility="collapsed")
             if is_water_year:
-                st.session_state.period_b_start = shift_water_year(st.session_state.period_b_start, -1)
-            else:
-                st.session_state.period_b_start = st.session_state.period_b_start - timedelta(days=period_days)
-    with col_b2:
-        start_b = st.date_input("Start B", st.session_state.period_b_start, key="start_b_input",
-                                min_value=date(1900, 1, 1), max_value=date.today())
-        if is_water_year:
-            start_b = get_water_year_start(start_b)
-        st.session_state.period_b_start = start_b
-    with col_b3:
-        if st.button("▶", key="shift_b_fwd", help="Next period"):
-            if is_water_year:
-                st.session_state.period_b_start = shift_water_year(st.session_state.period_b_start, 1)
-            else:
-                st.session_state.period_b_start = st.session_state.period_b_start + timedelta(days=period_days)
+                start_b = get_water_year_start(start_b)
+            st.session_state.period_b_start = start_b
+        with col_b3:
+            if st.button("▶", key="shift_b_fwd"):
+                if is_water_year:
+                    st.session_state.period_b_start = date(st.session_state.period_b_start.year + 1, 10, 1)
+                else:
+                    st.session_state.period_b_start = st.session_state.period_b_start + timedelta(days=period_days)
 
-    if is_water_year:
-        end_b = get_water_year_end(start_b)
-        st.sidebar.caption(f"WY{start_b.year + 1}: {start_b} → {end_b}")
-    else:
-        end_b = start_b + timedelta(days=period_days)
-        st.sidebar.caption(f"End B: {end_b}")
+        end_b = get_water_year_end(start_b) if is_water_year else start_b + timedelta(days=period_days)
+        st.caption(f"→ {end_b}")
 
-    # Plot selection
-    st.sidebar.markdown("---")
-    st.sidebar.header("Plot to Compare")
-    plot_name = single_plot_selector_widget("_compare")
+    # Plot selection row
+    col_plot, col_dpi, col_btn = st.columns([3, 1, 2])
 
-    dpi = st.sidebar.slider("DPI", 72, 300, 150, key="compare_time_dpi")
+    with col_plot:
+        st.subheader("Plot Type")
+        plot_name = single_plot_selector_widget("_compare")
 
-    # Generate
-    st.sidebar.markdown("---")
-    if st.sidebar.button("Compare Periods", type="primary", width='stretch'):
+    with col_dpi:
+        st.subheader("Quality")
+        dpi = st.selectbox("DPI", [100, 150, 200], index=1, key="compare_time_dpi", label_visibility="collapsed")
+
+    with col_btn:
+        st.subheader(" ")
+        generate = st.button("🔍 Compare Periods", type="primary", use_container_width=True)
+
+    # Generate comparison
+    if generate:
         if not lat or not lon:
             st.error("Site missing coordinates")
             return
