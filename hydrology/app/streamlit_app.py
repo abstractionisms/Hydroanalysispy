@@ -905,7 +905,7 @@ def single_analysis_mode(inventory_df):
 
     with col_btn:
         st.markdown("<br>", unsafe_allow_html=True)  # Align button with inputs
-        generate = st.button("🔍 Generate Plots", type="primary", width='stretch')
+        generate = st.button("🔍 Generate Plots", type="primary", use_container_width=True)
 
     st.markdown("---")
 
@@ -1132,7 +1132,7 @@ def compare_time_periods_mode(inventory_df):
 
     with col_btn:
         st.subheader(" ")
-        generate = st.button("🔍 Compare Periods", type="primary", width='stretch')
+        generate = st.button("🔍 Compare Periods", type="primary", use_container_width=True)
 
     # Generate comparison
     if generate:
@@ -1249,7 +1249,7 @@ def compare_sites_mode(inventory_df):
 
     # Generate button in main area
     st.markdown("---")
-    if st.button("🔍 Compare Sites", type="primary", width='stretch'):
+    if st.button("🔍 Compare Sites", type="primary", use_container_width=True):
         # Show comparison header (using safe Streamlit components)
         st.header("Multi-Site Comparison")
         st.caption(f"{len(selected_sites)} sites | {start_date} to {end_date}")
@@ -1416,7 +1416,7 @@ def quad_comparison_mode(inventory_df):
 
     with col_btn:
         st.subheader(" ")  # Spacer
-        generate = st.button("🔍 Generate 2×2", type="primary", width='stretch')
+        generate = st.button("🔍 Generate 2×2", type="primary", use_container_width=True)
 
     # Generate comparison
     if generate:
@@ -1770,7 +1770,7 @@ def site_map_mode(inventory_df):
             # Use dataframe with row selection
             selection = st.dataframe(
                 display_df,
-                width='stretch',
+                use_container_width=True,
                 hide_index=True,
                 selection_mode="single-row",
                 on_select="rerun"
