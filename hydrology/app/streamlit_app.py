@@ -211,111 +211,109 @@ def check_iv_availability(site_id: str, param_cd: str):
         return None
 
 
-def _check_year_has_data(site_id: str, param_cd: str, year: int) -> bool:
-    """Check if a specific year has data for the given parameter."""
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_parameter_availability(site_id: str) -> dict:
+    """
+    Get exact availability dates for all parameters at a site using USGS series catalog.
+    Returns dict mapping param_cd to {'begin_date': str, 'end_date': str, 'count': int}.
+    Single API call gives accurate per-parameter dates.
+    """
+    import requests
+    import io
+
+    url = "https://waterservices.usgs.gov/nwis/site/"
+    params = {
+        "format": "rdb",
+        "sites": site_id,
+        "seriesCatalogOutput": "true",
+        "outputDataTypeCd": "dv",  # Daily values
+    }
+
     try:
-        df = fetch_daily_values(
-            site_id, param_cd=param_cd,
-            start_date=f"{year}-01-01", end_date=f"{year}-12-31",
-            chunk_years=1
-        )
-        return df is not None and not df.empty
-    except Exception:
-        return False
+        response = requests.get(url, params=params, timeout=15)
+        if response.status_code != 200:
+            return {}
 
+        # Parse RDB format (tab-separated with comment lines)
+        lines = response.text.strip().split('\n')
+        data_lines = [l for l in lines if not l.startswith('#') and l.strip()]
 
-def _binary_search_start_year(site_id: str, param_cd: str, low: int, high: int) -> int:
-    """
-    Use binary search to find the earliest year with data.
-    Returns the earliest year that has data, or high if no earlier data found.
-    """
-    result = high  # Default to the known year with data
+        if len(data_lines) < 2:
+            return {}
 
-    while low <= high:
-        mid = (low + high) // 2
-        if _check_year_has_data(site_id, param_cd, mid):
-            result = mid  # Found data, try to find earlier
-            high = mid - 1
-        else:
-            low = mid + 1  # No data, search later years
+        # First non-comment line is header, second is format spec, rest is data
+        header = data_lines[0].split('\t')
+        # Find column indices
+        try:
+            parm_idx = header.index('parm_cd')
+            begin_idx = header.index('begin_date')
+            end_idx = header.index('end_date')
+            count_idx = header.index('count_nu')
+        except ValueError:
+            return {}
 
-    return result
+        result = {}
+        for line in data_lines[2:]:  # Skip header and format spec
+            cols = line.split('\t')
+            if len(cols) > max(parm_idx, begin_idx, end_idx, count_idx):
+                parm_cd = cols[parm_idx]
+                begin_date = cols[begin_idx]
+                end_date = cols[end_idx]
+                count = cols[count_idx]
+
+                # Store the parameter info (prefer longer record if duplicate)
+                if parm_cd not in result or int(count or 0) > result[parm_cd].get('count', 0):
+                    result[parm_cd] = {
+                        'begin_date': begin_date,
+                        'end_date': end_date,
+                        'count': int(count) if count else 0
+                    }
+
+        return result
+
+    except Exception as e:
+        logger.warning(f"Failed to get parameter availability for {site_id}: {e}")
+        return {}
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def find_availability_windows(site_id: str, param_cd: str, check_iv: bool = False, hint_start_year: int = None):
     """
-    Find data availability using binary search for precise start year.
+    Find data availability for a parameter using USGS series catalog.
     Returns list of (start_year, end_year) tuples.
 
-    Strategy:
-    1. Check recent data (last 2 years)
-    2. Check historical data (around hint_start_year or 1960)
-    3. If has recent but not at hint year, binary search to find exact start year
+    Uses single API call to get exact per-parameter availability dates.
     """
     import requests
+    from datetime import date
 
     current_year = date.today().year
-    has_recent = False
-    has_historical = False
-    earliest_year = None
 
-    # Check 1: Recent data (last 2 years)
-    try:
-        recent_start = f"{current_year - 2}-01-01"
-        recent_end = f"{current_year}-12-31"
-        df = fetch_daily_values(
-            site_id, param_cd=param_cd,
-            start_date=recent_start, end_date=recent_end,
-            chunk_years=3
-        )
-        if df is not None and not df.empty:
-            has_recent = True
-    except Exception:
-        pass
+    # Try to get exact availability from series catalog
+    param_info = get_parameter_availability(site_id)
 
-    # Check 2: Historical data - check around hint year or default to 1960
-    check_year = hint_start_year if hint_start_year else 1960
-    try:
-        hist_start = f"{check_year}-01-01"
-        hist_end = f"{check_year + 5}-12-31"
-        df = fetch_daily_values(
-            site_id, param_cd=param_cd,
-            start_date=hist_start, end_date=hist_end,
-            chunk_years=6
-        )
-        if df is not None and not df.empty:
-            has_historical = True
-            earliest_year = df.index.min().year
-    except Exception:
-        pass
+    if param_cd in param_info:
+        info = param_info[param_cd]
+        begin_date = info.get('begin_date', '')
+        end_date = info.get('end_date', '')
 
-    # Check 3: If has recent but no historical, use binary search to find exact start
-    if has_recent and not has_historical:
-        # Binary search between hint year and recent data to find exact start
-        search_start = check_year + 6  # After the historical window we already checked
-        search_end = current_year - 3   # Before the recent window we already checked
+        if begin_date:
+            try:
+                start_year = int(begin_date[:4])
+                # Check if end_date is recent (within last year) = "present"
+                if end_date:
+                    end_year = int(end_date[:4])
+                    if end_year >= current_year - 1:
+                        return [(start_year, "present")]
+                    else:
+                        return [(start_year, end_year)]
+                else:
+                    return [(start_year, "present")]
+            except (ValueError, TypeError):
+                pass
 
-        if search_start < search_end:
-            # First find any year with data using coarse probes
-            probe_year = None
-            for year in [2000, 2010, 1990, 1980, 2015, 2005, 1995, 1985, 1975, 1970]:
-                if search_start <= year <= search_end:
-                    if _check_year_has_data(site_id, param_cd, year):
-                        probe_year = year
-                        break
-
-            if probe_year:
-                # Binary search from hint year to the year we found data
-                earliest_year = _binary_search_start_year(
-                    site_id, param_cd,
-                    low=search_start,
-                    high=probe_year
-                )
-                has_historical = True
-
-    # If no DV data found and check_iv requested, try IV for recent
-    if not has_recent and not has_historical and check_iv:
+    # Fallback: check IV data if requested
+    if check_iv:
         try:
             url = "https://waterservices.usgs.gov/nwis/iv/"
             params = {
@@ -336,18 +334,7 @@ def find_availability_windows(site_id: str, param_cd: str, check_iv: bool = Fals
         except Exception:
             pass
 
-    # Build result
-    if not has_recent and not has_historical:
-        return None
-
-    if has_recent and has_historical:
-        start_year = earliest_year if earliest_year else check_year
-        return [(start_year, "present")]
-    elif has_recent:
-        # Genuinely new data - only recent exists
-        return [(current_year - 2, "present")]
-    else:  # has_historical only
-        return [(earliest_year if earliest_year else check_year, check_year + 5)]
+    return None
 
 
 def format_availability_windows(windows: list) -> str:
