@@ -211,16 +211,47 @@ def check_iv_availability(site_id: str, param_cd: str):
         return None
 
 
+def _check_year_has_data(site_id: str, param_cd: str, year: int) -> bool:
+    """Check if a specific year has data for the given parameter."""
+    try:
+        df = fetch_daily_values(
+            site_id, param_cd=param_cd,
+            start_date=f"{year}-01-01", end_date=f"{year}-12-31",
+            chunk_years=1
+        )
+        return df is not None and not df.empty
+    except Exception:
+        return False
+
+
+def _binary_search_start_year(site_id: str, param_cd: str, low: int, high: int) -> int:
+    """
+    Use binary search to find the earliest year with data.
+    Returns the earliest year that has data, or high if no earlier data found.
+    """
+    result = high  # Default to the known year with data
+
+    while low <= high:
+        mid = (low + high) // 2
+        if _check_year_has_data(site_id, param_cd, mid):
+            result = mid  # Found data, try to find earlier
+            high = mid - 1
+        else:
+            low = mid + 1  # No data, search later years
+
+    return result
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def find_availability_windows(site_id: str, param_cd: str, check_iv: bool = False, hint_start_year: int = None):
     """
-    Fast availability check - makes 3-5 API calls to find data availability.
+    Find data availability using binary search for precise start year.
     Returns list of (start_year, end_year) tuples.
 
     Strategy:
     1. Check recent data (last 2 years)
     2. Check historical data (around hint_start_year or 1960)
-    3. If recent but not historical, check intermediate periods to find actual start
+    3. If has recent but not at hint year, binary search to find exact start year
     """
     import requests
 
@@ -229,7 +260,7 @@ def find_availability_windows(site_id: str, param_cd: str, check_iv: bool = Fals
     has_historical = False
     earliest_year = None
 
-    # Check 1: Recent data (last 2 years) - single call
+    # Check 1: Recent data (last 2 years)
     try:
         recent_start = f"{current_year - 2}-01-01"
         recent_end = f"{current_year}-12-31"
@@ -259,30 +290,29 @@ def find_availability_windows(site_id: str, param_cd: str, check_iv: bool = Fals
     except Exception:
         pass
 
-    # Check 3: If has recent but no historical, probe intermediate periods
-    # This catches cases where parameter started later than hint_start_year
+    # Check 3: If has recent but no historical, use binary search to find exact start
     if has_recent and not has_historical:
-        # Check progressively: 2000, 2010, 1990, 1980 to find actual start
-        probe_years = [2000, 2010, 1990, 1980, 1970]
-        for probe_year in probe_years:
-            if probe_year <= check_year or probe_year >= current_year - 2:
-                continue  # Skip if already checked or overlaps with recent
-            try:
-                probe_start = f"{probe_year}-01-01"
-                probe_end = f"{probe_year + 2}-12-31"
-                df = fetch_daily_values(
-                    site_id, param_cd=param_cd,
-                    start_date=probe_start, end_date=probe_end,
-                    chunk_years=3
+        # Binary search between hint year and recent data to find exact start
+        search_start = check_year + 6  # After the historical window we already checked
+        search_end = current_year - 3   # Before the recent window we already checked
+
+        if search_start < search_end:
+            # First find any year with data using coarse probes
+            probe_year = None
+            for year in [2000, 2010, 1990, 1980, 2015, 2005, 1995, 1985, 1975, 1970]:
+                if search_start <= year <= search_end:
+                    if _check_year_has_data(site_id, param_cd, year):
+                        probe_year = year
+                        break
+
+            if probe_year:
+                # Binary search from hint year to the year we found data
+                earliest_year = _binary_search_start_year(
+                    site_id, param_cd,
+                    low=search_start,
+                    high=probe_year
                 )
-                if df is not None and not df.empty:
-                    found_year = df.index.min().year
-                    if earliest_year is None or found_year < earliest_year:
-                        earliest_year = found_year
-                    has_historical = True
-                    break  # Found data, stop probing
-            except Exception:
-                pass
+                has_historical = True
 
     # If no DV data found and check_iv requested, try IV for recent
     if not has_recent and not has_historical and check_iv:
@@ -302,7 +332,6 @@ def find_availability_windows(site_id: str, param_cd: str, check_iv: bool = Fals
                 if time_series:
                     values = time_series[0].get('values', [{}])[0].get('value', [])
                     if values:
-                        # IV data found
                         return [(current_year - 1, "present")]
         except Exception:
             pass
@@ -312,11 +341,10 @@ def find_availability_windows(site_id: str, param_cd: str, check_iv: bool = Fals
         return None
 
     if has_recent and has_historical:
-        # Both exist - return single window from earliest to present
         start_year = earliest_year if earliest_year else check_year
         return [(start_year, "present")]
     elif has_recent:
-        # Still only has recent - genuinely new data
+        # Genuinely new data - only recent exists
         return [(current_year - 2, "present")]
     else:  # has_historical only
         return [(earliest_year if earliest_year else check_year, check_year + 5)]
