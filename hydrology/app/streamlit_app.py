@@ -2001,6 +2001,10 @@ def multisite_analysis_mode(inventory_df):
     st.markdown("---")
 
     if st.button("🔍 Analyze Relationships", type="primary"):
+        # Show debug info
+        st.info(f"📅 Date range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+        st.info(f"📍 Sites: {', '.join(site_ids)}")
+
         with st.spinner("Fetching data and analyzing correlations..."):
             # Create analyzer and fetch data
             analyzer = MultiSiteAnalyzer()
@@ -2013,16 +2017,24 @@ def multisite_analysis_mode(inventory_df):
                 analyzer.add_site(sid, name=name[:40], latitude=lat, longitude=lon)
 
             # Fetch data
-            analyzer.fetch_data(
-                start_date.strftime('%Y-%m-%d'),
-                end_date.strftime('%Y-%m-%d')
-            )
+            start_str = start_date.strftime('%Y-%m-%d')
+            end_str = end_date.strftime('%Y-%m-%d')
+
+            try:
+                data_result = analyzer.fetch_data(start_str, end_str)
+                st.write(f"Data fetched for {len(analyzer.data)} sites: {list(analyzer.data.keys())}")
+                for sid, df in analyzer.data.items():
+                    st.write(f"  - {sid}: {len(df)} rows")
+            except Exception as e:
+                st.error(f"Error fetching data: {e}")
+                return
 
             # Get synchronized data
             synced_data = analyzer.get_synchronized_data()
 
             if synced_data.empty:
                 st.error("Could not get synchronized data for selected sites")
+                st.warning("This can happen if sites have no overlapping data in the selected time range.")
                 return
 
             st.success(f"Analyzed {len(synced_data)} days of overlapping data")
@@ -2128,14 +2140,28 @@ def nwm_comparison_mode(inventory_df):
             end_date = datetime.now()
             start_date = end_date - timedelta(days=days_back)
 
+            # Debug info
+            st.info(f"🔍 Site: {site_id} | Date range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+
             with st.spinner("Fetching NWM reach ID..."):
                 client = NWMClient()
-                reach_id = client.get_reach_id(site_id)
+
+                # Show the URL being used
+                from hydrology.data.nwm import NLDI_API_BASE
+                api_url = NLDI_API_BASE.format(site_id=site_id)
+                st.code(f"NLDI API: {api_url}", language=None)
+
+                try:
+                    reach_id = client.get_reach_id(site_id)
+                except Exception as e:
+                    st.error(f"Error calling NLDI API: {e}")
+                    reach_id = None
 
                 if reach_id:
-                    st.info(f"NWM Reach ID: {reach_id}")
+                    st.success(f"✅ NWM Reach ID: {reach_id}")
                 else:
-                    st.warning("Could not find NWM reach ID for this site. The site may not be in the NWM network.")
+                    st.error("❌ Could not find NWM reach ID for this site.")
+                    st.warning("The NLDI API may have returned empty results or an error.")
 
             with st.spinner("Comparing NWM with USGS observations..."):
                 comparison = compare_nwm_usgs(
