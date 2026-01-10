@@ -28,6 +28,9 @@ from hydrology.data.climate import fetch_climate_data, fetch_nearest_station_inf
 from hydrology.visualization import create_multi_plot, PlotLayout
 from hydrology.visualization.plots import AVAILABLE_PLOTS
 from hydrology.scripts.analyze_sites import analyze_correlation
+from hydrology.core.logging_setup import get_logger
+
+logger = get_logger(__name__)
 from hydrology.app.plot_config import (
     multi_plot_selector, single_plot_selector,
     CLIMATE_PLOTS, DISCHARGE_PLOTS, STAGE_PLOTS
@@ -65,6 +68,20 @@ def get_weather_station_info(lat: float, lon: float):
         return fetch_nearest_station_info(lat, lon)
     except Exception:
         return None
+
+
+def extract_site_id(site_string: str) -> str:
+    """
+    Safely extract site ID from selection string like "12345678 - Site Description".
+
+    Returns the site ID or None if extraction fails.
+    """
+    if not site_string:
+        return None
+    parts = site_string.split(" - ", 1)
+    if parts and parts[0].strip():
+        return parts[0].strip()
+    return None
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -785,7 +802,7 @@ def single_analysis_mode(inventory_df):
     site_options = [f"{row['site_id']} - {str(row.get('description', ''))[:40]}"
                     for _, row in inventory_df.iterrows()]
     selected = st.sidebar.selectbox("Select Site", site_options, key="single_site")
-    site_id = selected.split(" - ")[0]
+    site_id = extract_site_id(selected)
 
     site_info = get_cached_site_info(site_id)
     if not site_info:
@@ -910,7 +927,7 @@ def compare_time_periods_mode(inventory_df):
     site_options = [f"{row['site_id']} - {str(row.get('description', ''))[:40]}"
                     for _, row in inventory_df.iterrows()]
     selected = st.sidebar.selectbox("Choose site", site_options, key="compare_time_site")
-    site_id = selected.split(" - ")[0]
+    site_id = extract_site_id(selected)
 
     site_info = get_cached_site_info(site_id)
     if not site_info:
@@ -1142,7 +1159,7 @@ def compare_sites_mode(inventory_df):
     if selected_sites:
         st.sidebar.markdown("---")
         for site_str in selected_sites:
-            site_id = site_str.split(" - ")[0]
+            site_id = extract_site_id(site_str)
             site_info = get_cached_site_info(site_id)
             if site_info:
                 display_site_info(site_info, show_check_button=False)
@@ -1177,13 +1194,9 @@ def compare_sites_mode(inventory_df):
     # Generate button in main area
     st.markdown("---")
     if st.button("🔍 Compare Sites", type="primary", use_container_width=True):
-        # Show comparison header
-        st.markdown(f"""
-        <div class="site-header">
-            <h1>Multi-Site Comparison</h1>
-            <p>{len(selected_sites)} sites | {start_date} to {end_date}</p>
-        </div>
-        """, unsafe_allow_html=True)
+        # Show comparison header (using safe Streamlit components)
+        st.header("Multi-Site Comparison")
+        st.caption(f"{len(selected_sites)} sites | {start_date} to {end_date}")
 
         start_str = start_date.strftime('%Y-%m-%d')
         end_str = end_date.strftime('%Y-%m-%d')
@@ -1193,7 +1206,7 @@ def compare_sites_mode(inventory_df):
 
         progress = st.progress(0, text="Loading sites...")
         for i, site_str in enumerate(selected_sites):
-            site_id = site_str.split(" - ")[0]
+            site_id = extract_site_id(site_str)
             site_info = get_cached_site_info(site_id)
             desc = site_info.get('description', site_id) if site_info else site_id
 
@@ -1258,7 +1271,7 @@ def quad_comparison_mode(inventory_df):
     # Show selected site info and data availability
     st.sidebar.markdown("---")
     for label, site_str in [("Site A", site_a), ("Site B", site_b)]:
-        site_id = site_str.split(" - ")[0]
+        site_id = extract_site_id(site_str)
         site_info = get_cached_site_info(site_id)
         if site_info:
             st.sidebar.caption(f"**{label}:**")
@@ -1348,8 +1361,8 @@ def quad_comparison_mode(inventory_df):
 
     # Generate comparison
     if generate:
-        site_id_a = site_a.split(" - ")[0]
-        site_id_b = site_b.split(" - ")[0]
+        site_id_a = extract_site_id(site_a)
+        site_id_b = extract_site_id(site_b)
 
         site_info_a = get_cached_site_info(site_id_a)
         site_info_b = get_cached_site_info(site_id_b)

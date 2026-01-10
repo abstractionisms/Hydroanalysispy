@@ -8,6 +8,7 @@ both daily values (DV) and instantaneous values (IV).
 Updated: 2026-01-09 - Added fetch_instantaneous_values and check_iv_availability
 """
 
+import json
 import time
 import random
 import xml.etree.ElementTree as ET
@@ -229,7 +230,7 @@ def fetch_daily_values(
                 "endDT": chunk_end.date().isoformat(),
             }
             text = http_get_text(BASE_URL_DV, params_json, retries=5)
-            json_data = requests.models.complexjson.loads(text) if text else {}
+            json_data = json.loads(text) if text else {}
             df_json = parse_json_series(json_data)
 
             if not df_json.empty:
