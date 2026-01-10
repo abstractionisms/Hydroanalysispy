@@ -1,5 +1,4 @@
 """
-from hydrology.core import DEFAULT_DISCHARGE_CODE
 Streamlit web application for hydrology analysis.
 
 Features:
@@ -8,6 +7,8 @@ Features:
 - Date range slider with visual selection
 - Comparison modes: time periods, sites, and 2x2 grid
 """
+
+from hydrology.core import DEFAULT_DISCHARGE_CODE
 
 import streamlit as st
 import pandas as pd
