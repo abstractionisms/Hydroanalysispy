@@ -947,6 +947,13 @@ def compare_time_periods_mode(inventory_df):
         st.session_state.period_b_year = 2020
 
     current_year = date.today().year
+    today = date.today()
+
+    # Sanitize cached date inputs that exceed today
+    if 'start_a_input' in st.session_state and st.session_state.start_a_input > today:
+        st.session_state.start_a_input = today
+    if 'start_b_input' in st.session_state and st.session_state.start_b_input > today:
+        st.session_state.start_b_input = today
 
     with col2:
         st.subheader("Period A")
@@ -959,7 +966,6 @@ def compare_time_periods_mode(inventory_df):
             key="slider_a",
             label_visibility="collapsed"
         )
-        st.session_state.period_a_year = year_a
 
         # Compute start date from year
         if is_water_year:
@@ -967,13 +973,18 @@ def compare_time_periods_mode(inventory_df):
         else:
             start_a = date(year_a, 1, 1)
 
+        # Sync date input when slider year changes
+        if st.session_state.period_a_year != year_a:
+            st.session_state.period_a_year = year_a
+            st.session_state.start_a_input = start_a
+
         # Show date input for fine-tuning (optional)
         with st.expander("Fine-tune date"):
             start_a = st.date_input(
                 "Start date",
                 value=start_a,
                 min_value=date(1900, 1, 1),
-                max_value=date.today(),
+                max_value=today,
                 key="start_a_input"
             )
             if is_water_year:
@@ -993,7 +1004,6 @@ def compare_time_periods_mode(inventory_df):
             key="slider_b",
             label_visibility="collapsed"
         )
-        st.session_state.period_b_year = year_b
 
         # Compute start date from year
         if is_water_year:
@@ -1001,13 +1011,18 @@ def compare_time_periods_mode(inventory_df):
         else:
             start_b = date(year_b, 1, 1)
 
+        # Sync date input when slider year changes
+        if st.session_state.period_b_year != year_b:
+            st.session_state.period_b_year = year_b
+            st.session_state.start_b_input = start_b
+
         # Show date input for fine-tuning (optional)
         with st.expander("Fine-tune date"):
             start_b = st.date_input(
                 "Start date",
                 value=start_b,
                 min_value=date(1900, 1, 1),
-                max_value=date.today(),
+                max_value=today,
                 key="start_b_input"
             )
             if is_water_year:
@@ -1138,6 +1153,12 @@ def compare_sites_mode(inventory_df):
         if 'compare_sites_end' not in st.session_state:
             st.session_state.compare_sites_end = date.today()
 
+        # Sanitize cached dates that exceed today
+        if 'cs_start' in st.session_state and st.session_state.cs_start > max_date:
+            st.session_state.cs_start = max_date
+        if 'cs_end' in st.session_state and st.session_state.cs_end > max_date:
+            st.session_state.cs_end = max_date
+
         start_date = st.date_input("Start", st.session_state.compare_sites_start,
                                    min_value=min_date, max_value=max_date, key="cs_start")
         end_date = st.date_input("End", st.session_state.compare_sites_end,
@@ -1251,6 +1272,14 @@ def quad_comparison_mode(inventory_df):
     # Period length and dates
     col1, col2, col3 = st.columns(3)
 
+    today = date.today()
+
+    # Sanitize cached dates that exceed today
+    if 'quad_start_1' in st.session_state and st.session_state.quad_start_1 > today:
+        st.session_state.quad_start_1 = today
+    if 'quad_start_2' in st.session_state and st.session_state.quad_start_2 > today:
+        st.session_state.quad_start_2 = today
+
     with col1:
         st.subheader("Period Length")
         period_lengths = {
@@ -1274,7 +1303,7 @@ def quad_comparison_mode(inventory_df):
                 st.session_state.quad_p1_start = st.session_state.quad_p1_start - timedelta(days=period_days)
         with col_p1b:
             start_1 = st.date_input("Start", st.session_state.quad_p1_start, key="quad_start_1",
-                                    min_value=date(1900, 1, 1), max_value=date.today(), label_visibility="collapsed")
+                                    min_value=date(1900, 1, 1), max_value=today, label_visibility="collapsed")
             st.session_state.quad_p1_start = start_1
         with col_p1c:
             if st.button("▶", key="shift_p1_fwd"):
@@ -1294,7 +1323,7 @@ def quad_comparison_mode(inventory_df):
                 st.session_state.quad_p2_start = st.session_state.quad_p2_start - timedelta(days=period_days)
         with col_p2b:
             start_2 = st.date_input("Start", st.session_state.quad_p2_start, key="quad_start_2",
-                                    min_value=date(1900, 1, 1), max_value=date.today(), label_visibility="collapsed")
+                                    min_value=date(1900, 1, 1), max_value=today, label_visibility="collapsed")
             st.session_state.quad_p2_start = start_2
         with col_p2c:
             if st.button("▶", key="shift_p2_fwd"):
