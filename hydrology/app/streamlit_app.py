@@ -671,7 +671,11 @@ def process_site_data(site_id: str, lat: float, lon: float, start_str: str, end_
 
         df_merged = pd.merge(df_q, df_climate, left_index=True, right_index=True, how='inner')
 
-        if not df_merged.empty:
+        # If merge resulted in empty DataFrame, set to None so fallback logic works
+        if df_merged.empty:
+            logger.warning(f"Merge produced empty result. df_q: {len(df_q)} rows, df_climate: {len(df_climate)} rows")
+            df_merged = None
+        else:
             analysis_results = analyze_correlation(df_merged)
 
     # Analyze coverage for discharge and stage

@@ -830,13 +830,11 @@ def plot_precip_discharge_overlay(ax, df_merged: pd.DataFrame = None, df_q: pd.D
             _plot_placeholder(ax, "Precip-Discharge Overlay\nN/A - No discharge data")
             return
 
-        # Get recent data (last 2 years by default for readability)
-        end_date = df_source.index.max()
-        start_date = end_date - pd.DateOffset(years=2)
-        df_plot = df_source.loc[start_date:end_date].copy()
+        # Use full data range (user selected dates, not hardcoded last 2 years)
+        df_plot = df_source.copy()
 
         if df_plot.empty:
-            _plot_placeholder(ax, "Precip-Discharge Overlay\nNo recent data")
+            _plot_placeholder(ax, "Precip-Discharge Overlay\nNo data in range")
             return
 
         # Plot discharge on left axis (log scale)
@@ -879,9 +877,10 @@ def plot_precip_discharge_overlay(ax, df_merged: pd.DataFrame = None, df_q: pd.D
             ax.legend(loc='upper left', framealpha=0.9)
             title_suffix = "Discharge Only (No Climate Data)"
 
-        # Formatting
+        # Formatting - show actual data range
         data_range = f"{df_plot.index.min().strftime('%Y-%m-%d')} to {df_plot.index.max().strftime('%Y-%m-%d')}"
-        ax.set_title(f'{title_suffix}\nData: {data_range}', fontweight='bold')
+        n_days = len(df_plot)
+        ax.set_title(f'{title_suffix}\n{data_range} ({n_days:,} days)', fontweight='bold')
         ax.set_xlabel('Date')
         ax.grid(True, alpha=0.3)
 
@@ -1071,10 +1070,8 @@ def plot_baseflow_separation(ax, df_q: pd.DataFrame = None, config: Dict[str, An
         return
 
     try:
-        # Get recent 2 years for clearer visualization
-        end_date = df_q.index.max()
-        start_date = end_date - pd.DateOffset(years=2)
-        df_plot = df_q.loc[start_date:end_date].copy()
+        # Use full data range (user selected dates)
+        df_plot = df_q.copy()
 
         Q = df_plot[DISCHARGE_COL].dropna().values
         if len(Q) < 10:
