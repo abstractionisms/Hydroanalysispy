@@ -791,45 +791,53 @@ def plot_temporal_heatmap(ax, df_q: pd.DataFrame = None, config: Dict[str, Any] 
 # PLOT 10: PRECIPITATION-DISCHARGE OVERLAY
 # ============================================================================
 
-def plot_precip_discharge_overlay(ax, df_merged: pd.DataFrame = None, config: Dict[str, Any] = None, **kwargs):
+def plot_precip_discharge_overlay(ax, df_merged: pd.DataFrame = None, df_q: pd.DataFrame = None, config: Dict[str, Any] = None, **kwargs):
     """
     Plot discharge with precipitation overlay (dual y-axis) and cumulative precipitation.
 
     Shows:
     - Discharge (left y-axis, blue line)
-    - Daily precipitation (right y-axis, blue bars)
-    - Cumulative precipitation (right y-axis, orange line)
+    - Daily precipitation (right y-axis, blue bars) - if available
+    - Cumulative precipitation (right y-axis, orange line) - if available
+
+    Falls back to discharge-only plot if precipitation data is unavailable.
 
     Args:
         ax: Matplotlib axis
         df_merged: Merged DataFrame with Discharge_cfs and Precip_mm columns
+        df_q: Discharge-only DataFrame (fallback if df_merged unavailable)
         config: Optional configuration
     """
     cfg = {**DEFAULT_CONFIG, **(config or {})}
 
-    if df_merged is None or df_merged.empty:
-        _plot_placeholder(ax, "Precip-Discharge Overlay\nN/A - No merged data")
-        return
+    # Determine which data source to use
+    has_merged = df_merged is not None and not df_merged.empty
+    has_precip = has_merged and 'Precip_mm' in df_merged.columns
+    has_discharge_only = df_q is not None and not df_q.empty
 
-    if 'Precip_mm' not in df_merged.columns:
-        _plot_placeholder(ax, "Precip-Discharge Overlay\nN/A - No precipitation data")
+    if not has_merged and not has_discharge_only:
+        _plot_placeholder(ax, "Precip-Discharge Overlay\nN/A - No data available")
         return
 
     try:
+        # Use merged data if available, otherwise fall back to discharge-only
+        if has_merged and 'Discharge_cfs' in df_merged.columns:
+            df_source = df_merged
+        elif has_discharge_only and 'Discharge_cfs' in df_q.columns:
+            df_source = df_q
+            has_precip = False  # No precip in discharge-only data
+        else:
+            _plot_placeholder(ax, "Precip-Discharge Overlay\nN/A - No discharge data")
+            return
+
         # Get recent data (last 2 years by default for readability)
-        end_date = df_merged.index.max()
+        end_date = df_source.index.max()
         start_date = end_date - pd.DateOffset(years=2)
-        df_plot = df_merged.loc[start_date:end_date].copy()
+        df_plot = df_source.loc[start_date:end_date].copy()
 
         if df_plot.empty:
             _plot_placeholder(ax, "Precip-Discharge Overlay\nNo recent data")
             return
-
-        # Calculate cumulative precipitation (reset at start of plot period)
-        df_plot['Cumulative_Precip_mm'] = df_plot['Precip_mm'].cumsum()
-
-        # Create twin axis for precipitation
-        ax2 = ax.twinx()
 
         # Plot discharge on left axis (log scale)
         line1 = ax.plot(df_plot.index, df_plot['Discharge_cfs'],
@@ -840,29 +848,42 @@ def plot_precip_discharge_overlay(ax, df_merged: pd.DataFrame = None, config: Di
         ax.yaxis.set_major_formatter(mticker.ScalarFormatter())
         ax.yaxis.get_major_formatter().set_scientific(False)
 
-        # Plot daily precipitation as bars on right axis
-        bar1 = ax2.bar(df_plot.index, df_plot['Precip_mm'],
-                      color='lightblue', alpha=0.4, width=1, label='Daily Precip')
+        if has_precip:
+            # Calculate cumulative precipitation (reset at start of plot period)
+            df_plot['Cumulative_Precip_mm'] = df_plot['Precip_mm'].cumsum()
 
-        # Plot cumulative precipitation as line on right axis
-        line2 = ax2.plot(df_plot.index, df_plot['Cumulative_Precip_mm'],
-                        color='darkorange', linewidth=2, label='Cumulative Precip', alpha=0.8)
+            # Create twin axis for precipitation
+            ax2 = ax.twinx()
 
-        ax2.set_ylabel('Precipitation (mm)', color='darkblue', fontweight='bold')
-        ax2.tick_params(axis='y', labelcolor='darkblue')
-        ax2.set_ylim(bottom=0)
+            # Plot daily precipitation as bars on right axis
+            bar1 = ax2.bar(df_plot.index, df_plot['Precip_mm'],
+                          color='lightblue', alpha=0.4, width=1, label='Daily Precip')
+
+            # Plot cumulative precipitation as line on right axis
+            line2 = ax2.plot(df_plot.index, df_plot['Cumulative_Precip_mm'],
+                            color='darkorange', linewidth=2, label='Cumulative Precip', alpha=0.8)
+
+            ax2.set_ylabel('Precipitation (mm)', color='darkblue', fontweight='bold')
+            ax2.tick_params(axis='y', labelcolor='darkblue')
+            ax2.set_ylim(bottom=0)
+
+            # Combined legend
+            lines = line1 + line2
+            bars = [bar1]
+            labels = [l.get_label() for l in lines] + ['Daily Precip']
+            ax.legend(lines + bars, labels, loc='upper left', framealpha=0.9)
+
+            title_suffix = "Discharge vs Precipitation"
+        else:
+            # Discharge-only legend and title
+            ax.legend(loc='upper left', framealpha=0.9)
+            title_suffix = "Discharge Only (No Climate Data)"
 
         # Formatting
         data_range = f"{df_plot.index.min().strftime('%Y-%m-%d')} to {df_plot.index.max().strftime('%Y-%m-%d')}"
-        ax.set_title(f'Discharge vs Precipitation (Last 2 Years)\nData: {data_range}', fontweight='bold')
+        ax.set_title(f'{title_suffix}\nData: {data_range}', fontweight='bold')
         ax.set_xlabel('Date')
         ax.grid(True, alpha=0.3)
-
-        # Combined legend
-        lines = line1 + line2
-        bars = [bar1]
-        labels = [l.get_label() for l in lines] + ['Daily Precip']
-        ax.legend(lines + bars, labels, loc='upper left', framealpha=0.9)
 
         # Rotate x-axis labels
         plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
@@ -1997,7 +2018,7 @@ AVAILABLE_PLOTS = {
     'precip_discharge': {
         'function': plot_precip_discharge_overlay,
         'description': 'Discharge with precipitation overlay (dual y-axis)',
-        'requires': ['df_merged'],
+        'requires': ['df_q'],  # Can work with just df_q, enhanced with df_merged
         'default_size': (14, 6)
     },
     'seasonal_scatter': {

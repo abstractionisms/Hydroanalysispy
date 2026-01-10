@@ -722,18 +722,17 @@ def create_comparison_figure(plot_name: str, data_list: list, titles: list,
 
         if plot_func and data is not None:
             try:
-                # Check if plot requires merged data but it's missing
+                # Check data availability
                 plot_requires = plot_info.get('requires', [])
                 has_merged = data.get('df_merged') is not None and not data['df_merged'].empty if 'df_merged' in data else False
                 has_discharge = data.get('df_q') is not None and not data['df_q'].empty if 'df_q' in data else False
 
-                if 'df_merged' in plot_requires and not has_merged:
-                    ax.text(0.5, 0.5, "No Climate Data\nfor this period",
-                           ha='center', va='center', transform=ax.transAxes, fontsize=12)
-                elif 'df_q' in plot_requires and not has_discharge:
+                # Only block if NO data at all is available
+                if 'df_q' in plot_requires and not has_discharge and not has_merged:
                     ax.text(0.5, 0.5, "No Discharge Data\nfor this period",
                            ha='center', va='center', transform=ax.transAxes, fontsize=12)
                 else:
+                    # Let plot functions handle missing data gracefully with fallbacks
                     plot_func(ax, **data, config={})
                 ax.set_title(title, fontsize=10)
             except Exception as e:
