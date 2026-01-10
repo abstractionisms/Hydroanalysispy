@@ -214,13 +214,13 @@ def check_iv_availability(site_id: str, param_cd: str):
 @st.cache_data(ttl=3600, show_spinner=False)
 def find_availability_windows(site_id: str, param_cd: str, check_iv: bool = False, hint_start_year: int = None):
     """
-    Fast availability check - only makes 2-3 API calls instead of 25+.
+    Fast availability check - makes 3-5 API calls to find data availability.
     Returns list of (start_year, end_year) tuples.
 
     Strategy:
     1. Check recent data (last 2 years)
-    2. Check historical data (around hint_start_year or 1950)
-    3. If both exist, return single window. If gap detected, note it.
+    2. Check historical data (around hint_start_year or 1960)
+    3. If recent but not historical, check intermediate periods to find actual start
     """
     import requests
 
@@ -259,6 +259,31 @@ def find_availability_windows(site_id: str, param_cd: str, check_iv: bool = Fals
     except Exception:
         pass
 
+    # Check 3: If has recent but no historical, probe intermediate periods
+    # This catches cases where parameter started later than hint_start_year
+    if has_recent and not has_historical:
+        # Check progressively: 2000, 2010, 1990, 1980 to find actual start
+        probe_years = [2000, 2010, 1990, 1980, 1970]
+        for probe_year in probe_years:
+            if probe_year <= check_year or probe_year >= current_year - 2:
+                continue  # Skip if already checked or overlaps with recent
+            try:
+                probe_start = f"{probe_year}-01-01"
+                probe_end = f"{probe_year + 2}-12-31"
+                df = fetch_daily_values(
+                    site_id, param_cd=param_cd,
+                    start_date=probe_start, end_date=probe_end,
+                    chunk_years=3
+                )
+                if df is not None and not df.empty:
+                    found_year = df.index.min().year
+                    if earliest_year is None or found_year < earliest_year:
+                        earliest_year = found_year
+                    has_historical = True
+                    break  # Found data, stop probing
+            except Exception:
+                pass
+
     # If no DV data found and check_iv requested, try IV for recent
     if not has_recent and not has_historical and check_iv:
         try:
@@ -291,6 +316,7 @@ def find_availability_windows(site_id: str, param_cd: str, check_iv: bool = Fals
         start_year = earliest_year if earliest_year else check_year
         return [(start_year, "present")]
     elif has_recent:
+        # Still only has recent - genuinely new data
         return [(current_year - 2, "present")]
     else:  # has_historical only
         return [(earliest_year if earliest_year else check_year, check_year + 5)]
