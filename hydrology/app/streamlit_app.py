@@ -557,9 +557,18 @@ def date_range_selector(key_prefix: str = "", default_start: date = None, defaul
             key=f"{key_prefix}_end_slider"
         )
         st.session_state[end_year_key] = end_year
-        end = date(end_year, 12, 31)
+        end = min(date(end_year, 12, 31), date.today())
 
     # Fine-tune with date inputs (collapsed by default)
+    # Sanitize session state to prevent cached dates exceeding max_value
+    start_key = f"{key_prefix}_start"
+    end_key = f"{key_prefix}_end"
+    today = date.today()
+    if start_key in st.session_state and st.session_state[start_key] > today:
+        st.session_state[start_key] = today
+    if end_key in st.session_state and st.session_state[end_key] > today:
+        st.session_state[end_key] = today
+
     with st.expander("Fine-tune dates"):
         col3, col4 = st.columns(2)
         with col3:
@@ -567,16 +576,16 @@ def date_range_selector(key_prefix: str = "", default_start: date = None, defaul
                 "Start Date",
                 value=start,
                 min_value=date(1900, 1, 1),
-                max_value=date.today(),
-                key=f"{key_prefix}_start"
+                max_value=today,
+                key=start_key
             )
         with col4:
             end = st.date_input(
                 "End Date",
                 value=end,
                 min_value=date(1900, 1, 1),
-                max_value=date.today(),
-                key=f"{key_prefix}_end"
+                max_value=today,
+                key=end_key
             )
 
     st.caption(f"Range: {start} → {end}")
