@@ -1003,25 +1003,36 @@ def compare_time_periods_mode(inventory_df):
             if data_b:
                 st.caption(f"Discharge: {data_b['discharge_count']:,} | Merged: {data_b['merged_count']:,}")
 
-        # Create comparison figure
+        # Create comparison figure - always show both periods
         data_list = []
         titles = []
 
+        # Period A - always add (None if no data)
         if data_a:
             data_list.append({'df_q': data_a['df_q'], 'df_merged': data_a['df_merged'],
                              'analysis_results': data_a['analysis_results']})
-            titles.append(f"{desc}\n{start_a} to {end_a}")
+        else:
+            data_list.append(None)
+            st.warning(f"No data available for Period A ({start_a} to {end_a})")
+        titles.append(f"{desc}\n{start_a} to {end_a}")
 
+        # Period B - always add (None if no data)
         if data_b:
             data_list.append({'df_q': data_b['df_q'], 'df_merged': data_b['df_merged'],
                              'analysis_results': data_b['analysis_results']})
-            titles.append(f"{desc}\n{start_b} to {end_b}")
+        else:
+            data_list.append(None)
+            st.warning(f"No data available for Period B ({start_b} to {end_b})")
+        titles.append(f"{desc}\n{start_b} to {end_b}")
 
-        if data_list:
-            fig = create_comparison_figure(plot_name, data_list, titles, 1, len(data_list), dpi)
+        # Always create 2-column comparison (even with missing data)
+        if data_a or data_b:  # At least one period has data
+            fig = create_comparison_figure(plot_name, data_list, titles, 1, 2, dpi)
             st.pyplot(fig)
             render_export_buttons(fig, f"{site_id}_comparison", dpi)
             plt.close(fig)
+        else:
+            st.error("No data available for either period")
     else:
         st.info("Select a site, period length, and start dates to compare equal-length periods")
 
