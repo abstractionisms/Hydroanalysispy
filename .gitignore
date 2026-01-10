@@ -43,3 +43,9 @@ output_data/
 next scripts/
 .ipynb_checkpoints/
 hydrology.egg-info/
+
+# Data files (too large for git)
+data/
+logs/
+newplots/
+refined_plots/
