@@ -1730,8 +1730,16 @@ def site_map_mode(inventory_df):
     with col1:
         st.metric("Total Sites", len(map_data))
     with col2:
-        oldest = map_data['begin_date'].dropna().min() if 'begin_date' in map_data else 'N/A'
-        st.metric("Oldest Record", str(oldest)[:4] if oldest else 'N/A')
+        oldest_display = 'N/A'
+        if 'begin_date' in map_data:
+            dates = map_data['begin_date'].dropna()
+            if len(dates) > 0:
+                oldest = dates.min()
+                if pd.notna(oldest):
+                    # Handle both string and datetime formats
+                    oldest_str = str(oldest)
+                    oldest_display = oldest_str[:4] if len(oldest_str) >= 4 else oldest_str
+        st.metric("Oldest Record", oldest_display)
     with col3:
         st.metric("Region", "Pacific Northwest")
 
@@ -2333,6 +2341,24 @@ def nwm_comparison_mode(inventory_df):
                 # Show the URL being used
                 api_url = f"https://api.water.usgs.gov/nldi/linked-data/nwissite/USGS-{site_id}"
                 st.code(f"NLDI API: {api_url}", language=None)
+
+                # Direct debug - make a request ourselves to see what's happening
+                import requests as req
+                try:
+                    debug_resp = req.get(api_url, headers={'Accept': 'application/json'}, timeout=30)
+                    with st.expander("🔧 Debug: Raw API Response", expanded=False):
+                        st.write(f"Status: {debug_resp.status_code}")
+                        if debug_resp.status_code == 200:
+                            debug_data = debug_resp.json()
+                            st.write(f"Features count: {len(debug_data.get('features', []))}")
+                            if debug_data.get('features'):
+                                props = debug_data['features'][0].get('properties', {})
+                                st.write(f"Property keys: {list(props.keys())}")
+                                st.write(f"comid value: {props.get('comid', 'NOT FOUND')}")
+                        else:
+                            st.write(f"Response: {debug_resp.text[:500]}")
+                except Exception as debug_e:
+                    st.warning(f"Debug request failed: {debug_e}")
 
                 try:
                     reach_id = client.get_reach_id(site_id)

@@ -179,18 +179,31 @@ class NWMClient:
         try:
             # Use NLDI service to find associated NWM reach
             url = NLDI_API_BASE.format(site_id=site_id)
-            response = requests.get(url, timeout=30)
+            logger.info(f"Fetching NLDI data from: {url}")
+
+            headers = {'Accept': 'application/json'}
+            response = requests.get(url, headers=headers, timeout=30)
+
+            logger.info(f"NLDI response status: {response.status_code}")
 
             if response.status_code == 200:
                 data = response.json()
+                logger.info(f"NLDI response has {len(data.get('features', []))} features")
+
                 if data.get('features'):
                     # Get the comid from the feature properties
                     props = data['features'][0].get('properties', {})
+                    logger.info(f"Feature properties keys: {list(props.keys())}")
+
                     reach_id = str(props.get('comid', ''))
                     if reach_id:
                         self.reach_cache[site_id] = reach_id
                         logger.info(f"Found NWM reach {reach_id} for USGS site {site_id}")
                         return reach_id
+                    else:
+                        logger.warning(f"comid field empty or missing in properties: {props}")
+            else:
+                logger.warning(f"NLDI returned status {response.status_code}: {response.text[:200]}")
 
             logger.warning(f"Could not find NWM reach for USGS site {site_id}")
             return None
