@@ -1530,17 +1530,56 @@ def site_map_mode(inventory_df):
     # Map options in sidebar
     st.sidebar.header("Map Options")
 
+    # Quick jump to watershed
+    watersheds = {
+        "All Sites (Pacific NW)": {"center": [46.5, -120.5], "zoom": 6},
+        "─── Washington ───": None,
+        "Puget Sound": {"center": [47.5, -122.3], "zoom": 8},
+        "Upper Columbia": {"center": [48.0, -118.0], "zoom": 7},
+        "Spokane River": {"center": [47.7, -117.4], "zoom": 9},
+        "Yakima": {"center": [46.6, -120.5], "zoom": 8},
+        "Lower Columbia": {"center": [46.2, -123.0], "zoom": 8},
+        "─── Oregon ───": None,
+        "Willamette": {"center": [44.5, -122.8], "zoom": 8},
+        "Oregon Coast": {"center": [44.0, -124.0], "zoom": 8},
+        "Deschutes": {"center": [44.0, -121.2], "zoom": 8},
+        "─── Idaho ───": None,
+        "Snake River": {"center": [43.5, -115.5], "zoom": 7},
+        "Clearwater": {"center": [46.5, -115.5], "zoom": 8},
+        "Salmon River": {"center": [45.0, -114.5], "zoom": 8},
+    }
+
+    selected_watershed = st.sidebar.selectbox(
+        "Jump to Watershed",
+        list(watersheds.keys()),
+        index=0,
+        help="Quick zoom to a specific watershed"
+    )
+
+    # Get map center and zoom from selection
+    ws_config = watersheds.get(selected_watershed)
+    if ws_config:
+        center_lat, center_lon = ws_config["center"]
+        zoom_start = ws_config["zoom"]
+    else:
+        # Separator selected, use default
+        center_lat = map_data['latitude'].mean()
+        center_lon = map_data['longitude'].mean()
+        zoom_start = 6
+
+    st.sidebar.markdown("---")
+
     show_huc = st.sidebar.checkbox("Show Watershed Boundaries", value=True)
 
     # User-friendly watershed boundary options
     huc_options = {
         "Major Regions (HUC2)": 2,
-        "Subregions - Puget Sound, Columbia, etc. (HUC4)": 4,
+        "Subregions (HUC4)": 4,
         "Basins (HUC6)": 6,
         "Subbasins - Detailed (HUC8)": 8
     }
     huc_choice = st.sidebar.selectbox(
-        "Watershed Detail Level",
+        "Boundary Detail",
         list(huc_options.keys()),
         index=1,  # Default to Subregions
         help="Choose how detailed the watershed boundaries should be"
@@ -1548,16 +1587,12 @@ def site_map_mode(inventory_df):
     huc_level = huc_options[huc_choice]
 
     use_clustering = st.sidebar.checkbox("Cluster Nearby Sites", value=True,
-                                         help="Group nearby sites into clusters (uncheck to see all individual markers)")
-
-    # Calculate map center from data
-    center_lat = map_data['latitude'].mean()
-    center_lon = map_data['longitude'].mean()
+                                         help="Group nearby sites into clusters")
 
     # Create Folium map with dark tiles
     m = folium.Map(
         location=[center_lat, center_lon],
-        zoom_start=6,
+        zoom_start=zoom_start,
         tiles='CartoDB dark_matter',
         control_scale=True
     )
