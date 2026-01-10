@@ -39,7 +39,8 @@ logger = get_logger(__name__)
 
 
 # NWM reach ID mapping service (USGS site to NWM reach)
-REACH_MAPPING_URL = "https://labs.waterdata.usgs.gov/api/nldi/linked-data/nwissite/USGS-{site_id}/navigation/UM/flowlines"
+# Updated to use the production NLDI API endpoint
+NLDI_API_BASE = "https://api.water.usgs.gov/nldi/linked-data/nwissite/USGS-{site_id}"
 
 # NOAA Water Prediction Service API (preferred method)
 NOAA_API_BASE = "https://api.water.noaa.gov/nwps/v1"
@@ -177,14 +178,15 @@ class NWMClient:
 
         try:
             # Use NLDI service to find associated NWM reach
-            url = REACH_MAPPING_URL.format(site_id=site_id)
+            url = NLDI_API_BASE.format(site_id=site_id)
             response = requests.get(url, timeout=30)
 
             if response.status_code == 200:
                 data = response.json()
                 if data.get('features'):
-                    # Get the first (closest) reach
-                    reach_id = str(data['features'][0]['properties'].get('nhdplus_comid', ''))
+                    # Get the comid from the feature properties
+                    props = data['features'][0].get('properties', {})
+                    reach_id = str(props.get('comid', ''))
                     if reach_id:
                         self.reach_cache[site_id] = reach_id
                         logger.info(f"Found NWM reach {reach_id} for USGS site {site_id}")
@@ -247,6 +249,9 @@ class NWMClient:
         """
         Get NWM analysis (retrospective) data for a site.
 
+        Note: The NOAA API returns the last ~5 days of analysis_assimilation data.
+        Date filtering is done client-side after fetching.
+
         Args:
             site_id: USGS site ID
             start_date: Start date (YYYY-MM-DD)
@@ -261,18 +266,26 @@ class NWMClient:
             return None
 
         try:
+            # The API returns recent analysis_assimilation data
             url = f"{NOAA_API_BASE}/reaches/{reach_id}/streamflow"
-            params = {
-                'series': 'analysis',
-                'startDT': start_date,
-                'endDT': end_date
-            }
 
-            response = requests.get(url, params=params, timeout=60)
+            response = requests.get(url, timeout=60)
 
             if response.status_code == 200:
                 data = response.json()
-                return self._parse_analysis_response(data)
+                df = self._parse_analysis_response(data)
+
+                if df is not None and not df.empty:
+                    # Filter to requested date range
+                    start_dt = pd.to_datetime(start_date)
+                    end_dt = pd.to_datetime(end_date)
+                    # Make timezone-aware if needed
+                    if df.index.tz is not None:
+                        start_dt = start_dt.tz_localize(df.index.tz)
+                        end_dt = end_dt.tz_localize(df.index.tz)
+                    df = df[(df.index >= start_dt) & (df.index <= end_dt)]
+
+                return df
             else:
                 logger.warning(f"NWM analysis API returned {response.status_code}")
                 return None
@@ -319,19 +332,26 @@ class NWMClient:
             return None
 
     def _parse_analysis_response(self, data: Dict) -> Optional[pd.DataFrame]:
-        """Parse analysis API response."""
+        """Parse analysis API response from NOAA NWM API."""
         try:
-            if 'data' not in data:
+            # The API returns analysisAssimilation.series.data
+            analysis_data = data.get('analysisAssimilation', {})
+            series = analysis_data.get('series', {})
+            values = series.get('data', [])
+
+            if not values:
+                logger.warning("No analysis data in response")
                 return None
 
-            values = data['data']
+            # Units are already in cfs (ft³/s) from this API
             df = pd.DataFrame([{
                 'datetime': datetime.fromisoformat(v['validTime'].replace('Z', '+00:00')),
-                'streamflow_cms': float(v['value'])
+                'streamflow_cfs': float(v['flow'])
             } for v in values])
 
             df.set_index('datetime', inplace=True)
-            df['streamflow_cfs'] = df['streamflow_cms'] * 35.3147
+            # Also provide cms for compatibility
+            df['streamflow_cms'] = df['streamflow_cfs'] / 35.3147
 
             return df
 
@@ -374,9 +394,15 @@ def compare_nwm_usgs(
 
     # Fetch USGS observations
     if use_instantaneous:
-        usgs_data = fetch_instantaneous_values(site_id, '00060', start_date, end_date)
+        usgs_data = fetch_instantaneous_values(
+            site_id, param_cd='00060',
+            start_date=start_date, end_date=end_date
+        )
     else:
-        usgs_data = fetch_daily_values(site_id, '00060', start_date, end_date)
+        usgs_data = fetch_daily_values(
+            site_id, param_cd='00060',
+            start_date=start_date, end_date=end_date
+        )
 
     if usgs_data is None or usgs_data.empty:
         logger.warning(f"No USGS data available for {site_id}")
@@ -384,6 +410,14 @@ def compare_nwm_usgs(
 
     # Align data
     usgs_data = usgs_data.rename(columns={'value': 'usgs_cfs'})
+
+    # Normalize timezones - convert both to timezone-naive for merging
+    if nwm_data.index.tz is not None:
+        nwm_data = nwm_data.copy()
+        nwm_data.index = nwm_data.index.tz_convert('UTC').tz_localize(None)
+    if usgs_data.index.tz is not None:
+        usgs_data = usgs_data.copy()
+        usgs_data.index = usgs_data.index.tz_convert('UTC').tz_localize(None)
 
     if use_instantaneous:
         # Resample NWM to match USGS instantaneous frequency
@@ -396,10 +430,13 @@ def compare_nwm_usgs(
             tolerance=pd.Timedelta('1h')
         )
     else:
-        # For daily values, resample NWM to daily
+        # For daily values, resample NWM to daily mean
         nwm_daily = nwm_data[['streamflow_cfs']].resample('D').mean()
+        # Normalize USGS daily data to just date (remove time component)
+        usgs_daily = usgs_data.copy()
+        usgs_daily.index = usgs_daily.index.normalize()
         merged = pd.merge(
-            usgs_data,
+            usgs_daily,
             nwm_daily,
             left_index=True,
             right_index=True,
@@ -408,7 +445,7 @@ def compare_nwm_usgs(
 
     merged = merged.dropna()
 
-    if len(merged) < 10:
+    if len(merged) < 3:
         logger.warning(f"Insufficient overlap for comparison ({len(merged)} points)")
         return None
 
