@@ -2016,18 +2016,26 @@ def multisite_analysis_mode(inventory_df):
                 lon = info.get('longitude') if info else None
                 analyzer.add_site(sid, name=name[:40], latitude=lat, longitude=lon)
 
-            # Fetch data
+            # Fetch data - try each site individually to see what fails
             start_str = start_date.strftime('%Y-%m-%d')
             end_str = end_date.strftime('%Y-%m-%d')
 
-            try:
-                data_result = analyzer.fetch_data(start_str, end_str)
-                st.write(f"Data fetched for {len(analyzer.data)} sites: {list(analyzer.data.keys())}")
-                for sid, df in analyzer.data.items():
-                    st.write(f"  - {sid}: {len(df)} rows")
-            except Exception as e:
-                st.error(f"Error fetching data: {e}")
-                return
+            from hydrology.data.usgs import fetch_daily_values
+
+            for sid in site_ids:
+                st.write(f"Fetching {sid}...")
+                try:
+                    df = fetch_daily_values(
+                        sid, param_cd='00060',
+                        start_date=start_str, end_date=end_str
+                    )
+                    if df is not None and not df.empty:
+                        analyzer.data[sid] = df
+                        st.success(f"✅ {sid}: {len(df)} rows")
+                    else:
+                        st.warning(f"⚠️ {sid}: No data returned")
+                except Exception as e:
+                    st.error(f"❌ {sid}: {type(e).__name__}: {e}")
 
             # Get synchronized data
             synced_data = analyzer.get_synchronized_data()
@@ -2147,8 +2155,7 @@ def nwm_comparison_mode(inventory_df):
                 client = NWMClient()
 
                 # Show the URL being used
-                from hydrology.data.nwm import NLDI_API_BASE
-                api_url = NLDI_API_BASE.format(site_id=site_id)
+                api_url = f"https://api.water.usgs.gov/nldi/linked-data/nwissite/USGS-{site_id}"
                 st.code(f"NLDI API: {api_url}", language=None)
 
                 try:
