@@ -13,6 +13,9 @@ import pandas as pd
 from datetime import datetime, date, timedelta
 from pathlib import Path
 import matplotlib.pyplot as plt
+import folium
+from folium.plugins import MarkerCluster
+from streamlit_folium import st_folium
 import io
 import sys
 
@@ -1515,28 +1518,155 @@ def render_export_buttons(fig, filename_base: str, dpi: int):
 # =============================================================================
 
 def site_map_mode(inventory_df):
-    """Display all sites on an interactive map."""
-    st.header("Site Locations")
+    """Display all sites on an interactive Folium map with tooltips and HUC boundaries."""
+    st.header("Site Map")
 
     # Prepare map data
-    map_data = inventory_df[['latitude', 'longitude', 'site_id', 'description']].copy()
+    map_data = inventory_df[['latitude', 'longitude', 'site_id', 'description', 'begin_date']].copy()
     map_data = map_data.dropna(subset=['latitude', 'longitude'])
     map_data['latitude'] = map_data['latitude'].astype(float)
     map_data['longitude'] = map_data['longitude'].astype(float)
 
-    # Rename for st.map compatibility
-    map_data = map_data.rename(columns={'latitude': 'lat', 'longitude': 'lon'})
+    # Map options in sidebar
+    st.sidebar.header("Map Options")
 
-    st.caption(f"Showing {len(map_data)} sites with coordinates")
+    show_huc = st.sidebar.checkbox("Show HUC Boundaries", value=True)
+    huc_level = st.sidebar.selectbox("HUC Level", [2, 4, 6, 8], index=2,
+                                      help="2=Regions, 4=Subregions, 6=Basins, 8=Subbasins")
+    use_clustering = st.sidebar.checkbox("Cluster Markers", value=False,
+                                         help="Group nearby sites when zoomed out")
 
-    # Display map - uses dark theme automatically
-    st.map(map_data, width='stretch')
+    # Calculate map center from data
+    center_lat = map_data['latitude'].mean()
+    center_lon = map_data['longitude'].mean()
 
-    # Site list below map
-    st.subheader("Site List")
-    display_df = inventory_df[['site_id', 'description', 'latitude', 'longitude', 'begin_date']].copy()
-    display_df = display_df.dropna(subset=['latitude', 'longitude'])
-    st.dataframe(display_df, width='stretch', hide_index=True)
+    # Create Folium map with dark tiles
+    m = folium.Map(
+        location=[center_lat, center_lon],
+        zoom_start=6,
+        tiles='CartoDB dark_matter',
+        control_scale=True
+    )
+
+    # Add HUC watershed boundaries via WMS
+    if show_huc:
+        # USGS National Map WMS for Watershed Boundary Dataset
+        wms_url = "https://hydro.nationalmap.gov/arcgis/services/wbd/MapServer/WMSServer"
+
+        # HUC layer mapping (WMS layer indices)
+        huc_layers = {2: "1", 4: "2", 6: "3", 8: "4"}
+
+        folium.raster_layers.WmsTileLayer(
+            url=wms_url,
+            name=f"HUC{huc_level} Boundaries",
+            layers=huc_layers.get(huc_level, "3"),
+            fmt="image/png",
+            transparent=True,
+            opacity=0.5,
+            overlay=True,
+            control=True
+        ).add_to(m)
+
+    # Create marker group (clustered or regular)
+    if use_clustering:
+        marker_group = MarkerCluster(name="USGS Sites")
+    else:
+        marker_group = folium.FeatureGroup(name="USGS Sites")
+
+    # Add site markers with tooltips and popups
+    for _, row in map_data.iterrows():
+        site_id = row['site_id']
+        desc = str(row.get('description', ''))[:50]
+        lat = row['latitude']
+        lon = row['longitude']
+        begin = row.get('begin_date', 'Unknown')
+
+        # Tooltip (shown on hover)
+        tooltip = f"<b>{site_id}</b><br>{desc}"
+
+        # Popup (shown on click) with more detail
+        popup_html = f"""
+        <div style="width:200px">
+            <b>{site_id}</b><br>
+            <span style="font-size:11px">{desc}</span><br>
+            <hr style="margin:5px 0">
+            <b>Coords:</b> {lat:.4f}, {lon:.4f}<br>
+            <b>Record Start:</b> {begin}<br>
+        </div>
+        """
+
+        # Color based on record length (older = more blue, newer = more orange)
+        try:
+            start_year = int(str(begin)[:4]) if begin and begin != 'Unknown' else 2020
+            if start_year < 1950:
+                color = 'darkblue'
+            elif start_year < 1980:
+                color = 'blue'
+            elif start_year < 2000:
+                color = 'cadetblue'
+            elif start_year < 2010:
+                color = 'orange'
+            else:
+                color = 'red'
+        except:
+            color = 'gray'
+
+        folium.CircleMarker(
+            location=[lat, lon],
+            radius=6,
+            popup=folium.Popup(popup_html, max_width=250),
+            tooltip=tooltip,
+            color=color,
+            fill=True,
+            fillColor=color,
+            fillOpacity=0.7,
+            weight=1
+        ).add_to(marker_group)
+
+    marker_group.add_to(m)
+
+    # Add layer control
+    folium.LayerControl().add_to(m)
+
+    # Display info
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Sites", len(map_data))
+    with col2:
+        oldest = map_data['begin_date'].dropna().min() if 'begin_date' in map_data else 'N/A'
+        st.metric("Oldest Record", str(oldest)[:4] if oldest else 'N/A')
+    with col3:
+        st.metric("Region", "Pacific Northwest")
+
+    # Color legend
+    st.caption("🔵 Pre-1950 | 🔷 1950-1979 | 🔹 1980-1999 | 🟠 2000-2009 | 🔴 2010+")
+
+    # Render the Folium map
+    map_output = st_folium(m, width=None, height=600, returned_objects=["last_object_clicked"])
+
+    # Handle click events - show site info
+    if map_output and map_output.get("last_object_clicked"):
+        clicked = map_output["last_object_clicked"]
+        clicked_lat = clicked.get("lat")
+        clicked_lng = clicked.get("lng")
+
+        if clicked_lat and clicked_lng:
+            # Find the clicked site (within small tolerance)
+            tolerance = 0.01
+            matches = map_data[
+                (abs(map_data['latitude'] - clicked_lat) < tolerance) &
+                (abs(map_data['longitude'] - clicked_lng) < tolerance)
+            ]
+
+            if not matches.empty:
+                site = matches.iloc[0]
+                st.success(f"Selected: **{site['site_id']}** - {site['description']}")
+                st.caption("Switch to 'Single Analysis' mode to analyze this site")
+
+    # Collapsible site list
+    with st.expander("View Site List", expanded=False):
+        display_df = map_data[['site_id', 'description', 'latitude', 'longitude', 'begin_date']].copy()
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 
 # =============================================================================
