@@ -45,7 +45,7 @@ next scripts/
 hydrology.egg-info/
 
 # Data files (too large for git)
-data/
+/data/
 logs/
 newplots/
 refined_plots/

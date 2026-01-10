@@ -16,6 +16,7 @@ from .inventory import (
     get_multiple_sites,
     search_sites,
 )
+from .nwm import NWMClient, NWMForecast, compare_nwm_usgs, get_forecast_skill
 
 __all__ = [
     'fetch_waterml_data',
@@ -30,4 +31,9 @@ __all__ = [
     'BASE_URL_IV',
     'DEFAULT_PARAM_DISCHARGE',
     'DEFAULT_PARAM_STAGE',
+    # National Water Model
+    'NWMClient',
+    'NWMForecast',
+    'compare_nwm_usgs',
+    'get_forecast_skill',
 ]
