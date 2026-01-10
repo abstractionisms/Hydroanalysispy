@@ -1934,9 +1934,17 @@ def alert_monitor_mode(inventory_df):
     st.markdown("---")
     st.subheader("Recent Discharge History")
 
+    # Allow user to select history length
+    history_days = st.select_slider(
+        "History length",
+        options=[7, 14, 30, 60, 90],
+        value=30,
+        format_func=lambda x: f"{x} days"
+    )
+
     try:
         end_date = datetime.now()
-        start_date = end_date - timedelta(days=7)  # Get 7 days for better context
+        start_date = end_date - timedelta(days=history_days)
 
         df_recent = fetch_instantaneous_values(
             site_id, param_cd=DEFAULT_PARAM_DISCHARGE,
