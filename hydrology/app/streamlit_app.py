@@ -1530,30 +1530,31 @@ def site_map_mode(inventory_df):
     # Map options in sidebar
     st.sidebar.header("Map Options")
 
-    # Quick jump to watershed
+    # Quick jump to watershed - with bounding boxes for filtering
+    # bounds = [min_lat, max_lat, min_lon, max_lon]
     watersheds = {
-        "All Sites (Pacific NW)": {"center": [46.5, -120.5], "zoom": 6},
+        "All Sites (Pacific NW)": {"center": [46.5, -120.5], "zoom": 6, "bounds": None},
         "─── Washington ───": None,
-        "Puget Sound": {"center": [47.5, -122.3], "zoom": 8},
-        "Upper Columbia": {"center": [48.0, -118.0], "zoom": 7},
-        "Spokane River": {"center": [47.7, -117.4], "zoom": 9},
-        "Yakima": {"center": [46.6, -120.5], "zoom": 8},
-        "Lower Columbia": {"center": [46.2, -123.0], "zoom": 8},
+        "Puget Sound": {"center": [47.5, -122.3], "zoom": 8, "bounds": [46.8, 49.0, -124.0, -121.0]},
+        "Upper Columbia": {"center": [48.0, -118.0], "zoom": 7, "bounds": [47.0, 49.5, -121.0, -115.0]},
+        "Spokane River": {"center": [47.7, -117.4], "zoom": 9, "bounds": [47.3, 48.2, -118.5, -116.5]},
+        "Yakima": {"center": [46.6, -120.5], "zoom": 8, "bounds": [45.8, 47.4, -121.8, -119.0]},
+        "Lower Columbia": {"center": [46.2, -123.0], "zoom": 8, "bounds": [45.5, 47.0, -124.5, -121.5]},
         "─── Oregon ───": None,
-        "Willamette": {"center": [44.5, -122.8], "zoom": 8},
-        "Oregon Coast": {"center": [44.0, -124.0], "zoom": 8},
-        "Deschutes": {"center": [44.0, -121.2], "zoom": 8},
+        "Willamette": {"center": [44.5, -122.8], "zoom": 8, "bounds": [43.0, 46.0, -124.0, -121.5]},
+        "Oregon Coast": {"center": [44.0, -124.0], "zoom": 8, "bounds": [42.0, 46.5, -125.0, -123.0]},
+        "Deschutes": {"center": [44.0, -121.2], "zoom": 8, "bounds": [43.0, 45.5, -122.5, -120.0]},
         "─── Idaho ───": None,
-        "Snake River": {"center": [43.5, -115.5], "zoom": 7},
-        "Clearwater": {"center": [46.5, -115.5], "zoom": 8},
-        "Salmon River": {"center": [45.0, -114.5], "zoom": 8},
+        "Snake River": {"center": [43.5, -115.5], "zoom": 7, "bounds": [41.5, 45.5, -118.0, -111.0]},
+        "Clearwater": {"center": [46.5, -115.5], "zoom": 8, "bounds": [45.5, 47.5, -117.0, -114.0]},
+        "Salmon River": {"center": [45.0, -114.5], "zoom": 8, "bounds": [44.0, 46.0, -116.5, -113.0]},
     }
 
     selected_watershed = st.sidebar.selectbox(
         "Jump to Watershed",
         list(watersheds.keys()),
         index=0,
-        help="Quick zoom to a specific watershed"
+        help="Quick zoom to a specific watershed and filter site list"
     )
 
     # Get map center and zoom from selection
@@ -1561,11 +1562,44 @@ def site_map_mode(inventory_df):
     if ws_config:
         center_lat, center_lon = ws_config["center"]
         zoom_start = ws_config["zoom"]
+        ws_bounds = ws_config.get("bounds")
     else:
         # Separator selected, use default
         center_lat = map_data['latitude'].mean()
         center_lon = map_data['longitude'].mean()
         zoom_start = 6
+        ws_bounds = None
+
+    # Filter sites by watershed bounds
+    if ws_bounds:
+        min_lat, max_lat, min_lon, max_lon = ws_bounds
+        filtered_sites = map_data[
+            (map_data['latitude'] >= min_lat) & (map_data['latitude'] <= max_lat) &
+            (map_data['longitude'] >= min_lon) & (map_data['longitude'] <= max_lon)
+        ].copy()
+    else:
+        filtered_sites = map_data.copy()
+
+    # Site selector to zoom to specific gage
+    if not filtered_sites.empty:
+        site_options = ["(Select a site to zoom)"] + [
+            f"{row['site_id']} - {str(row['description'])[:40]}"
+            for _, row in filtered_sites.iterrows()
+        ]
+        selected_site = st.sidebar.selectbox(
+            f"Sites in {selected_watershed.replace('─', '').strip() if '─' not in selected_watershed else 'Region'} ({len(filtered_sites)})",
+            site_options,
+            key="site_zoom_select"
+        )
+
+        # If a site is selected, override center/zoom
+        if selected_site != "(Select a site to zoom)":
+            site_id = selected_site.split(" - ")[0]
+            site_row = filtered_sites[filtered_sites['site_id'] == site_id]
+            if not site_row.empty:
+                center_lat = site_row.iloc[0]['latitude']
+                center_lon = site_row.iloc[0]['longitude']
+                zoom_start = 12  # Zoom in close to the site
 
     st.sidebar.markdown("---")
 
@@ -1713,10 +1747,18 @@ def site_map_mode(inventory_df):
                 st.success(f"Selected: **{site['site_id']}** - {site['description']}")
                 st.caption("Switch to 'Single Analysis' mode to analyze this site")
 
-    # Collapsible site list
-    with st.expander("View Site List", expanded=False):
-        display_df = map_data[['site_id', 'description', 'latitude', 'longitude', 'begin_date']].copy()
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+    # Collapsible site list - shows filtered sites based on watershed selection
+    sites_label = f"View Site List ({len(filtered_sites)} sites)"
+    if ws_bounds:
+        sites_label = f"Sites in {selected_watershed} ({len(filtered_sites)})"
+
+    with st.expander(sites_label, expanded=False):
+        if filtered_sites.empty:
+            st.info("No sites found in this watershed area")
+        else:
+            display_df = filtered_sites[['site_id', 'description', 'latitude', 'longitude', 'begin_date']].copy()
+            st.caption("💡 Use the site dropdown in the sidebar to zoom to a specific gage")
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 
 # =============================================================================
