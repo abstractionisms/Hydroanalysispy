@@ -1751,6 +1751,7 @@ def site_map_mode(inventory_df):
                 oldest_display = f"NoBD:{cols[:3]}"
         except Exception as e:
             oldest_display = f"E:{e}"[:15]
+        st.write(f"DEBUG oldest_display = '{oldest_display}'")
         st.metric("Oldest Record", oldest_display)
     with col3:
         st.metric("Region", "Pacific Northwest")
