@@ -1,12 +1,2 @@
 [theme]
-primaryColor = "#4da6ff"
-backgroundColor = "#0e1117"
-secondaryBackgroundColor = "#1a1f29"
-textColor = "#fafafa"
-font = "sans serif"
-
-[server]
-headless = true
-
-[browser]
-gatherUsageStats = false
+# Auto-generated config
