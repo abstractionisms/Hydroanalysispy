@@ -26,6 +26,7 @@ from hydrology.data.climate import fetch_climate_data
 from hydrology.visualization import create_multi_plot, PlotLayout
 from hydrology.analysis.trends import calculate_annual_means
 from hydrology.core.timezone import ensure_utc
+from hydrology.core.parameters import DEFAULT_DISCHARGE_CODE
 
 logger = setup_logging(__name__, 'analyze_sites.log')
 
@@ -128,7 +129,7 @@ def process_site(site_config: Dict[str, Any], analysis_config: Dict[str, Any]) -
     logger.info(f"=== Processing Site: {site_id} ({description}) ===")
 
     # Get parameters
-    param_cd = site_config.get('param_cd', analysis_config.get('param_cd', '00060'))
+    param_cd = site_config.get('param_cd', analysis_config.get('param_cd', DEFAULT_DISCHARGE_CODE))
     start_date = site_config.get('start_date', analysis_config.get('start_date', '2000-01-01'))
     end_date = site_config.get('end_date', analysis_config.get('end_date', 'today'))
     latitude = site_config.get('latitude')

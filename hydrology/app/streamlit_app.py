@@ -1,4 +1,5 @@
 """
+from hydrology.core import DEFAULT_DISCHARGE_CODE
 Streamlit web application for hydrology analysis.
 
 Features:
@@ -695,7 +696,7 @@ def process_site_data(site_id: str, lat: float, lon: float, start_str: str, end_
     Returns dict with df_q, df_merged, analysis_results.
     """
     # Fetch discharge
-    df_q = fetch_discharge_data(site_id, "00060", start_str, end_str)
+    df_q = fetch_discharge_data(site_id, DEFAULT_DISCHARGE_CODE, start_str, end_str)
     if df_q is None or df_q.empty:
         return None
 
