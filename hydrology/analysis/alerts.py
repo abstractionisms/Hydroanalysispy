@@ -407,7 +407,7 @@ class AlertMonitor:
                         end_date=end_date.strftime('%Y-%m-%d')
                     )
 
-                if df is None or df.empty:
+                if df is None or df.empty or len(df) == 0:
                     logger.warning(f"No data available for {site_id} param {param_code}")
                     continue
 

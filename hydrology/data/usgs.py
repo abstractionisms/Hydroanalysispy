@@ -344,7 +344,6 @@ def fetch_instantaneous_values(
             text = http_get_text(BASE_URL_IV, params, retries=4, timeout=30)
 
             if text:
-                import json
                 json_data = json.loads(text)
                 df_chunk = parse_json_series(json_data)
 
@@ -391,7 +390,6 @@ def check_iv_availability(site_id: str, param_cd: str) -> Optional[Dict[str, Any
         text = http_get_text(BASE_URL_IV, params, retries=2, timeout=15)
 
         if text:
-            import json
             json_data = json.loads(text)
             df = parse_json_series(json_data)
 

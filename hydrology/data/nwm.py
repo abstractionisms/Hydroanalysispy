@@ -322,9 +322,22 @@ class NWMClient:
                 return None
 
             values = data['data']
-            valid_times = [datetime.fromisoformat(v['validTime'].replace('Z', '+00:00'))
-                         for v in values]
-            streamflow = [float(v['value']) for v in values]
+
+            # Validate and extract data with error handling for missing keys
+            valid_times = []
+            streamflow = []
+            for v in values:
+                if 'validTime' in v and 'value' in v:
+                    try:
+                        valid_times.append(
+                            datetime.fromisoformat(v['validTime'].replace('Z', '+00:00'))
+                        )
+                        streamflow.append(float(v['value']))
+                    except (ValueError, TypeError):
+                        continue  # Skip malformed entries
+
+            if not valid_times:
+                return None
 
             ref_time = datetime.fromisoformat(
                 data.get('referenceTime', datetime.now().isoformat()).replace('Z', '+00:00')
@@ -357,10 +370,23 @@ class NWMClient:
                 return None
 
             # Units are already in cfs (ft³/s) from this API
-            df = pd.DataFrame([{
-                'datetime': datetime.fromisoformat(v['validTime'].replace('Z', '+00:00')),
-                'streamflow_cfs': float(v['flow'])
-            } for v in values])
+            # Validate each entry before processing
+            parsed_data = []
+            for v in values:
+                if 'validTime' in v and 'flow' in v:
+                    try:
+                        parsed_data.append({
+                            'datetime': datetime.fromisoformat(v['validTime'].replace('Z', '+00:00')),
+                            'streamflow_cfs': float(v['flow'])
+                        })
+                    except (ValueError, TypeError):
+                        continue  # Skip malformed entries
+
+            if not parsed_data:
+                logger.warning("No valid analysis data after parsing")
+                return None
+
+            df = pd.DataFrame(parsed_data)
 
             df.set_index('datetime', inplace=True)
             # Also provide cms for compatibility
@@ -477,7 +503,8 @@ def compare_nwm_usgs(
     nse = 1 - ss_res / ss_tot if ss_tot > 0 else np.nan
 
     # Percent bias
-    pbias = 100 * np.sum(sim - obs) / np.sum(obs) if np.sum(obs) > 0 else np.nan
+    sum_obs = np.sum(obs)
+    pbias = 100 * np.sum(sim - obs) / sum_obs if sum_obs > 0 else np.nan
 
     return NWMUSGSComparison(
         site_id=site_id,
