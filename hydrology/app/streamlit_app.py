@@ -8,22 +8,23 @@ Features:
 - Comparison modes: time periods, sites, and 2x2 grid
 """
 
+import sys
+from pathlib import Path
+
+# Ensure the hydrology package is importable (must be before hydrology imports)
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
 from hydrology.core import DEFAULT_DISCHARGE_CODE
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime, date, timedelta
-from pathlib import Path
 import matplotlib.pyplot as plt
 import folium
 from folium.plugins import MarkerCluster
 from streamlit_folium import st_folium
 import io
-import sys
-
-# Ensure the hydrology package is importable
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from hydrology.data.inventory import load_inventory, get_site_info
 from hydrology.data.usgs import (
