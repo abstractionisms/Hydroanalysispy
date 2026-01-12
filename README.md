@@ -1,65 +1,195 @@
-# Hydrology Analysis Dashboard
+# Hydrology Analysis Package
 
-A Streamlit web application for analyzing USGS water discharge data with climate correlation analysis.
+A professional Python package for hydrological data analysis featuring a Streamlit web dashboard, 23+ visualization types, and integrations with USGS, NOAA, and climate data services.
+
+**Live Demo:** [hydroplot.streamlit.app](https://hydroplot.streamlit.app)
 
 ## Features
 
+### Web Dashboard
 - **Interactive Site Map** - Explore 736+ USGS monitoring sites across the Pacific Northwest
-  - Folium-based map with dark theme
-  - Hover tooltips showing site ID and description
-  - Click popups with coordinates and record start date
-  - Color-coded markers by record age (green=recent, yellow=older, red=historic)
-  - Marker clustering to reduce clutter
+  - Dark theme Folium map with marker clustering
   - HUC watershed boundary overlays (Regions, Subregions, Basins, Subbasins)
+  - Color-coded markers by record age
   - Watershed quick-jump dropdown for WA, OR, and ID regions
-  - Filtered site lists by selected watershed
-  - Click table rows to zoom to specific gages
-- **23 Plot Types** - Time series, flow duration curves, flood frequency, baseflow separation, recession analysis, climate correlations, heatmaps, and more
-- **5 Analysis Modes**:
-  - **Site Map** - Interactive map of all monitoring sites
-  - **Single Analysis** - Deep dive into one site with multiple plots
-  - **Compare Time Periods** - Same site across two time periods
-  - **Compare Sites** - Multiple sites (2-4) for the same period
-  - **2×2 Comparison** - Two sites × two time periods
-- **Accurate Data Availability** - Exact per-parameter dates from USGS series catalog (not estimates)
-- **Flexible Date Selection** - Year sliders with fine-tune date inputs
-- **Dark Theme** - Easy on the eyes
+  - Click-to-zoom site tables
 
-## Plot Types
+- **5 Analysis Modes**
+  1. **Site Map** - Interactive exploration of all monitoring sites
+  2. **Single Analysis** - Deep dive into one site with 23 plot types
+  3. **Compare Time Periods** - Same site across two date ranges
+  4. **Compare Sites** - 2-4 sites for the same period
+  5. **2x2 Comparison** - Two sites x two time periods
+
+- **Real-time Data** - Live fetching from USGS NWIS with accurate data availability dates
+- **Flexible Date Selection** - Year sliders with fine-tune inputs
+- **Metric Cards** - Record length, data points, mean/peak flow statistics
+
+### 23+ Plot Types
 
 | Category | Plots |
 |----------|-------|
 | **Time Series** | Discharge timeseries, Precip-discharge overlay, Anomaly detection |
-| **Flow Analysis** | Flow duration curve, Monthly boxplots, Annual/low-flow trends |
+| **Flow Analysis** | Flow duration curve, Monthly boxplots, Annual trend, Low-flow trend |
 | **Frequency Analysis** | Flood frequency (Log-Pearson III), 7Q10 low flow analysis |
-| **Hydrograph Analysis** | Baseflow separation, Recession curves, Rating curve |
-| **Climate Correlation** | Hexbin temp, Lagged precip, Seasonal scatter, Lag correlation |
-| **Heatmaps** | Discharge density, Temporal (5/10/20yr panels) |
-| **Advanced** | Double mass curve, Cumulative departure, Spectral analysis, Anomaly (Q/T/P) |
+| **Hydrograph Analysis** | Baseflow separation (Lyne-Hollick), Recession curves, Stage-discharge rating curve |
+| **Climate Correlation** | Hexbin temperature, Lagged precipitation, Seasonal scatter, Correlation matrix, Lag analysis (0-30 days) |
+| **Heatmaps** | Discharge density by day-of-year, Temporal panels (5/10/20 year) |
+| **Advanced** | Double mass curve, Cumulative departure, Spectral analysis (FFT), Climate anomaly (Q/T/P) |
 
-## Quick Start
+## Installation
 
 ```bash
-# Clone and install
+# Clone the repository
 git clone https://github.com/abstractionisms/Hydroanalysispy
 cd Hydroanalysispy
+
+# Install in development mode
 pip install -e .
 
-# Run the dashboard
+# Or install with optional dependencies
+pip install -e .[dev]        # Development tools (pytest, black, flake8)
+pip install -e .[dashboard]  # Streamlit dashboard
+```
+
+## Usage
+
+### Web Dashboard
+
+```bash
+# Run locally
 python run_dashboard.py
+
+# With network access (for remote connections)
+python run_dashboard.py --network
+
+# Custom port
+python run_dashboard.py --port 8502
 ```
 
 Then open http://localhost:8501 in your browser.
 
+### Command-Line Analysis
+
+```bash
+# Run analysis with config file
+python -m hydrology.scripts.analyze_sites --config configs/my_analysis.yaml
+```
+
+### Python API
+
+```python
+from hydrology.data.usgs import fetch_daily_values
+from hydrology.data.climate import fetch_climate_data
+from hydrology.analysis.trends import analyze_trend
+from hydrology.visualization.plots import plot_flow_duration
+
+# Fetch discharge data
+site_id = "12354500"  # Clark Fork at St. Regis, MT
+discharge = fetch_daily_values(site_id, "2020-01-01", "2024-01-01")
+
+# Fetch climate data
+climate = fetch_climate_data(lat=47.3, lon=-115.1, start="2020-01-01", end="2024-01-01")
+
+# Analyze trends
+trend_result = analyze_trend(discharge)
+print(f"Mann-Kendall p-value: {trend_result['p_value']}")
+
+# Generate plots
+fig = plot_flow_duration(discharge, site_id)
+fig.savefig("flow_duration.png")
+```
+
+## Package Structure
+
+```
+hydrology/
+├── core/                    # Configuration and utilities
+│   ├── config.py           # JSON/YAML config management
+│   ├── parameters.py       # USGS parameter codes (discharge, stage, temp, etc.)
+│   ├── paths.py            # Portable path handling
+│   ├── logging_setup.py    # Centralized logging
+│   ├── timezone.py         # Timezone normalization (UTC)
+│   └── huc_regions.py      # HUC watershed region definitions
+│
+├── data/                    # Data fetching modules
+│   ├── usgs.py             # USGS NWIS daily/instantaneous values
+│   ├── climate.py          # Meteostat temperature/precipitation
+│   ├── inventory.py        # Local site inventory parsing
+│   ├── national_inventory.py  # National USGS inventory by HUC-2
+│   ├── nwm.py              # NOAA National Water Model forecasts
+│   └── nldi.py             # USGS NLDI river network navigation
+│
+├── analysis/                # Statistical analysis
+│   ├── trends.py           # Mann-Kendall, linear regression trends
+│   ├── stage_discharge.py  # Power-law rating curve fitting
+│   ├── alerts.py           # Threshold-based alert monitoring
+│   ├── multisite.py        # Cross-site correlation analysis
+│   └── flood_events.py     # Flood event detection and animation
+│
+├── visualization/           # Plotting
+│   ├── plots.py            # 23+ plot functions
+│   └── composer.py         # Multi-panel layout system
+│
+├── app/                     # Streamlit dashboard
+│   ├── streamlit_app.py    # Main application
+│   ├── plot_config.py      # Plot categorization
+│   └── styles.py           # Custom CSS and UI components
+│
+└── scripts/                 # CLI tools
+    ├── analyze_sites.py    # Config-driven batch analysis
+    └── example_analysis.py # Example workflow
+```
+
 ## Data Sources
 
-- **USGS NWIS** - Discharge and gage height via Water Services API
-- **Meteostat** - Temperature and precipitation from nearest weather stations
+| Source | Data | API |
+|--------|------|-----|
+| **USGS NWIS** | Discharge, stage, water quality | https://waterservices.usgs.gov/nwis/ |
+| **Meteostat** | Temperature, precipitation | Python library |
+| **USGS NLDI** | River network topology | https://api.water.usgs.gov/nldi/ |
+| **NOAA NWM** | Water model forecasts | https://api.water.noaa.gov/nwps/v1 |
+| **USGS WBD** | HUC watershed boundaries | WMS layers |
+
+## Configuration
+
+Analysis can be configured via YAML or JSON files:
+
+```yaml
+# configs/example.yaml
+sites:
+  - site_id: "12354500"
+    name: "Clark Fork at St. Regis"
+    lat: 47.298
+    lon: -115.087
+
+analysis:
+  start_date: "2020-01-01"
+  end_date: "2024-01-01"
+  plots:
+    - flow_duration
+    - annual_trend
+    - flood_frequency
+
+alerts:
+  flood_threshold: 15000  # cfs
+  low_flow_threshold: 100  # cfs
+```
 
 ## Requirements
 
-- Python 3.9+
-- See `requirements.txt` for dependencies
+- Python 3.8+
+- pandas >= 2.0.0
+- numpy >= 1.24.0
+- scipy >= 1.10.0
+- matplotlib >= 3.7.0
+- streamlit >= 1.28.0
+- folium >= 0.14.0
+- meteostat == 1.6.8
+- scikit-learn >= 1.2.0
+- pymannkendall >= 1.4.3
+
+See `requirements.txt` for complete list.
 
 ## License
 
@@ -67,8 +197,8 @@ MIT License - see [LICENSE](LICENSE) file.
 
 ## Acknowledgments
 
-- USGS for streamflow data via NWIS API
-- USGS for HUC watershed boundary WMS layers
-- Meteostat for climate data
-- Streamlit for the web framework
-- Folium for interactive mapping
+- **USGS** - Streamflow data via NWIS API and HUC watershed boundary WMS layers
+- **NOAA** - National Water Model forecasts via Water Prediction Service
+- **Meteostat** - Climate data integration
+- **Streamlit** - Web application framework
+- **Folium** - Interactive mapping
