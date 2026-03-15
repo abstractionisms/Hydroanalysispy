@@ -17,7 +17,13 @@ from hydrology.app.shared import (
 )
 from hydrology.app.styles import render_site_header
 from hydrology.visualization.plots import AVAILABLE_PLOTS
-from hydrology.visualization.interactive import interactive_comparison
+from hydrology.visualization.interactive import interactive_comparison, interactive_hydrograph
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _load_site_data(site_id, lat, lon, start_str, end_str):
+    """Cached wrapper around process_site_data for comparisons."""
+    return process_site_data(site_id, lat, lon, start_str, end_str)
 
 
 def show():
@@ -209,89 +215,105 @@ def _compare_sites(inventory_df):
 
     st.markdown("---")
 
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        st.subheader("Plot Type")
-        plot_name = single_plot_selector_widget("_sites")
-    with col2:
-        st.subheader("Quality")
-        dpi = st.selectbox("Quality", [100, 150, 200], index=1, key="cs_dpi")
+    start_str = start_date.strftime('%Y-%m-%d')
+    end_str = end_date.strftime('%Y-%m-%d')
 
-    st.markdown("---")
-    if st.button("Compare Sites", type="primary", use_container_width=True, key="gen_sites"):
-        st.header("Multi-Site Comparison")
-        st.caption(f"{len(selected_sites)} sites | {start_date} to {end_date}")
-
-        start_str = start_date.strftime('%Y-%m-%d')
-        end_str = end_date.strftime('%Y-%m-%d')
-
-        data_list = []
-        titles = []
-
-        progress = st.progress(0, text="Loading sites...")
-        for i, site_id in enumerate(selected_sites):
+    # Auto-load data for all selected sites
+    all_site_data = {}
+    with st.spinner("Loading site data..."):
+        for site_id in selected_sites:
             site_info = get_cached_site_info(site_id)
-            desc = site_info.get('description', site_id) if site_info else site_id
-
             if not site_info:
-                data_list.append(None)
-                titles.append(f"{desc[:30]}\n(Site not found)")
                 continue
-
             lat = site_info.get('latitude')
             lon = site_info.get('longitude')
-
             if not lat or not lon:
-                data_list.append(None)
-                titles.append(f"{desc[:30]}\n(No coordinates)")
                 continue
-
-            progress.progress((i + 1) / len(selected_sites), text=f"Processing {site_id}...")
-            data = process_site_data(site_id, float(lat), float(lon), start_str, end_str)
-
+            data = _load_site_data(site_id, float(lat), float(lon), start_str, end_str)
             if data:
-                data_list.append({
-                    'df_q': data['df_q'], 'df_merged': data['df_merged'],
-                    'analysis_results': data['analysis_results']
-                })
-                q_count = data['discharge_count']
-                m_count = data['merged_count']
-                titles.append(f"{desc[:30]}\n{start_str} to {end_str} ({q_count:,} Q, {m_count:,} merged)")
-            else:
-                data_list.append(None)
-                titles.append(f"{desc[:30]}\n{start_str} to {end_str} (No data)")
+                all_site_data[site_id] = data
 
-        progress.empty()
+    if not all_site_data:
+        st.error("No data available for any of the selected sites")
+        return
 
-        n = len(selected_sites)
-        nrows, ncols = (1, n) if n <= 2 else (2, 2) if n <= 4 else (2, 3)
+    # ── Interactive Charts (auto-loaded) ──
+    st.header("Multi-Site Comparison")
+    st.caption(f"{len(selected_sites)} sites | {start_date} to {end_date}")
 
-        if any(d is not None for d in data_list):
-            # Interactive overlay for timeseries
-            if plot_name == 'timeseries':
-                site_dict = {}
-                for site_str, data_item in zip(selected_sites, data_list):
-                    if data_item and data_item.get('df_q') is not None:
-                        sid = extract_site_id(site_str)
-                        info = get_cached_site_info(sid)
-                        label = info.get('description', sid)[:30] if info else sid
-                        site_dict[label] = data_item['df_q']
+    # Interactive overlay comparison
+    site_dict = {}
+    for site_id, data in all_site_data.items():
+        if data.get('df_q') is not None:
+            sid = extract_site_id(site_id)
+            info = get_cached_site_info(sid)
+            label = info.get('description', sid)[:30] if info else sid
+            site_dict[label] = data['df_q']
 
-                if site_dict:
-                    st.subheader("Interactive Overlay")
-                    fig_interactive = interactive_comparison(
-                        site_dict, title="Multi-Site Discharge Comparison"
-                    )
-                    st.plotly_chart(fig_interactive, use_container_width=True)
-                    st.markdown("---")
+    if site_dict:
+        st.subheader("Interactive Overlay")
+        st.caption("Hover, zoom, and pan. Click legend entries to toggle.")
+        fig_interactive = interactive_comparison(
+            site_dict, title="Multi-Site Discharge Comparison"
+        )
+        st.plotly_chart(fig_interactive, use_container_width=True, key="cs_plotly_overlay")
 
-            # Static comparison grid
+    # Individual interactive hydrographs
+    st.subheader("Individual Hydrographs")
+    cols = st.columns(min(len(all_site_data), 2))
+    for i, (site_id, data) in enumerate(all_site_data.items()):
+        if data.get('df_q') is not None:
+            sid = extract_site_id(site_id)
+            info = get_cached_site_info(sid)
+            label = info.get('description', sid)[:30] if info else sid
+            with cols[i % len(cols)]:
+                st.caption(f"{label} ({data['discharge_count']:,} Q, {data['merged_count']:,} merged)")
+                fig_hydro = interactive_hydrograph(
+                    data['df_q'], discharge_col='Discharge_cfs',
+                    title=label, show_percentile_bands=True,
+                )
+                st.plotly_chart(fig_hydro, use_container_width=True, key=f"cs_hydro_{i}")
+
+    st.markdown("---")
+
+    # ── Static Matplotlib Grid (on demand) ──
+    with st.expander("Static Plot Grid (matplotlib)", expanded=False):
+        st.caption("Select a plot type and generate a static comparison grid for export.")
+
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            plot_name = single_plot_selector_widget("_sites")
+        with col2:
+            dpi = st.selectbox("Quality", [100, 150, 200], index=1, key="cs_dpi")
+
+        if st.button("Generate Static Grid", type="primary", use_container_width=True, key="gen_sites"):
+            data_list = []
+            titles = []
+
+            for site_id in selected_sites:
+                site_info = get_cached_site_info(site_id)
+                desc = site_info.get('description', site_id) if site_info else site_id
+
+                if site_id in all_site_data:
+                    data = all_site_data[site_id]
+                    data_list.append({
+                        'df_q': data['df_q'], 'df_merged': data['df_merged'],
+                        'analysis_results': data['analysis_results']
+                    })
+                    q_count = data['discharge_count']
+                    m_count = data['merged_count']
+                    titles.append(f"{desc[:30]}\n{start_str} to {end_str} ({q_count:,} Q, {m_count:,} merged)")
+                else:
+                    data_list.append(None)
+                    titles.append(f"{desc[:30]}\n{start_str} to {end_str} (No data)")
+
+            n = len(selected_sites)
+            nrows, ncols = (1, n) if n <= 2 else (2, 2) if n <= 4 else (2, 3)
+
             fig = create_comparison_figure(plot_name, data_list, titles, nrows, ncols, dpi)
             st.pyplot(fig)
             render_export_buttons(fig, "multi_site_comparison", dpi)
             plt.close(fig)
-        else:
-            st.error("No data available for any of the selected sites")
 
 
 def _quad_comparison(inventory_df):

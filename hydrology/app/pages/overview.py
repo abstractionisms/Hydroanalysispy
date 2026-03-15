@@ -53,7 +53,10 @@ def show():
     render_site_header(site_id, desc, float(lat) if lat else None, float(lon) if lon else None)
 
     # KPI row - current conditions
-    _render_kpi_row(site_id, site_info)
+    df_hist = _render_kpi_row(site_id, site_info)
+
+    # Quick Stats summary table
+    _render_quick_stats(df_hist)
 
     st.markdown("---")
 
@@ -61,8 +64,12 @@ def show():
     _render_station_map(inventory_df, site_id)
 
 
-def _render_kpi_row(site_id: str, site_info: dict):
-    """Render KPI cards with current conditions and sparklines."""
+def _render_kpi_row(site_id: str, site_info: dict) -> "pd.DataFrame | None":
+    """Render KPI cards with current conditions and sparklines.
+
+    Returns the historical daily-values DataFrame (or None) so callers
+    can compute additional statistics without a second fetch.
+    """
     lat = site_info.get('latitude')
     lon = site_info.get('longitude')
 
@@ -203,6 +210,44 @@ def _render_kpi_row(site_id: str, site_info: dict):
                 plot_bgcolor='rgba(0,0,0,0)'
             )
             st.plotly_chart(fig, use_container_width=True, key="overview_sparkline")
+
+    return df_hist
+
+
+def _render_quick_stats(df_hist: "pd.DataFrame | None"):
+    """Show a compact summary table of key discharge statistics."""
+    if df_hist is None or df_hist.empty:
+        return
+
+    values = df_hist['value'].dropna()
+    if values.empty:
+        return
+
+    mean_flow = values.mean()
+    median_flow = values.median()
+    min_flow = values.min()
+    max_flow = values.max()
+    std_flow = values.std()
+    cv = (std_flow / mean_flow * 100) if mean_flow > 0 else np.nan
+
+    stats = pd.DataFrame({
+        "Metric": [
+            "Mean Flow", "Median Flow", "Min Flow",
+            "Max Flow", "Std Dev", "CV"
+        ],
+        "Value": [
+            f"{mean_flow:,.1f} cfs",
+            f"{median_flow:,.1f} cfs",
+            f"{min_flow:,.1f} cfs",
+            f"{max_flow:,.1f} cfs",
+            f"{std_flow:,.1f} cfs",
+            f"{cv:,.1f}%",
+        ],
+    })
+
+    st.subheader("Quick Stats")
+    st.caption("Based on the last 10 years of daily discharge data")
+    st.dataframe(stats, use_container_width=True, hide_index=True)
 
 
 def _render_station_map(inventory_df, selected_site_id):

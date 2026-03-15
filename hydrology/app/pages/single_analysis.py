@@ -12,7 +12,7 @@ from hydrology.app.shared import (
     get_inventory, get_cached_site_info, get_weather_station_info,
     extract_site_id, display_site_info, process_site_data,
     date_range_selector, plot_selector, render_export_buttons,
-    site_picker, logger, AVAILABLE_PLOTS,
+    render_data_download, site_picker, logger, AVAILABLE_PLOTS,
 )
 from hydrology.app.styles import (
     render_site_header, render_availability_badges, render_metric_cards
@@ -164,6 +164,9 @@ def show():
         color_by_dqdt=koehler,
     )
     st.plotly_chart(fig_fdc, use_container_width=True, key="plotly_fdc")
+
+    # CSV download
+    render_data_download(data['df_q'], filename_prefix=site_id)
 
     # Advanced visualizations (opt-in)
     st.markdown("---")

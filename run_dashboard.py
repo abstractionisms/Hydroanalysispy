@@ -7,7 +7,7 @@ Usage:
     python run_dashboard.py --network # Allow network access (0.0.0.0:8501)
 
 Or run streamlit directly:
-    streamlit run hydrology/app/streamlit_app.py
+    streamlit run hydrology/app/app.py
 """
 
 import subprocess
@@ -23,7 +23,7 @@ def main():
                        help='Port to run on (default: 8501)')
     args = parser.parse_args()
 
-    # New multipage app entry point (old: streamlit_app.py still works as legacy)
+    # Multipage app entry point
     app_path = Path(__file__).parent / "hydrology" / "app" / "app.py"
 
     if not app_path.exists():

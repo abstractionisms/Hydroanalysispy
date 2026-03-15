@@ -394,8 +394,28 @@ def site_picker(inventory_df, key="site", label="Select Site",
         selected = container.multiselect(label, site_options, key=f"{key}_multi", **kwargs)
         return [extract_site_id(s) for s in selected]
     else:
-        selected = container.selectbox(label, site_options, key=f"{key}_select")
-        return extract_site_id(selected)
+        # Determine default index: query params > session_state > 0
+        default_index = 0
+        last_used_key = f"{key}_last_site"
+        query_site = st.query_params.get("site")
+        target_site = query_site or st.session_state.get(last_used_key)
+
+        if target_site:
+            for i, opt in enumerate(site_options):
+                if opt.startswith(str(target_site)):
+                    default_index = i
+                    break
+
+        selected = container.selectbox(label, site_options, index=default_index,
+                                       key=f"{key}_select")
+        site_id = extract_site_id(selected)
+
+        # Persist selection to session_state and query params
+        if site_id:
+            st.session_state[last_used_key] = site_id
+            st.query_params["site"] = site_id
+
+        return site_id
 
 
 def sidebar_site_picker(inventory_df, key="site", label="Select Site", multi=False, max_selections=None):
@@ -678,6 +698,19 @@ def create_comparison_figure(plot_name, data_list, titles, nrows, ncols, dpi=150
     fig.suptitle(f"Comparison: {plot_name}", fontsize=12, fontweight='bold')
     fig.tight_layout()
     return fig
+
+
+def render_data_download(df: pd.DataFrame, filename_prefix: str = "discharge"):
+    """Render a CSV download button for raw discharge data."""
+    if df is None or df.empty:
+        return
+    csv_data = df.to_csv()
+    st.download_button(
+        label="Download CSV",
+        data=csv_data,
+        file_name=f"{filename_prefix}_data.csv",
+        mime="text/csv",
+    )
 
 
 def render_export_buttons(fig, filename_base: str, dpi: int):
