@@ -5,7 +5,7 @@ Each plot is self-contained and reusable. Plots take data and an axis,
 render to that axis, and return nothing. This makes them composable
 into any layout you want.
 
-Available plots (23 total):
+Available plots (27 total):
 - anomaly: Recent decade vs historical monthly averages (Q, T, P)
 - hexbin_temp: Discharge vs Temperature hexbin (log scale with counts)
 - lagged_precip: Monthly avg discharge vs lagged precipitation
@@ -29,6 +29,13 @@ Available plots (23 total):
 - anomaly_detection: Rolling mean +/- 2 sigma outliers
 - cumulative_departure: Cumulative departure from mean
 - spectral_analysis: FFT-based periodicity detection
+- reach_comparison: Reach comparison (gaining/losing shading + trend)
+- summer_low_flow_trend: Summer 7-day minimum flow trend
+- reach_index: Aquifer contribution index
+- paired_annual_lows: Paired 7-day lows during Avista windows
+- avista_window_comparison: Greene St hydrographs overlaid by year
+- threshold_exceedance: Days below critical flow thresholds
+- precip_response_comparison: Precipitation pulse propagation ratio
 
 Usage:
     from hydrology.visualization.plots import plot_anomaly
@@ -579,8 +586,11 @@ def plot_monthly_boxplot(ax, df_q: pd.DataFrame = None, config: Dict[str, Any] =
 
     try:
 
-        # Prepare data
-        df_copy = df_q.copy()
+        # Prepare data - filter zeros before log scale
+        df_copy = df_q[df_q['Discharge_cfs'] > 0].copy()
+        if df_copy.empty:
+            _plot_placeholder(ax, "Monthly Boxplots\nNo positive discharge values")
+            return
         df_copy['Month'] = df_copy.index.month
 
         # Create boxplot
@@ -633,11 +643,16 @@ def plot_discharge_heatmap(ax, df_q: pd.DataFrame = None, config: Dict[str, Any]
         return
 
     try:
-        discharge_vals = df_q['Discharge_cfs'].values
-        day_of_year = df_q.index.dayofyear.values
+        # Filter zeros before log scale
+        df_pos = df_q[df_q['Discharge_cfs'] > 0]
+        if df_pos.empty:
+            _plot_placeholder(ax, "Discharge Heatmap\nNo positive discharge values")
+            return
+        discharge_vals = df_pos['Discharge_cfs'].values
+        day_of_year = df_pos.index.dayofyear.values
 
         # Calculate log bins
-        min_q = np.floor(np.log10(max(discharge_vals.min(), 0.01)))
+        min_q = np.floor(np.log10(discharge_vals.min()))
         max_q = np.ceil(np.log10(discharge_vals.max()))
         log_bins_q = np.logspace(min_q, max_q, 75)
 
@@ -720,11 +735,15 @@ def plot_temporal_heatmap(ax, df_q: pd.DataFrame = None, config: Dict[str, Any] 
 
         last_date = df_q.index.max()
 
+        # Filter zeros before log scale
+        df_q = df_q[df_q['Discharge_cfs'] > 0]
+        if df_q.empty:
+            _plot_placeholder(ax, "Temporal Heatmap\nNo positive discharge values")
+            return
+
         # Global min/max for consistent Y-axis
         global_min_q = df_q['Discharge_cfs'].min()
         global_max_q = df_q['Discharge_cfs'].max()
-        if global_min_q <= 0:
-            global_min_q = 0.1
 
         # Calculate log bins
         log_min = np.floor(np.log10(global_min_q))
@@ -914,8 +933,10 @@ def plot_seasonal_scatter(ax, df_merged: pd.DataFrame = None, config: Dict[str, 
 
     try:
         df = df_merged[[DISCHARGE_COL, TEMP_COL]].dropna().copy()
+        # Filter zeros before log scale
+        df = df[df[DISCHARGE_COL] > 0]
         if df.empty:
-            _plot_placeholder(ax, "Seasonal Scatter\nNo valid data")
+            _plot_placeholder(ax, "Seasonal Scatter\nNo valid positive data")
             return
 
         df['month'] = df.index.month
@@ -965,7 +986,7 @@ def plot_low_flow_trend(ax, df_q: pd.DataFrame = None, config: Dict[str, Any] = 
             _plot_placeholder(ax, "7-Day Low Flow\nNeed 1+ year data")
             return
 
-        df['Q_7day'] = df[DISCHARGE_COL].rolling(window=7, min_periods=7).mean()
+        df['Q_7day'] = df[DISCHARGE_COL].rolling(window=7, min_periods=7).min()
         annual_lows = df['Q_7day'].resample('YE').min().dropna()
 
         if len(annual_lows) < 3:
@@ -1094,10 +1115,14 @@ def plot_baseflow_separation(ax, df_q: pd.DataFrame = None, config: Dict[str, An
         # Create date index for plot
         dates = df_plot[DISCHARGE_COL].dropna().index
 
+        # Clip floor for log scale (replace zeros with small positive value)
+        Q_plot = np.where(Q > 0, Q, np.nan)
+        baseflow_plot = np.where(baseflow > 0, baseflow, np.nan)
+
         # Plot total flow and baseflow
-        ax.fill_between(dates, 0, Q, color='steelblue', alpha=0.4, label='Total Flow')
-        ax.fill_between(dates, 0, baseflow, color='darkorange', alpha=0.7, label='Baseflow')
-        ax.plot(dates, Q, color='steelblue', linewidth=0.8, alpha=0.8)
+        ax.fill_between(dates, 0.01, Q_plot, color='steelblue', alpha=0.4, label='Total Flow')
+        ax.fill_between(dates, 0.01, baseflow_plot, color='darkorange', alpha=0.7, label='Baseflow')
+        ax.plot(dates, Q_plot, color='steelblue', linewidth=0.8, alpha=0.8)
 
         # Formatting
         ax.set_yscale('log')
@@ -1506,15 +1531,21 @@ def plot_7q10_analysis(ax, df_q: pd.DataFrame = None, config: Dict[str, Any] = N
         return
 
     try:
-        # Calculate 7-day rolling minimum
+        # Calculate 7-day rolling minimum (7Q10 definition: 7-day minimum, not mean)
         df = df_q[[DISCHARGE_COL]].dropna().copy()
-        df['Q7'] = df[DISCHARGE_COL].rolling(window=7, min_periods=7).mean()
+        df['Q7'] = df[DISCHARGE_COL].rolling(window=7, min_periods=7).min()
 
-        # Get annual minimum of 7-day average
+        # Get annual minimum of 7-day minimum
         annual_7day_min = df['Q7'].resample('YE').min().dropna()
 
         if len(annual_7day_min) < 10:
             _plot_placeholder(ax, "7Q10 Analysis\nNeed 10+ years of data")
+            return
+
+        # Filter out zero/negative values — both scatter and fit must use same data
+        annual_7day_min = annual_7day_min[annual_7day_min > 0]
+        if len(annual_7day_min) < 10:
+            _plot_placeholder(ax, "7Q10 Analysis\nNeed 10+ years of positive low-flow data")
             return
 
         n = len(annual_7day_min)
@@ -1525,10 +1556,10 @@ def plot_7q10_analysis(ax, df_q: pd.DataFrame = None, config: Dict[str, Any] = N
         prob = m / (n + 1)  # Non-exceedance probability
         return_period = 1 / prob  # Return period for low flow
 
-        # Log-normal fit
-        log_Q = np.log(Q_sorted[Q_sorted > 0])
+        # Log-normal fit (data already filtered to positive values)
+        log_Q = np.log(Q_sorted)
         if len(log_Q) < 5:
-            _plot_placeholder(ax, "7Q10 Analysis\nInsufficient positive values")
+            _plot_placeholder(ax, "7Q10 Analysis\nInsufficient data for fit")
             return
 
         mean_log = np.mean(log_Q)
@@ -1704,6 +1735,12 @@ def plot_anomaly_detection(ax, df_q: pd.DataFrame = None, config: Dict[str, Any]
 
         if len(df) < window + 10:
             _plot_placeholder(ax, "Anomaly Detection\nInsufficient data")
+            return
+
+        # Filter zeros before log scale
+        df = df[df[DISCHARGE_COL] > 0]
+        if len(df) < window + 10:
+            _plot_placeholder(ax, "Anomaly Detection\nInsufficient positive data")
             return
 
         Q = df[DISCHARGE_COL]
@@ -1956,6 +1993,1132 @@ def plot_spectral_analysis(ax, df_q: pd.DataFrame = None, config: Dict[str, Any]
 
 
 # ============================================================================
+# PLOT 24: TRANSMISSION LOSS (Two-gage comparison)
+# ============================================================================
+
+def plot_reach_comparison(ax, df_upstream: pd.DataFrame = None, df_downstream: pd.DataFrame = None,
+                          config: Dict[str, Any] = None, **kwargs):
+    """
+    Plot reach comparison between upstream and downstream gages.
+
+    Shows upstream Q, downstream Q, with blue shading when gaining
+    and red shading when losing. Includes trend line on the gain.
+
+    Args:
+        ax: Matplotlib axis
+        df_upstream: Discharge DataFrame for upstream gage (DatetimeIndex, Discharge_cfs)
+        df_downstream: Discharge DataFrame for downstream gage (DatetimeIndex, Discharge_cfs)
+        config: Optional configuration dict
+    """
+    cfg = {**DEFAULT_CONFIG, **(config or {})}
+    DISCHARGE_COL = cfg['discharge_col']
+
+    if df_upstream is None or df_upstream.empty or df_downstream is None or df_downstream.empty:
+        _plot_placeholder(ax, "Reach Comparison\nNeed upstream & downstream data")
+        return
+
+    if DISCHARGE_COL not in df_upstream.columns or DISCHARGE_COL not in df_downstream.columns:
+        _plot_placeholder(ax, "Reach Comparison\nMissing discharge column")
+        return
+
+    try:
+        # Align on common dates (daily)
+        q_up = df_upstream[DISCHARGE_COL].resample('D').mean().dropna()
+        q_dn = df_downstream[DISCHARGE_COL].resample('D').mean().dropna()
+        common_idx = q_up.index.intersection(q_dn.index)
+
+        if len(common_idx) < 30:
+            _plot_placeholder(ax, "Reach Comparison\nInsufficient overlapping data")
+            return
+
+        q_up = q_up.loc[common_idx]
+        q_dn = q_dn.loc[common_idx]
+        gain = q_dn - q_up  # Positive = gaining reach (downstream > upstream)
+
+        # Plot upstream and downstream
+        ax.plot(common_idx, q_up, color='steelblue', linewidth=1, alpha=0.8, label='Post Falls (upstream)')
+        ax.plot(common_idx, q_dn, color='darkorange', linewidth=1, alpha=0.8, label='Greene St (downstream)')
+
+        # Shade: blue when gaining, red when losing
+        ax.fill_between(common_idx, q_up, q_dn,
+                        where=q_dn >= q_up,
+                        color='steelblue', alpha=0.15, label='Gaining reach')
+        ax.fill_between(common_idx, q_up, q_dn,
+                        where=q_dn < q_up,
+                        color='#d62728', alpha=0.15, label='Losing reach')
+
+        # Trend line on the gain
+        x_numeric = np.arange(len(gain))
+        mask = ~np.isnan(gain.values)
+        if mask.sum() > 10:
+            z = np.polyfit(x_numeric[mask], gain.values[mask], 1)
+            trend = np.poly1d(z)(x_numeric)
+            cfs_per_year = z[0] * 365.25
+            ax.plot(common_idx, trend, 'k--', linewidth=2,
+                    label=f'Gain trend ({cfs_per_year:+.1f} cfs/yr)')
+
+        # Formatting
+        date_range = f"{common_idx.min().strftime('%Y')}-{common_idx.max().strftime('%Y')}"
+        ax.set_xlabel('Date')
+        ax.set_ylabel('Discharge (cfs)')
+        ax.set_title(f'Reach Comparison: Post Falls → Greene St\n{date_range}', fontweight='bold')
+        ax.legend(loc='upper right', fontsize=8)
+        ax.grid(True, alpha=0.3)
+        plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+
+    except Exception as e:
+        logger.error(f"Reach comparison error: {e}")
+        _plot_placeholder(ax, "Error plotting Reach Comparison")
+
+
+# ============================================================================
+# PLOT 25: SUMMER LOW FLOW TREND
+# ============================================================================
+
+def plot_summer_low_flow_trend(ax, df_q: pd.DataFrame = None, config: Dict[str, Any] = None, **kwargs):
+    """
+    Annual summer (Jun-Sep) 7-day minimum flow with trend line.
+
+    More relevant for drought/dry-reach analysis than the annual 7-day min,
+    which can be influenced by winter low flows.
+
+    Args:
+        ax: Matplotlib axis
+        df_q: Discharge DataFrame
+        config: Optional configuration dict
+    """
+    cfg = {**DEFAULT_CONFIG, **(config or {})}
+    DISCHARGE_COL = cfg['discharge_col']
+
+    if df_q is None or df_q.empty:
+        _plot_placeholder(ax, "Summer Low Flow Trend\nData N/A")
+        return
+
+    if DISCHARGE_COL not in df_q.columns:
+        _plot_placeholder(ax, "Summer Low Flow Trend\nMissing column")
+        return
+
+    try:
+        df = df_q[[DISCHARGE_COL]].dropna().copy()
+
+        # Filter to summer months (June-September)
+        df_summer = df[df.index.month.isin([6, 7, 8, 9])]
+        if len(df_summer) < 90:
+            _plot_placeholder(ax, "Summer Low Flow\nNeed 1+ summer of data")
+            return
+
+        # 7-day rolling minimum
+        df_summer = df_summer.copy()
+        df_summer['Q_7day'] = df_summer[DISCHARGE_COL].rolling(window=7, min_periods=7).min()
+
+        # Annual summer minimum
+        annual_summer_lows = df_summer['Q_7day'].resample('YE').min().dropna()
+
+        if len(annual_summer_lows) < 3:
+            _plot_placeholder(ax, "Summer Low Flow\nNeed 3+ years")
+            return
+
+        x_years = annual_summer_lows.index.year.values
+        y_vals = annual_summer_lows.values
+
+        # Trend
+        z = np.polyfit(x_years, y_vals, 1)
+        trend_x = np.linspace(x_years.min(), x_years.max(), 100)
+        trend_y = np.poly1d(z)(trend_x)
+        slope = z[0]
+        y_mean = y_vals.mean()
+        epsilon = cfg.get('epsilon', 1e-10)
+        trend_pct = (slope * len(x_years)) / max(abs(y_mean), epsilon) * 100 if y_mean != 0 else 0
+
+        # Color bars by value (red for very low)
+        colors = ['#d62728' if v < y_mean * 0.5 else '#ff7f0e' if v < y_mean else '#2ca02c'
+                  for v in y_vals]
+
+        # Dynamic color legend — only show colors that appear
+        from matplotlib.patches import Patch
+        ax.bar(x_years, y_vals, color=colors, alpha=0.7, width=0.7)
+        ax.plot(trend_x, trend_y, 'k--', lw=2)
+
+        legend_handles = []
+        if '#2ca02c' in colors:
+            legend_handles.append(Patch(facecolor='#2ca02c', alpha=0.7, label='Above avg'))
+        if '#ff7f0e' in colors:
+            legend_handles.append(Patch(facecolor='#ff7f0e', alpha=0.7, label='Below avg'))
+        if '#d62728' in colors:
+            legend_handles.append(Patch(facecolor='#d62728', alpha=0.7, label='< 50% of avg'))
+        legend_handles.append(plt.Line2D([], [], color='k', linestyle='--', lw=2, label=f'Trend ({trend_pct:+.1f}%)'))
+
+        # Annotate the minimum year
+        min_idx = np.argmin(y_vals)
+        ax.annotate(f'{y_vals[min_idx]:.0f} cfs',
+                    xy=(x_years[min_idx], y_vals[min_idx]),
+                    xytext=(0, -15), textcoords='offset points',
+                    ha='center', fontsize=8, fontweight='bold', color='#d62728')
+
+        ax.set_xlabel('Year')
+        ax.set_ylabel('Summer 7-Day Low Flow (cfs)')
+        ax.set_title(f'Summer (Jun-Sep) 7-Day Minimum Flow\n{x_years.min()}-{x_years.max()}',
+                     fontweight='bold')
+        ax.legend(handles=legend_handles, loc='upper right', fontsize=8)
+        ax.grid(True, alpha=0.3, axis='y')
+
+    except Exception as e:
+        logger.error(f"Summer low flow trend error: {e}")
+        _plot_placeholder(ax, "Error plotting Summer Low Flow Trend")
+
+
+# ============================================================================
+# PLOT 26: AQUIFER CONTRIBUTION INDEX
+# ============================================================================
+
+def plot_reach_index(ax, df_upstream: pd.DataFrame = None, df_downstream: pd.DataFrame = None,
+                     config: Dict[str, Any] = None, **kwargs):
+    """
+    Plot gaining/losing reach index over time.
+
+    Index = (Q_downstream - Q_upstream) / Q_upstream * 100
+    Negative = losing reach (transmission loss).
+    Trend shows if loss is accelerating.
+
+    Args:
+        ax: Matplotlib axis
+        df_upstream: Discharge DataFrame for upstream gage
+        df_downstream: Discharge DataFrame for downstream gage
+        config: Optional configuration dict
+    """
+    cfg = {**DEFAULT_CONFIG, **(config or {})}
+    DISCHARGE_COL = cfg['discharge_col']
+
+    if df_upstream is None or df_upstream.empty or df_downstream is None or df_downstream.empty:
+        _plot_placeholder(ax, "Reach Index\nNeed upstream & downstream data")
+        return
+
+    if DISCHARGE_COL not in df_upstream.columns or DISCHARGE_COL not in df_downstream.columns:
+        _plot_placeholder(ax, "Reach Index\nMissing discharge column")
+        return
+
+    try:
+        # Align on common dates (monthly means for cleaner signal)
+        q_up = df_upstream[DISCHARGE_COL].resample('ME').mean().dropna()
+        q_dn = df_downstream[DISCHARGE_COL].resample('ME').mean().dropna()
+        common_idx = q_up.index.intersection(q_dn.index)
+
+        if len(common_idx) < 12:
+            _plot_placeholder(ax, "Reach Index\nNeed 1+ year of overlapping data")
+            return
+
+        q_up = q_up.loc[common_idx]
+        q_dn = q_dn.loc[common_idx]
+
+        # Reach index: % change from upstream to downstream
+        # Filter out months with very low upstream flow (avoid division instability)
+        epsilon = cfg.get('epsilon', 1e-10)
+        reach_idx = ((q_dn - q_up) / q_up.clip(lower=epsilon)) * 100
+
+        # Color by gaining/losing
+        gaining = reach_idx >= 0
+        losing = reach_idx < 0
+
+        ax.bar(common_idx[gaining], reach_idx[gaining], width=25,
+               color='steelblue', alpha=0.7, label='Gaining reach')
+        ax.bar(common_idx[losing], reach_idx[losing], width=25,
+               color='#d62728', alpha=0.7, label='Losing reach')
+
+        ax.axhline(0, color='black', linewidth=1)
+
+        # Trend line
+        x_numeric = np.arange(len(reach_idx))
+        z = np.polyfit(x_numeric, reach_idx.values, 1)
+        trend = np.poly1d(z)(x_numeric)
+        pct_per_year = z[0] * 12  # slope is per month, convert to per year
+        ax.plot(common_idx, trend, 'k--', linewidth=2,
+                label=f'Trend ({pct_per_year:+.1f}%/yr)')
+
+        # Summary stats
+        n_losing = losing.sum()
+        n_total = len(reach_idx)
+        median_idx = reach_idx.median()
+        ax.text(0.02, 0.95,
+                f'Median: {median_idx:+.1f}%\nLosing: {n_losing}/{n_total} months',
+                transform=ax.transAxes, fontsize=9, va='top',
+                bbox=dict(boxstyle='round,pad=0.3', fc='white', alpha=0.8))
+
+        date_range = f"{common_idx.min().strftime('%Y')}-{common_idx.max().strftime('%Y')}"
+        ax.set_xlabel('Date')
+        ax.set_ylabel('Reach Index (%)')
+        ax.set_title(f'Aquifer Contribution Index\n{date_range}', fontweight='bold')
+        ax.legend(loc='upper right', fontsize=8)
+        ax.grid(True, alpha=0.3, axis='y')
+        plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+
+    except Exception as e:
+        logger.error(f"Reach index error: {e}")
+        _plot_placeholder(ax, "Error plotting Reach Index")
+
+
+# ============================================================================
+# PLOT 27: PAIRED ANNUAL LOWS (Avista Window)
+# ============================================================================
+
+def _find_avista_windows(q_up, threshold=550):
+    """
+    Identify Avista low-flow windows: contiguous periods where upstream
+    daily discharge stays below threshold (cfs). Returns list of
+    (year, start_date, end_date) tuples for windows >= 7 days in summer.
+    """
+    below = q_up < threshold
+    windows = []
+    in_window = False
+    start = None
+
+    for date, val in below.items():
+        if val and date.month in [7, 8, 9, 10]:  # Summer/early fall
+            if not in_window:
+                in_window = True
+                start = date
+        else:
+            if in_window:
+                duration = (date - start).days
+                if duration >= 7:
+                    windows.append((start.year, start, date - pd.Timedelta(days=1)))
+                in_window = False
+                start = None
+
+    # Close any trailing window
+    if in_window and start is not None:
+        last_date = q_up.index[-1]
+        duration = (last_date - start).days
+        if duration >= 7:
+            windows.append((start.year, start, last_date))
+
+    return windows
+
+
+def plot_paired_annual_lows(ax, df_upstream: pd.DataFrame = None, df_downstream: pd.DataFrame = None,
+                            config: Dict[str, Any] = None, **kwargs):
+    """
+    Paired bar chart of 7-day minimum flow during Avista low-flow windows.
+
+    During each year's Avista window (Post Falls < 550 cfs):
+    - Blue bars: Post Falls 7-day min (flat, ~500 cfs)
+    - Orange bars: Greene St 7-day min (declining year over year)
+    - Trend line on Greene St
+    - Annotation: gap = aquifer contribution
+
+    Args:
+        ax: Matplotlib axis
+        df_upstream: Post Falls discharge (DatetimeIndex, Discharge_cfs)
+        df_downstream: Greene St discharge (DatetimeIndex, Discharge_cfs)
+        config: Optional configuration dict
+    """
+    cfg = {**DEFAULT_CONFIG, **(config or {})}
+    DISCHARGE_COL = cfg['discharge_col']
+
+    if df_upstream is None or df_upstream.empty or df_downstream is None or df_downstream.empty:
+        _plot_placeholder(ax, "Paired Annual Lows\nNeed upstream & downstream data")
+        return
+
+    if DISCHARGE_COL not in df_upstream.columns or DISCHARGE_COL not in df_downstream.columns:
+        _plot_placeholder(ax, "Paired Annual Lows\nMissing discharge column")
+        return
+
+    try:
+        q_up = df_upstream[DISCHARGE_COL].resample('D').mean().dropna()
+        q_dn = df_downstream[DISCHARGE_COL].resample('D').mean().dropna()
+
+        # Find Avista windows
+        windows = _find_avista_windows(q_up)
+        if len(windows) < 2:
+            _plot_placeholder(ax, "Paired Annual Lows\nNeed 2+ Avista windows")
+            return
+
+        # Compute 7-day min for each gage during each window
+        years = []
+        pf_mins = []
+        gs_mins = []
+
+        for year, w_start, w_end in windows:
+            up_window = q_up.loc[w_start:w_end]
+            dn_window = q_dn.loc[w_start:w_end]
+
+            if len(up_window) < 7 or len(dn_window) < 7:
+                continue
+
+            pf_7d = up_window.rolling(7, min_periods=7).min().min()
+            gs_7d = dn_window.rolling(7, min_periods=7).min().min()
+
+            if pd.notna(pf_7d) and pd.notna(gs_7d):
+                years.append(year)
+                pf_mins.append(pf_7d)
+                gs_mins.append(gs_7d)
+
+        if len(years) < 2:
+            _plot_placeholder(ax, "Paired Annual Lows\nInsufficient window data")
+            return
+
+        years = np.array(years)
+        pf_mins = np.array(pf_mins)
+        gs_mins = np.array(gs_mins)
+
+        # Grouped bars
+        bar_width = 0.35
+        x = np.arange(len(years))
+
+        bars_pf = ax.bar(x - bar_width/2, pf_mins, bar_width, color='steelblue',
+                         alpha=0.8, label='Post Falls 7d min', edgecolor='white')
+        bars_gs = ax.bar(x + bar_width/2, gs_mins, bar_width, color='darkorange',
+                         alpha=0.8, label='Greene St 7d min', edgecolor='white')
+
+        # Trend line on Greene St
+        z = np.polyfit(x, gs_mins, 1)
+        trend_y = np.poly1d(z)(x)
+        cfs_per_year = z[0]
+        ax.plot(x + bar_width/2, trend_y, 'k--', linewidth=2,
+                label=f'GS trend ({cfs_per_year:+.0f} cfs/yr)')
+
+        # Annotate aquifer contribution (gap between bars)
+        for i in range(len(years)):
+            gap = gs_mins[i] - pf_mins[i]
+            mid_y = pf_mins[i] + gap / 2
+            ax.annotate(f'+{gap:.0f}', xy=(x[i], mid_y),
+                        ha='center', va='center', fontsize=7, color='#555555',
+                        fontweight='bold')
+
+        # Value labels on bars
+        for i, (pf, gs) in enumerate(zip(pf_mins, gs_mins)):
+            ax.text(x[i] - bar_width/2, pf + 10, f'{pf:.0f}', ha='center', va='bottom',
+                    fontsize=7, color='steelblue', fontweight='bold')
+            ax.text(x[i] + bar_width/2, gs + 10, f'{gs:.0f}', ha='center', va='bottom',
+                    fontsize=7, color='darkorange', fontweight='bold')
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(years)
+        ax.set_xlabel('Year')
+        ax.set_ylabel('7-Day Minimum Flow (cfs)')
+        ax.set_title('Annual Low Flows During Avista Window\nPost Falls (flat) vs Greene St (declining)',
+                     fontweight='bold')
+        ax.legend(loc='upper right', fontsize=8)
+        ax.grid(True, alpha=0.3, axis='y')
+        ax.set_ylim(bottom=0)
+
+        # Subtitle annotation
+        ax.text(0.02, 0.95, 'Gap = aquifer contribution\n(shrinking over time)',
+                transform=ax.transAxes, fontsize=8, va='top',
+                bbox=dict(boxstyle='round,pad=0.3', fc='lightyellow', alpha=0.8))
+
+    except Exception as e:
+        logger.error(f"Paired annual lows error: {e}")
+        _plot_placeholder(ax, "Error plotting Paired Annual Lows")
+
+
+# ============================================================================
+# PLOT 28: AVISTA WINDOW COMPARISON
+# ============================================================================
+
+def plot_avista_window_comparison(ax, df_upstream: pd.DataFrame = None, df_downstream: pd.DataFrame = None,
+                                  config: Dict[str, Any] = None, **kwargs):
+    """
+    Overlaid hydrographs of Greene St during Avista low-flow windows.
+
+    X-axis: days since start of window (normalized).
+    One line per year, colored from blue (oldest) to red (newest).
+    Shows the annual low getting lower each year.
+
+    Args:
+        ax: Matplotlib axis
+        df_upstream: Post Falls discharge (for window detection)
+        df_downstream: Greene St discharge (plotted)
+        config: Optional configuration dict
+    """
+    cfg = {**DEFAULT_CONFIG, **(config or {})}
+    DISCHARGE_COL = cfg['discharge_col']
+
+    if df_upstream is None or df_upstream.empty or df_downstream is None or df_downstream.empty:
+        _plot_placeholder(ax, "Avista Window Comparison\nNeed upstream & downstream data")
+        return
+
+    if DISCHARGE_COL not in df_upstream.columns or DISCHARGE_COL not in df_downstream.columns:
+        _plot_placeholder(ax, "Avista Window Comparison\nMissing discharge column")
+        return
+
+    try:
+        q_up = df_upstream[DISCHARGE_COL].resample('D').mean().dropna()
+        q_dn = df_downstream[DISCHARGE_COL].resample('D').mean().dropna()
+
+        windows = _find_avista_windows(q_up)
+        if len(windows) < 2:
+            _plot_placeholder(ax, "Avista Window Comparison\nNeed 2+ Avista windows")
+            return
+
+        # Fixed comparison length: first 14 days of each window
+        COMPARE_DAYS = 14
+
+        # Color map: blue (oldest) → red (newest)
+        n_windows = len(windows)
+        cmap = plt.cm.coolwarm
+        colors = [cmap(i / max(n_windows - 1, 1)) for i in range(n_windows)]
+
+        for i, (year, w_start, w_end) in enumerate(windows):
+            # Take exactly COMPARE_DAYS from start of window
+            window_end = w_start + pd.Timedelta(days=COMPARE_DAYS - 1)
+            dn_window = q_dn.loc[w_start:window_end]
+            if len(dn_window) < 7:
+                continue
+
+            days = (dn_window.index - w_start).days
+            min_q = dn_window.min()
+
+            ax.plot(days, dn_window.values, color=colors[i], linewidth=2.2,
+                    alpha=0.85, label=f'{year} (min={min_q:.0f})')
+
+            # Mark the minimum point
+            min_day = days[dn_window.values.argmin()]
+            ax.plot(min_day, min_q, 'o', color=colors[i], markersize=5, zorder=5)
+
+        ax.set_xlabel('Days Since Start of Avista Window')
+        ax.set_ylabel('Greene St Discharge (cfs)')
+        ax.set_title(f'Greene St During First {COMPARE_DAYS} Days of Avista Window\nEach year compared on equal footing',
+                     fontweight='bold')
+        ax.legend(loc='upper right', fontsize=8)
+        ax.grid(True, alpha=0.3)
+        ax.set_xlim(-0.5, COMPARE_DAYS - 0.5)
+
+        # Reference line at 1000 cfs
+        ax.axhline(1000, color='gray', linestyle=':', linewidth=1, alpha=0.7)
+        ax.text(COMPARE_DAYS - 1, 1005, '1,000 cfs', ha='right', fontsize=7, color='gray')
+
+    except Exception as e:
+        logger.error(f"Avista window comparison error: {e}")
+        _plot_placeholder(ax, "Error plotting Avista Window Comparison")
+
+
+# ============================================================================
+# PLOT 29: THRESHOLD EXCEEDANCE
+# ============================================================================
+
+def plot_threshold_exceedance(ax, df_q: pd.DataFrame = None, config: Dict[str, Any] = None, **kwargs):
+    """
+    Days below critical flow thresholds by year.
+
+    Stacked bars showing days below 1000, 900, 800 cfs at a gage.
+    Demonstrates worsening low-flow conditions over time.
+
+    Args:
+        ax: Matplotlib axis
+        df_q: Discharge DataFrame (single gage)
+        config: Optional configuration dict
+    """
+    cfg = {**DEFAULT_CONFIG, **(config or {})}
+    DISCHARGE_COL = cfg['discharge_col']
+    thresholds = [1000, 900, 800]
+    threshold_colors = ['#ffc107', '#ff9800', '#d62728']  # yellow, orange, red
+
+    if df_q is None or df_q.empty:
+        _plot_placeholder(ax, "Threshold Exceedance\nData N/A")
+        return
+
+    if DISCHARGE_COL not in df_q.columns:
+        _plot_placeholder(ax, "Threshold Exceedance\nMissing discharge column")
+        return
+
+    try:
+        df = df_q[[DISCHARGE_COL]].dropna().copy()
+        df['year'] = df.index.year
+
+        # Only count summer months (Jun-Sep) for relevance
+        df_summer = df[df.index.month.isin([6, 7, 8, 9])]
+
+        years = sorted(df_summer['year'].unique())
+        if len(years) < 2:
+            _plot_placeholder(ax, "Threshold Exceedance\nNeed 2+ years")
+            return
+
+        # Count days below each threshold per year
+        # Stacked: 800-900 band, 900-1000 band, <800 band
+        data = {t: [] for t in thresholds}
+        for year in years:
+            yr_data = df_summer[df_summer['year'] == year][DISCHARGE_COL]
+            for t in thresholds:
+                data[t].append((yr_data < t).sum())
+
+        x = np.arange(len(years))
+        bar_width = 0.6
+
+        # Plot from highest threshold down (stacked visual)
+        # days<1000 is the total, days<900 is subset, days<800 is smallest subset
+        # So: bar for 800-900 = days<900 - days<800
+        #     bar for 900-1000 = days<1000 - days<900
+        #     bar for <800 = days<800 directly
+        days_1000 = np.array(data[1000])
+        days_900 = np.array(data[900])
+        days_800 = np.array(data[800])
+
+        band_800 = days_800
+        band_900 = days_900 - days_800
+        band_1000 = days_1000 - days_900
+
+        ax.bar(x, band_800, bar_width, color=threshold_colors[2], label='< 800 cfs')
+        ax.bar(x, band_900, bar_width, bottom=band_800, color=threshold_colors[1], label='800–900 cfs')
+        ax.bar(x, band_1000, bar_width, bottom=band_800 + band_900, color=threshold_colors[0], label='900–1000 cfs')
+
+        # Total label on top
+        for i, total in enumerate(days_1000):
+            if total > 0:
+                ax.text(x[i], total + 1, str(total), ha='center', va='bottom',
+                        fontsize=7, fontweight='bold')
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(years, rotation=45, ha='right')
+        ax.set_xlabel('Year')
+        ax.set_ylabel('Summer Days Below Threshold (Jun-Sep)')
+        ax.set_title('Days Below Critical Flow Thresholds\nSummer months only',
+                     fontweight='bold')
+        ax.legend(loc='upper left', fontsize=8)
+        ax.grid(True, alpha=0.3, axis='y')
+        ax.set_ylim(bottom=0)
+
+    except Exception as e:
+        logger.error(f"Threshold exceedance error: {e}")
+        _plot_placeholder(ax, "Error plotting Threshold Exceedance")
+
+
+# ============================================================================
+# PLOT 30: PRECIPITATION-DISCHARGE RESPONSE COMPARISON
+# ============================================================================
+
+def plot_precip_response_comparison(ax, df_upstream: pd.DataFrame = None,
+                                    df_downstream: pd.DataFrame = None,
+                                    df_climate: pd.DataFrame = None,
+                                    config: Dict[str, Any] = None, **kwargs):
+    """
+    Summer pulse propagation ratio by year.
+
+    For each summer (Jun-Sep) precip event (>=2mm/day), compute the ratio of
+    downstream discharge response to upstream discharge response.
+    Declining ratio = aquifer contributing less to baseflow recovery.
+
+    Args:
+        ax: Matplotlib axis
+        df_upstream: Post Falls discharge
+        df_downstream: Greene St discharge
+        df_climate: Climate DataFrame with Precip_mm column (from Meteostat)
+        config: Optional configuration dict
+    """
+    cfg = {**DEFAULT_CONFIG, **(config or {})}
+    DISCHARGE_COL = cfg['discharge_col']
+    PRECIP_COL = cfg.get('precip_col', 'Precip_mm')
+
+    if df_upstream is None or df_downstream is None:
+        _plot_placeholder(ax, "Precip Response\nNeed upstream & downstream data")
+        return
+
+    if df_climate is None or df_climate.empty or PRECIP_COL not in df_climate.columns:
+        _plot_placeholder(ax, "Precip Response\nNeed climate data (Precip_mm)")
+        return
+
+    try:
+        q_up = df_upstream[DISCHARGE_COL].resample('D').mean().dropna()
+        q_dn = df_downstream[DISCHARGE_COL].resample('D').mean().dropna()
+        precip = df_climate[PRECIP_COL].resample('D').sum().dropna()
+
+        # Normalize timezones — Meteostat is tz-naive, USGS is tz-aware UTC
+        if precip.index.tz is None and q_up.index.tz is not None:
+            precip.index = precip.index.tz_localize(q_up.index.tz)
+        elif precip.index.tz is not None and q_up.index.tz is None:
+            precip.index = precip.index.tz_localize(None)
+
+        # Common index across all three datasets
+        common_idx = q_up.index.intersection(q_dn.index).intersection(precip.index)
+        q_up = q_up.loc[common_idx]
+        q_dn = q_dn.loc[common_idx]
+        precip = precip.loc[common_idx]
+
+        # Filter to extended summer (May-Sep) for more precip events
+        summer_mask = precip.index.month.isin([5, 6, 7, 8, 9])
+        precip_summer = precip[summer_mask]
+        q_up_summer = q_up[summer_mask]
+        q_dn_summer = q_dn[summer_mask]
+
+        avail_years = sorted(precip_summer.index.year.unique())
+        if len(avail_years) < 2:
+            _plot_placeholder(ax, "Precip Response\nNeed 2+ summers of data")
+            return
+
+        years = []
+        ratios = []
+        n_events_list = []
+
+        for year in avail_years:
+            yr_mask = precip_summer.index.year == year
+            p_yr = precip_summer[yr_mask]
+            up_yr = q_up_summer[yr_mask]
+            dn_yr = q_dn_summer[yr_mask]
+
+            if len(p_yr) < 30:
+                continue
+
+            # Find precip events (>= 2mm/day)
+            event_days = p_yr[p_yr >= 2.0].index
+            if len(event_days) < 2:
+                continue
+
+            # For each event, measure 1-3 day discharge response at both gages
+            event_ratios = []
+            for event_date in event_days:
+                response_start = event_date + pd.Timedelta(days=1)
+                response_end = event_date + pd.Timedelta(days=3)
+
+                # Get pre-event discharge
+                pre_dates = up_yr.loc[:event_date]
+                if len(pre_dates) == 0:
+                    continue
+                up_before = pre_dates.iloc[-1]
+
+                pre_dates_dn = dn_yr.loc[:event_date]
+                if len(pre_dates_dn) == 0:
+                    continue
+                dn_before = pre_dates_dn.iloc[-1]
+
+                # Get post-event peak (look in full dataset, not just summer filter)
+                up_after = q_up.loc[response_start:response_end]
+                dn_after = q_dn.loc[response_start:response_end]
+
+                if len(up_after) == 0 or len(dn_after) == 0:
+                    continue
+
+                up_rise = up_after.max() - up_before
+                dn_rise = dn_after.max() - dn_before
+
+                # Only count meaningful upstream pulses (> 20 cfs rise)
+                if abs(up_rise) > 20:
+                    event_ratios.append(dn_rise / up_rise)
+
+            if len(event_ratios) >= 1:
+                years.append(year)
+                ratios.append(np.median(event_ratios))
+                n_events_list.append(len(event_ratios))
+
+        if len(years) < 2:
+            _plot_placeholder(ax, "Precip Response\nInsufficient summer precip events")
+            return
+
+        years = np.array(years)
+        ratios = np.array(ratios)
+
+        # Bar chart
+        colors = ['#2ca02c' if r > 0.7 else '#ff7f0e' if r > 0.5 else '#d62728' for r in ratios]
+        ax.bar(years, ratios, color=colors, alpha=0.8, width=0.6, edgecolor='white')
+
+        # Trend line
+        x_norm = np.arange(len(years))
+        z = np.polyfit(x_norm, ratios, 1)
+        trend_y = np.poly1d(z)(x_norm)
+        ax.plot(years, trend_y, 'k--', linewidth=2, label='Trend')
+
+        # Value labels
+        for yr, r, n in zip(years, ratios, n_events_list):
+            ax.text(yr, r + 0.02, f'{r:.2f}\n({n})', ha='center', va='bottom',
+                    fontsize=7, fontweight='bold')
+
+        # Reference line at 1.0
+        ax.axhline(1.0, color='gray', linestyle=':', linewidth=1, alpha=0.5)
+        ax.text(years[0] - 0.3, 1.02, 'Equal response', fontsize=7, color='gray')
+
+        ax.set_xlabel('Year')
+        ax.set_ylabel('Pulse Propagation Ratio (GS rise / PF rise)')
+        ax.set_title('Summer (May-Sep) Precipitation→Discharge Response\nDeclining ratio = weakening aquifer contribution',
+                     fontweight='bold')
+        ax.legend(loc='upper right', fontsize=8)
+        ax.grid(True, alpha=0.3, axis='y')
+        ax.set_ylim(bottom=0)
+
+        # Explain (n) values
+        ax.text(0.02, 0.05, '(n) = number of qualifying\nprecip events (≥2mm/day)',
+                transform=ax.transAxes, fontsize=7, va='bottom',
+                bbox=dict(boxstyle='round,pad=0.3', fc='white', alpha=0.8))
+
+    except Exception as e:
+        logger.error(f"Precip response comparison error: {e}")
+        _plot_placeholder(ax, "Error plotting Precip Response")
+
+
+# ============================================================================
+# PLOT 31: SUMMER CLIMATE CONTEXT
+# ============================================================================
+
+def plot_summer_climate_context(ax, df_climate: pd.DataFrame = None,
+                                config: Dict[str, Any] = None, **kwargs):
+    """
+    Summer precipitation totals and mean temperature by year.
+
+    Dual-axis: bars for precip (mm), line for temp (°C).
+    Contextualizes flow declines with climate drivers.
+
+    Args:
+        ax: Matplotlib axis
+        df_climate: Climate DataFrame with Precip_mm and Temp_C columns
+        config: Optional configuration dict
+    """
+    cfg = {**DEFAULT_CONFIG, **(config or {})}
+    PRECIP_COL = cfg.get('precip_col', 'Precip_mm')
+    TEMP_COL = cfg.get('temp_col', 'Temp_C')
+
+    if df_climate is None or df_climate.empty:
+        _plot_placeholder(ax, "Summer Climate Context\nNeed climate data")
+        return
+
+    if PRECIP_COL not in df_climate.columns or TEMP_COL not in df_climate.columns:
+        _plot_placeholder(ax, "Summer Climate Context\nNeed Precip_mm and Temp_C")
+        return
+
+    try:
+        df = df_climate[[PRECIP_COL, TEMP_COL]].copy()
+        df.index = pd.to_datetime(df.index)
+
+        # Filter to summer (Jun-Sep)
+        df_summer = df[df.index.month.isin([6, 7, 8, 9])]
+        if len(df_summer) < 60:
+            _plot_placeholder(ax, "Summer Climate\nInsufficient data")
+            return
+
+        # Annual summer totals/means
+        summer_precip = df_summer[PRECIP_COL].resample('YE').sum()
+        summer_temp = df_summer[TEMP_COL].resample('YE').mean()
+
+        # Align
+        years = summer_precip.index.year.values
+        precip_vals = summer_precip.values
+        temp_vals = summer_temp.values
+
+        if len(years) < 2:
+            _plot_placeholder(ax, "Summer Climate\nNeed 2+ years")
+            return
+
+        # Convert to inches and Fahrenheit
+        precip_in = precip_vals / 25.4  # mm → inches
+        temp_f = temp_vals * 9 / 5 + 32  # °C → °F
+
+        # Precip bars
+        precip_mean_in = precip_in.mean()
+        bar_colors = ['#d62728' if p < precip_mean_in * 0.5 else '#ff7f0e' if p < precip_mean_in else '#2196F3'
+                      for p in precip_in]
+        ax.bar(years, precip_in, color=bar_colors, alpha=0.7, width=0.6)
+
+        # Value labels on bars
+        for yr, p in zip(years, precip_in):
+            ax.text(yr, p + 0.03, f'{p:.1f}"', ha='center', va='bottom', fontsize=7, fontweight='bold')
+
+        ax.set_xlabel('Year')
+        ax.set_ylabel('Summer Precipitation Total (in)', color='#2196F3')
+        ax.tick_params(axis='y', labelcolor='#2196F3')
+        ax.set_ylim(bottom=0)
+
+        # Precip mean reference
+        ax.axhline(precip_mean_in, color='#2196F3', linestyle=':', linewidth=1, alpha=0.5)
+        ax.text(years[0] - 0.4, precip_mean_in + 0.03, f'Avg: {precip_mean_in:.1f}"',
+                fontsize=7, color='#2196F3')
+
+        # Temp line on secondary axis
+        ax2 = ax.twinx()
+        ax2.plot(years, temp_f, 'o-', color='#d62728', linewidth=2, markersize=6,
+                 label='Mean Summer Temp')
+
+        # Temp value labels
+        for yr, t in zip(years, temp_f):
+            ax2.text(yr, t + 0.3, f'{t:.0f}°F', ha='center', va='bottom',
+                     fontsize=7, color='#d62728')
+
+        ax2.set_ylabel('Mean Summer Temperature (°F)', color='#d62728')
+        ax2.tick_params(axis='y', labelcolor='#d62728')
+
+        # Temp mean reference
+        temp_mean_f = temp_f.mean()
+        ax2.axhline(temp_mean_f, color='#d62728', linestyle=':', linewidth=1, alpha=0.3)
+
+        ax.set_title('Summer Climate Context (Jun-Sep)\nPrecipitation & Temperature by Year',
+                     fontweight='bold')
+        ax.grid(True, alpha=0.2, axis='y')
+
+        # Dynamic legend for precip colors
+        from matplotlib.patches import Patch
+        legend_handles = []
+        if '#2196F3' in bar_colors:
+            legend_handles.append(Patch(facecolor='#2196F3', alpha=0.7, label='Precip ≥ avg'))
+        if '#ff7f0e' in bar_colors:
+            legend_handles.append(Patch(facecolor='#ff7f0e', alpha=0.7, label='Precip below avg'))
+        if '#d62728' in bar_colors:
+            legend_handles.append(Patch(facecolor='#d62728', alpha=0.7, label='Precip < 50% avg'))
+        legend_handles.append(plt.Line2D([], [], color='#d62728', marker='o', linewidth=2,
+                                         markersize=6, label='Mean temp'))
+        ax.legend(handles=legend_handles, loc='upper left', fontsize=7)
+
+    except Exception as e:
+        logger.error(f"Summer climate context error: {e}")
+        _plot_placeholder(ax, "Error plotting Summer Climate Context")
+
+
+# ============================================================================
+# PLOT 32: SEASONAL GAIN/LOSS COMPARISON
+# ============================================================================
+
+def plot_seasonal_gain_loss(ax, df_upstream: pd.DataFrame = None,
+                            df_downstream: pd.DataFrame = None,
+                            config: Dict[str, Any] = None, **kwargs):
+    """
+    Average reach gain/loss by season, comparing early vs recent years.
+
+    Grouped bars: early period vs recent period for each season.
+    Shows summer losses worsening while other seasons stay stable.
+
+    Args:
+        ax: Matplotlib axis
+        df_upstream: Post Falls discharge
+        df_downstream: Greene St discharge
+        config: Optional configuration dict
+    """
+    cfg = {**DEFAULT_CONFIG, **(config or {})}
+    DISCHARGE_COL = cfg['discharge_col']
+
+    if df_upstream is None or df_upstream.empty or df_downstream is None or df_downstream.empty:
+        _plot_placeholder(ax, "Seasonal Gain/Loss\nNeed upstream & downstream data")
+        return
+
+    if DISCHARGE_COL not in df_upstream.columns or DISCHARGE_COL not in df_downstream.columns:
+        _plot_placeholder(ax, "Seasonal Gain/Loss\nMissing discharge column")
+        return
+
+    try:
+        q_up = df_upstream[DISCHARGE_COL].resample('D').mean().dropna()
+        q_dn = df_downstream[DISCHARGE_COL].resample('D').mean().dropna()
+        common_idx = q_up.index.intersection(q_dn.index)
+
+        if len(common_idx) < 365 * 2:
+            _plot_placeholder(ax, "Seasonal Gain/Loss\nNeed 2+ years of overlap")
+            return
+
+        q_up = q_up.loc[common_idx]
+        q_dn = q_dn.loc[common_idx]
+        gain = q_dn - q_up  # Positive = gaining
+
+        # Assign seasons
+        month = gain.index.month
+        seasons = pd.Series('', index=gain.index)
+        seasons[month.isin([12, 1, 2])] = 'Winter'
+        seasons[month.isin([3, 4, 5])] = 'Spring'
+        seasons[month.isin([6, 7, 8, 9])] = 'Summer'
+        seasons[month.isin([10, 11])] = 'Fall'
+
+        # Split into early and recent halves
+        all_years = sorted(gain.index.year.unique())
+        mid_year = all_years[len(all_years) // 2]
+        early_label = f'{all_years[0]}-{mid_year - 1}'
+        recent_label = f'{mid_year}-{all_years[-1]}'
+
+        early_mask = gain.index.year < mid_year
+        recent_mask = gain.index.year >= mid_year
+
+        season_order = ['Winter', 'Spring', 'Summer', 'Fall']
+        early_means = []
+        recent_means = []
+
+        for s in season_order:
+            s_mask = seasons == s
+            early_vals = gain[early_mask & s_mask]
+            recent_vals = gain[recent_mask & s_mask]
+            early_means.append(early_vals.mean() if len(early_vals) > 0 else 0)
+            recent_means.append(recent_vals.mean() if len(recent_vals) > 0 else 0)
+
+        early_means = np.array(early_means)
+        recent_means = np.array(recent_means)
+
+        # Grouped bars
+        x = np.arange(len(season_order))
+        bar_width = 0.35
+
+        bars_early = ax.bar(x - bar_width/2, early_means, bar_width,
+                            color='steelblue', alpha=0.8, label=early_label, edgecolor='white')
+        bars_recent = ax.bar(x + bar_width/2, recent_means, bar_width,
+                             color='darkorange', alpha=0.8, label=recent_label, edgecolor='white')
+
+        # Value labels
+        for i in range(len(season_order)):
+            ax.text(x[i] - bar_width/2, early_means[i] + (10 if early_means[i] >= 0 else -25),
+                    f'{early_means[i]:+.0f}', ha='center', va='bottom', fontsize=8, fontweight='bold',
+                    color='steelblue')
+            ax.text(x[i] + bar_width/2, recent_means[i] + (10 if recent_means[i] >= 0 else -25),
+                    f'{recent_means[i]:+.0f}', ha='center', va='bottom', fontsize=8, fontweight='bold',
+                    color='darkorange')
+
+        ax.axhline(0, color='black', linewidth=1)
+        ax.set_xticks(x)
+        ax.set_xticklabels(season_order, fontsize=10)
+        ax.set_xlabel('Season')
+        ax.set_ylabel('Mean Reach Gain (cfs)\n(Downstream − Upstream)')
+        ax.set_title('Seasonal Reach Gain: Early vs Recent Years\nPositive = gaining, Negative = losing',
+                     fontweight='bold')
+        ax.legend(loc='upper right', fontsize=9)
+        ax.grid(True, alpha=0.3, axis='y')
+
+        # Highlight summer change
+        summer_change = recent_means[2] - early_means[2]
+        if abs(summer_change) > 10:
+            ax.annotate(f'Summer: {summer_change:+.0f} cfs',
+                        xy=(2, recent_means[2]), xytext=(2.8, recent_means[2] - 100),
+                        fontsize=9, fontweight='bold', color='#d62728',
+                        arrowprops=dict(arrowstyle='->', color='#d62728', lw=1.5))
+
+    except Exception as e:
+        logger.error(f"Seasonal gain/loss error: {e}")
+        _plot_placeholder(ax, "Error plotting Seasonal Gain/Loss")
+
+
+# ============================================================================
+# PLOT 33: SEASONAL GAIN/LOSS BY WATER-YEAR PERIOD (2-YEAR CHUNKS)
+# ============================================================================
+
+def plot_seasonal_gain_loss_annual(ax, df_upstream: pd.DataFrame = None,
+                                   df_downstream: pd.DataFrame = None,
+                                   config: Dict[str, Any] = None, **kwargs):
+    """
+    Seasonal reach gain/loss evolution using 2-water-year periods.
+
+    Water years (Oct-Sep) respect the snowpack-driven hydrology.
+    Each Avista regulation window falls cleanly within one water year.
+    8 years of data → 4 periods of 2 water years each, stacked vertically
+    as grouped bars by season, showing the progressive summer decline.
+
+    Args:
+        ax: Matplotlib axis
+        df_upstream: Post Falls discharge
+        df_downstream: Greene St discharge
+        config: Optional configuration dict
+    """
+    cfg = {**DEFAULT_CONFIG, **(config or {})}
+    DISCHARGE_COL = cfg['discharge_col']
+
+    if df_upstream is None or df_upstream.empty or df_downstream is None or df_downstream.empty:
+        _plot_placeholder(ax, "Seasonal Gain/Loss by Period\nNeed upstream & downstream data")
+        return
+
+    if DISCHARGE_COL not in df_upstream.columns or DISCHARGE_COL not in df_downstream.columns:
+        _plot_placeholder(ax, "Seasonal Gain/Loss by Period\nMissing discharge column")
+        return
+
+    try:
+        q_up = df_upstream[DISCHARGE_COL].resample('D').mean().dropna()
+        q_dn = df_downstream[DISCHARGE_COL].resample('D').mean().dropna()
+        common_idx = q_up.index.intersection(q_dn.index)
+
+        if len(common_idx) < 365 * 2:
+            _plot_placeholder(ax, "Seasonal Gain/Loss by Period\nNeed 2+ years of overlap")
+            return
+
+        q_up = q_up.loc[common_idx]
+        q_dn = q_dn.loc[common_idx]
+        gain = q_dn - q_up  # Positive = gaining reach
+
+        # Assign water year (Oct-Sep): Oct 2017 → WY 2018, Sep 2018 → WY 2018
+        water_year = gain.index.year.where(gain.index.month >= 10, gain.index.year - 1) + 1
+        # So WY = calendar year of the January in that water year
+
+        # Assign seasons within water year
+        month = gain.index.month
+        seasons = pd.Series('', index=gain.index)
+        seasons[month.isin([10, 11, 12])] = 'Fall'       # Oct-Dec (start of WY)
+        seasons[month.isin([1, 2, 3])] = 'Winter'         # Jan-Mar
+        seasons[month.isin([4, 5])] = 'Spring'            # Apr-May (snowmelt)
+        seasons[month.isin([6, 7, 8, 9])] = 'Summer'      # Jun-Sep (low flow + Avista)
+
+        # Get complete water years only (need Oct through Sep)
+        wy_counts = water_year.value_counts()
+        complete_wys = sorted(wy_counts[wy_counts >= 300].index)
+
+        if len(complete_wys) < 4:
+            _plot_placeholder(ax, "Seasonal Gain/Loss by Period\nNeed 4+ complete water years")
+            return
+
+        # Build 2-water-year chunks
+        n_periods = len(complete_wys) // 2
+        if n_periods < 2:
+            _plot_placeholder(ax, "Seasonal Gain/Loss by Period\nNeed 4+ water years for periods")
+            return
+
+        periods = []
+        for i in range(n_periods):
+            wy1 = complete_wys[i * 2]
+            wy2 = complete_wys[i * 2 + 1]
+            label = f'WY {wy1}-{wy2}'
+            mask = water_year.isin([wy1, wy2])
+            periods.append((label, mask))
+
+        # Season order: follow the water year flow
+        season_order = ['Fall', 'Winter', 'Spring', 'Summer']
+
+        # Compute means per period per season
+        period_means = []
+        for label, mask in periods:
+            means = []
+            for s in season_order:
+                s_mask = seasons == s
+                vals = gain[mask & s_mask]
+                means.append(vals.mean() if len(vals) > 0 else 0)
+            period_means.append(np.array(means))
+
+        # Color palette: blue → orange → red progression (early → recent)
+        colors = ['#4a90d9', '#7cb342', '#f9a825', '#e53935']
+        if len(periods) > len(colors):
+            colors = plt.cm.RdYlBu_r(np.linspace(0.1, 0.9, len(periods)))
+
+        # Grouped bars
+        x = np.arange(len(season_order))
+        n_bars = len(periods)
+        total_width = 0.75
+        bar_width = total_width / n_bars
+
+        for i, ((label, _), means) in enumerate(zip(periods, period_means)):
+            offset = (i - (n_bars - 1) / 2) * bar_width
+            color = colors[i] if i < len(colors) else colors[-1]
+            bars = ax.bar(x + offset, means, bar_width * 0.9,
+                          color=color, alpha=0.85, label=label, edgecolor='white', linewidth=0.5)
+
+        # Value labels on summer bars only (the key story)
+        summer_idx = season_order.index('Summer')
+        for i, means in enumerate(period_means):
+            offset = (i - (n_bars - 1) / 2) * bar_width
+            val = means[summer_idx]
+            color = colors[i] if i < len(colors) else colors[-1]
+            ax.text(x[summer_idx] + offset, val - 15 if val < 0 else val + 8,
+                    f'{val:+.0f}', ha='center', va='top' if val < 0 else 'bottom',
+                    fontsize=7, fontweight='bold', color=color)
+
+        ax.axhline(0, color='black', linewidth=1)
+        ax.set_xticks(x)
+        ax.set_xticklabels(season_order, fontsize=10)
+        ax.set_xlabel('Season (Water Year: Oct → Sep)')
+        ax.set_ylabel('Mean Reach Gain (cfs)\n(Greene St − Post Falls)')
+        ax.set_title('Seasonal Reach Gain by Water-Year Period\nPositive = gaining, Negative = losing',
+                     fontweight='bold')
+        ax.legend(loc='upper left', fontsize=8, ncol=2)
+        ax.grid(True, alpha=0.3, axis='y')
+
+        # Annotate summer trend
+        summer_vals = [m[summer_idx] for m in period_means]
+        if len(summer_vals) >= 2:
+            total_change = summer_vals[-1] - summer_vals[0]
+            if abs(total_change) > 10:
+                ax.annotate(f'Summer trend: {total_change:+.0f} cfs\n({periods[0][0]} → {periods[-1][0]})',
+                            xy=(summer_idx + (n_bars - 1) / 2 * bar_width + 0.1, summer_vals[-1]),
+                            xytext=(summer_idx + 0.8, min(summer_vals) - 80),
+                            fontsize=8, fontweight='bold', color='#d62728',
+                            arrowprops=dict(arrowstyle='->', color='#d62728', lw=1.5),
+                            bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8))
+
+    except Exception as e:
+        logger.error(f"Seasonal gain/loss annual error: {e}")
+        _plot_placeholder(ax, "Error plotting Seasonal Gain/Loss by Period")
+
+
+# ============================================================================
 # AVAILABLE PLOTS REGISTRY
 # ============================================================================
 
@@ -2098,5 +3261,65 @@ AVAILABLE_PLOTS = {
         'description': 'FFT-based spectral analysis of discharge',
         'requires': ['df_q'],
         'default_size': (12, 8)
+    },
+    'reach_comparison': {
+        'function': plot_reach_comparison,
+        'description': 'Reach comparison: Post Falls → Greene St (gaining/losing)',
+        'requires': ['df_upstream', 'df_downstream'],
+        'default_size': (14, 6)
+    },
+    'summer_low_flow_trend': {
+        'function': plot_summer_low_flow_trend,
+        'description': 'Summer (Jun-Sep) 7-day minimum flow trend',
+        'requires': ['df_q'],
+        'default_size': (12, 6)
+    },
+    'reach_index': {
+        'function': plot_reach_index,
+        'description': 'Aquifer contribution index (% change upstream to downstream)',
+        'requires': ['df_upstream', 'df_downstream'],
+        'default_size': (14, 6)
+    },
+    'paired_annual_lows': {
+        'function': plot_paired_annual_lows,
+        'description': 'Paired 7-day lows during Avista windows (PF flat, GS declining)',
+        'requires': ['df_upstream', 'df_downstream'],
+        'default_size': (12, 7)
+    },
+    'avista_window_comparison': {
+        'function': plot_avista_window_comparison,
+        'description': 'Greene St hydrographs overlaid across Avista windows by year',
+        'requires': ['df_upstream', 'df_downstream'],
+        'default_size': (12, 7)
+    },
+    'threshold_exceedance': {
+        'function': plot_threshold_exceedance,
+        'description': 'Days below critical flow thresholds by year (stacked bars)',
+        'requires': ['df_q'],
+        'default_size': (12, 6)
+    },
+    'precip_response_comparison': {
+        'function': plot_precip_response_comparison,
+        'description': 'Precipitation pulse propagation ratio by year (requires climate data)',
+        'requires': ['df_upstream', 'df_downstream', 'df_climate'],
+        'default_size': (12, 7)
+    },
+    'summer_climate_context': {
+        'function': plot_summer_climate_context,
+        'description': 'Summer precip totals and mean temperature by year',
+        'requires': ['df_climate'],
+        'default_size': (12, 6)
+    },
+    'seasonal_gain_loss': {
+        'function': plot_seasonal_gain_loss,
+        'description': 'Seasonal reach gain/loss: early vs recent years',
+        'requires': ['df_upstream', 'df_downstream'],
+        'default_size': (10, 7)
+    },
+    'seasonal_gain_loss_annual': {
+        'function': plot_seasonal_gain_loss_annual,
+        'description': 'Seasonal reach gain/loss by 2-water-year periods (Oct-Sep)',
+        'requires': ['df_upstream', 'df_downstream'],
+        'default_size': (12, 7)
     },
 }

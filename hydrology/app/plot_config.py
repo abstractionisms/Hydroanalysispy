@@ -39,6 +39,18 @@ PLOT_DISPLAY_NAMES = {
 
     # Stage plots
     'rating_curve': 'Stage-Discharge Rating Curve',
+
+    # Reach analysis plots
+    'reach_comparison': 'Reach Comparison: Post Falls → Greene St',
+    'summer_low_flow_trend': 'Summer 7-Day Low Flow Trend',
+    'reach_index': 'Aquifer Contribution Index',
+    'paired_annual_lows': 'Paired Annual Lows (Avista Window)',
+    'avista_window_comparison': 'Avista Window Hydrograph Overlay',
+    'threshold_exceedance': 'Days Below Critical Thresholds',
+    'precip_response_comparison': 'Precipitation Response Comparison',
+    'summer_climate_context': 'Summer Climate Context',
+    'seasonal_gain_loss': 'Seasonal Reach Gain/Loss',
+    'seasonal_gain_loss_annual': 'Seasonal Gain/Loss by Water-Year Period',
 }
 
 # =============================================================================
@@ -52,14 +64,18 @@ CLIMATE_PLOTS = [
 
 DISCHARGE_PLOTS = [
     'timeseries', 'flow_duration', 'monthly_boxplot', 'discharge_heatmap',
-    'temporal_heatmap', 'low_flow_trend', 'annual_trend', 'baseflow_separation',
-    'recession_curves', 'flood_frequency', '7q10_analysis', 'anomaly_detection',
-    'cumulative_departure', 'spectral_analysis'
+    'temporal_heatmap', 'low_flow_trend', 'summer_low_flow_trend', 'annual_trend',
+    'baseflow_separation', 'recession_curves', 'flood_frequency', '7q10_analysis',
+    'anomaly_detection', 'cumulative_departure', 'spectral_analysis'
 ]
 
 STAGE_PLOTS = ['rating_curve']
 
-ALL_PLOTS = DISCHARGE_PLOTS + CLIMATE_PLOTS + STAGE_PLOTS
+REACH_PLOTS = ['reach_comparison', 'reach_index', 'paired_annual_lows',
+               'avista_window_comparison', 'threshold_exceedance', 'precip_response_comparison',
+               'summer_climate_context', 'seasonal_gain_loss', 'seasonal_gain_loss_annual']
+
+ALL_PLOTS = DISCHARGE_PLOTS + CLIMATE_PLOTS + STAGE_PLOTS + REACH_PLOTS
 
 
 def get_display_name(plot_key: str) -> str:
@@ -114,7 +130,19 @@ def multi_plot_selector(available_plots: Dict[str, Any], key_prefix: str = "") -
         )
         selected_stage = [stage_options[n] for n in selected_stage_names]
 
-    return selected_climate + selected_discharge + selected_stage
+    with st.expander("Reach Analysis (need two gages)", expanded=False):
+        reach_available = [p for p in REACH_PLOTS if p in plot_names]
+        reach_options = {get_display_name(p): p for p in reach_available}
+        selected_reach_names = st.multiselect(
+            "Select reach analysis plots",
+            list(reach_options.keys()),
+            default=[],
+            key=f"{key_prefix}reach_plots",
+            label_visibility="collapsed"
+        )
+        selected_reach = [reach_options[n] for n in selected_reach_names]
+
+    return selected_climate + selected_discharge + selected_stage + selected_reach
 
 
 def single_plot_selector(available_plots: Dict[str, Any], key_suffix: str = "") -> str:
@@ -149,6 +177,13 @@ def single_plot_selector(available_plots: Dict[str, Any], key_suffix: str = "") 
             options.append(display)
             name_to_key[display] = p
 
+    # Reach analysis plots
+    for p in REACH_PLOTS:
+        if p in plot_names:
+            display = f"[Reach] {get_display_name(p)}"
+            options.append(display)
+            name_to_key[display] = p
+
     selected_display = st.selectbox(
         "Select plot type",
         options,
@@ -176,6 +211,8 @@ def get_plot_category(plot_name: str) -> str:
         return 'discharge'
     elif plot_name in STAGE_PLOTS:
         return 'stage'
+    elif plot_name in REACH_PLOTS:
+        return 'reach'
     return 'unknown'
 
 
@@ -186,4 +223,6 @@ def get_plot_requirements(plot_name: str) -> List[str]:
         return ['discharge', 'climate']
     elif category == 'stage':
         return ['discharge', 'stage']
+    elif category == 'reach':
+        return ['discharge_upstream', 'discharge_downstream']
     return ['discharge']
