@@ -41,11 +41,11 @@ PLOT_DISPLAY_NAMES = {
     'rating_curve': 'Stage-Discharge Rating Curve',
 
     # Reach analysis plots
-    'reach_comparison': 'Reach Comparison: Post Falls → Greene St',
+    'reach_comparison': 'Reach Comparison',
     'summer_low_flow_trend': 'Summer 7-Day Low Flow Trend',
     'reach_index': 'Aquifer Contribution Index',
-    'paired_annual_lows': 'Paired Annual Lows (Avista Window)',
-    'avista_window_comparison': 'Avista Window Hydrograph Overlay',
+    'paired_annual_lows': 'Paired Annual Lows (Low-Flow Window)',
+    'avista_window_comparison': 'Low-Flow Window Hydrograph Overlay',
     'threshold_exceedance': 'Days Below Critical Thresholds',
     'precip_response_comparison': 'Precipitation Response Comparison',
     'summer_climate_context': 'Summer Climate Context',

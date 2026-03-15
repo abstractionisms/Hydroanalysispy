@@ -23,7 +23,8 @@ def main():
                        help='Port to run on (default: 8501)')
     args = parser.parse_args()
 
-    app_path = Path(__file__).parent / "hydrology" / "app" / "streamlit_app.py"
+    # New multipage app entry point (old: streamlit_app.py still works as legacy)
+    app_path = Path(__file__).parent / "hydrology" / "app" / "app.py"
 
     if not app_path.exists():
         print(f"Error: Could not find {app_path}")

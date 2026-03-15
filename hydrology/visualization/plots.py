@@ -32,8 +32,8 @@ Available plots (27 total):
 - reach_comparison: Reach comparison (gaining/losing shading + trend)
 - summer_low_flow_trend: Summer 7-day minimum flow trend
 - reach_index: Aquifer contribution index
-- paired_annual_lows: Paired 7-day lows during Avista windows
-- avista_window_comparison: Greene St hydrographs overlaid by year
+- paired_annual_lows: Paired 7-day lows during low-flow windows
+- avista_window_comparison: Downstream hydrographs overlaid by year
 - threshold_exceedance: Days below critical flow thresholds
 - precip_response_comparison: Precipitation pulse propagation ratio
 
@@ -556,7 +556,7 @@ def plot_correlation_matrix(ax, df_merged: pd.DataFrame = None, analysis_results
                 else:
                     annot.loc[row_name, col_name] = "1.00"
 
-        sns.heatmap(corr_matrix, annot=annot, fmt='', cmap='coolwarm', center=0,
+        sns.heatmap(corr_matrix, annot=annot, fmt='', cmap='cividis', center=0,
                     vmin=-1, vmax=1, ax=ax, cbar_kws={'label': 'Correlation'})
         ax.set_title('Correlation Matrix (* p<0.05, ** p<0.01, *** p<0.001)')
 
@@ -2036,8 +2036,11 @@ def plot_reach_comparison(ax, df_upstream: pd.DataFrame = None, df_downstream: p
         gain = q_dn - q_up  # Positive = gaining reach (downstream > upstream)
 
         # Plot upstream and downstream
-        ax.plot(common_idx, q_up, color='steelblue', linewidth=1, alpha=0.8, label='Post Falls (upstream)')
-        ax.plot(common_idx, q_dn, color='darkorange', linewidth=1, alpha=0.8, label='Greene St (downstream)')
+        up_name = cfg.get('upstream_name', 'Upstream')
+        dn_name = cfg.get('downstream_name', 'Downstream')
+
+        ax.plot(common_idx, q_up, color='steelblue', linewidth=1, alpha=0.8, label=f'{up_name} (upstream)')
+        ax.plot(common_idx, q_dn, color='darkorange', linewidth=1, alpha=0.8, label=f'{dn_name} (downstream)')
 
         # Shade: blue when gaining, red when losing
         ax.fill_between(common_idx, q_up, q_dn,
@@ -2061,7 +2064,7 @@ def plot_reach_comparison(ax, df_upstream: pd.DataFrame = None, df_downstream: p
         date_range = f"{common_idx.min().strftime('%Y')}-{common_idx.max().strftime('%Y')}"
         ax.set_xlabel('Date')
         ax.set_ylabel('Discharge (cfs)')
-        ax.set_title(f'Reach Comparison: Post Falls → Greene St\n{date_range}', fontweight='bold')
+        ax.set_title(f'Reach Comparison: {up_name} \u2192 {dn_name}\n{date_range}', fontweight='bold')
         ax.legend(loc='upper right', fontsize=8)
         ax.grid(True, alpha=0.3)
         plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
@@ -2313,6 +2316,8 @@ def plot_paired_annual_lows(ax, df_upstream: pd.DataFrame = None, df_downstream:
     """
     cfg = {**DEFAULT_CONFIG, **(config or {})}
     DISCHARGE_COL = cfg['discharge_col']
+    up_name = cfg.get('upstream_name', 'Upstream')
+    dn_name = cfg.get('downstream_name', 'Downstream')
 
     if df_upstream is None or df_upstream.empty or df_downstream is None or df_downstream.empty:
         _plot_placeholder(ax, "Paired Annual Lows\nNeed upstream & downstream data")
@@ -2326,10 +2331,10 @@ def plot_paired_annual_lows(ax, df_upstream: pd.DataFrame = None, df_downstream:
         q_up = df_upstream[DISCHARGE_COL].resample('D').mean().dropna()
         q_dn = df_downstream[DISCHARGE_COL].resample('D').mean().dropna()
 
-        # Find Avista windows
+        # Find low-flow windows
         windows = _find_avista_windows(q_up)
         if len(windows) < 2:
-            _plot_placeholder(ax, "Paired Annual Lows\nNeed 2+ Avista windows")
+            _plot_placeholder(ax, "Paired Annual Lows\nNeed 2+ low-flow windows")
             return
 
         # Compute 7-day min for each gage during each window
@@ -2365,11 +2370,11 @@ def plot_paired_annual_lows(ax, df_upstream: pd.DataFrame = None, df_downstream:
         x = np.arange(len(years))
 
         bars_pf = ax.bar(x - bar_width/2, pf_mins, bar_width, color='steelblue',
-                         alpha=0.8, label='Post Falls 7d min', edgecolor='white')
+                         alpha=0.8, label=f'{up_name} 7d min', edgecolor='white')
         bars_gs = ax.bar(x + bar_width/2, gs_mins, bar_width, color='darkorange',
-                         alpha=0.8, label='Greene St 7d min', edgecolor='white')
+                         alpha=0.8, label=f'{dn_name} 7d min', edgecolor='white')
 
-        # Trend line on Greene St
+        # Trend line on downstream
         z = np.polyfit(x, gs_mins, 1)
         trend_y = np.poly1d(z)(x)
         cfs_per_year = z[0]
@@ -2395,7 +2400,7 @@ def plot_paired_annual_lows(ax, df_upstream: pd.DataFrame = None, df_downstream:
         ax.set_xticklabels(years)
         ax.set_xlabel('Year')
         ax.set_ylabel('7-Day Minimum Flow (cfs)')
-        ax.set_title('Annual Low Flows During Avista Window\nPost Falls (flat) vs Greene St (declining)',
+        ax.set_title(f'Annual Low Flows During Low-Flow Window\n{up_name} (flat) vs {dn_name} (declining)',
                      fontweight='bold')
         ax.legend(loc='upper right', fontsize=8)
         ax.grid(True, alpha=0.3, axis='y')
@@ -2432,13 +2437,15 @@ def plot_avista_window_comparison(ax, df_upstream: pd.DataFrame = None, df_downs
     """
     cfg = {**DEFAULT_CONFIG, **(config or {})}
     DISCHARGE_COL = cfg['discharge_col']
+    up_name = cfg.get('upstream_name', 'Upstream')
+    dn_name = cfg.get('downstream_name', 'Downstream')
 
     if df_upstream is None or df_upstream.empty or df_downstream is None or df_downstream.empty:
-        _plot_placeholder(ax, "Avista Window Comparison\nNeed upstream & downstream data")
+        _plot_placeholder(ax, "Low-Flow Window Comparison\nNeed upstream & downstream data")
         return
 
     if DISCHARGE_COL not in df_upstream.columns or DISCHARGE_COL not in df_downstream.columns:
-        _plot_placeholder(ax, "Avista Window Comparison\nMissing discharge column")
+        _plot_placeholder(ax, "Low-Flow Window Comparison\nMissing discharge column")
         return
 
     try:
@@ -2447,7 +2454,7 @@ def plot_avista_window_comparison(ax, df_upstream: pd.DataFrame = None, df_downs
 
         windows = _find_avista_windows(q_up)
         if len(windows) < 2:
-            _plot_placeholder(ax, "Avista Window Comparison\nNeed 2+ Avista windows")
+            _plot_placeholder(ax, "Low-Flow Window Comparison\nNeed 2+ low-flow windows")
             return
 
         # Fixed comparison length: first 14 days of each window
@@ -2455,7 +2462,7 @@ def plot_avista_window_comparison(ax, df_upstream: pd.DataFrame = None, df_downs
 
         # Color map: blue (oldest) → red (newest)
         n_windows = len(windows)
-        cmap = plt.cm.coolwarm
+        cmap = plt.cm.viridis
         colors = [cmap(i / max(n_windows - 1, 1)) for i in range(n_windows)]
 
         for i, (year, w_start, w_end) in enumerate(windows):
@@ -2475,9 +2482,9 @@ def plot_avista_window_comparison(ax, df_upstream: pd.DataFrame = None, df_downs
             min_day = days[dn_window.values.argmin()]
             ax.plot(min_day, min_q, 'o', color=colors[i], markersize=5, zorder=5)
 
-        ax.set_xlabel('Days Since Start of Avista Window')
-        ax.set_ylabel('Greene St Discharge (cfs)')
-        ax.set_title(f'Greene St During First {COMPARE_DAYS} Days of Avista Window\nEach year compared on equal footing',
+        ax.set_xlabel('Days Since Start of Low-Flow Window')
+        ax.set_ylabel(f'{dn_name} Discharge (cfs)')
+        ax.set_title(f'{dn_name} During First {COMPARE_DAYS} Days of Low-Flow Window\nEach year compared on equal footing',
                      fontweight='bold')
         ax.legend(loc='upper right', fontsize=8)
         ax.grid(True, alpha=0.3)
@@ -2489,7 +2496,7 @@ def plot_avista_window_comparison(ax, df_upstream: pd.DataFrame = None, df_downs
 
     except Exception as e:
         logger.error(f"Avista window comparison error: {e}")
-        _plot_placeholder(ax, "Error plotting Avista Window Comparison")
+        _plot_placeholder(ax, "Error plotting Low-Flow Window Comparison")
 
 
 # ============================================================================
@@ -2510,8 +2517,8 @@ def plot_threshold_exceedance(ax, df_q: pd.DataFrame = None, config: Dict[str, A
     """
     cfg = {**DEFAULT_CONFIG, **(config or {})}
     DISCHARGE_COL = cfg['discharge_col']
-    thresholds = [1000, 900, 800]
-    threshold_colors = ['#ffc107', '#ff9800', '#d62728']  # yellow, orange, red
+    thresholds = cfg.get('flow_thresholds', [1000, 900, 800])
+    threshold_colors = cfg.get('threshold_colors', ['#ffc107', '#ff9800', '#d62728'])
 
     if df_q is None or df_q.empty:
         _plot_placeholder(ax, "Threshold Exceedance\nData N/A")
@@ -2995,6 +3002,8 @@ def plot_seasonal_gain_loss_annual(ax, df_upstream: pd.DataFrame = None,
     """
     cfg = {**DEFAULT_CONFIG, **(config or {})}
     DISCHARGE_COL = cfg['discharge_col']
+    up_name = cfg.get('upstream_name', 'Upstream')
+    dn_name = cfg.get('downstream_name', 'Downstream')
 
     if df_upstream is None or df_upstream.empty or df_downstream is None or df_downstream.empty:
         _plot_placeholder(ax, "Seasonal Gain/Loss by Period\nNeed upstream & downstream data")
@@ -3067,7 +3076,7 @@ def plot_seasonal_gain_loss_annual(ax, df_upstream: pd.DataFrame = None,
         # Color palette: blue → orange → red progression (early → recent)
         colors = ['#4a90d9', '#7cb342', '#f9a825', '#e53935']
         if len(periods) > len(colors):
-            colors = plt.cm.RdYlBu_r(np.linspace(0.1, 0.9, len(periods)))
+            colors = plt.cm.viridis(np.linspace(0.1, 0.9, len(periods)))
 
         # Grouped bars
         x = np.arange(len(season_order))
@@ -3095,7 +3104,7 @@ def plot_seasonal_gain_loss_annual(ax, df_upstream: pd.DataFrame = None,
         ax.set_xticks(x)
         ax.set_xticklabels(season_order, fontsize=10)
         ax.set_xlabel('Season (Water Year: Oct → Sep)')
-        ax.set_ylabel('Mean Reach Gain (cfs)\n(Greene St − Post Falls)')
+        ax.set_ylabel(f'Mean Reach Gain (cfs)\n({dn_name} \u2212 {up_name})')
         ax.set_title('Seasonal Reach Gain by Water-Year Period\nPositive = gaining, Negative = losing',
                      fontweight='bold')
         ax.legend(loc='upper left', fontsize=8, ncol=2)
@@ -3264,7 +3273,7 @@ AVAILABLE_PLOTS = {
     },
     'reach_comparison': {
         'function': plot_reach_comparison,
-        'description': 'Reach comparison: Post Falls → Greene St (gaining/losing)',
+        'description': 'Reach comparison: upstream vs downstream (gaining/losing)',
         'requires': ['df_upstream', 'df_downstream'],
         'default_size': (14, 6)
     },
@@ -3282,13 +3291,13 @@ AVAILABLE_PLOTS = {
     },
     'paired_annual_lows': {
         'function': plot_paired_annual_lows,
-        'description': 'Paired 7-day lows during Avista windows (PF flat, GS declining)',
+        'description': 'Paired 7-day lows during low-flow windows (upstream flat, downstream declining)',
         'requires': ['df_upstream', 'df_downstream'],
         'default_size': (12, 7)
     },
     'avista_window_comparison': {
         'function': plot_avista_window_comparison,
-        'description': 'Greene St hydrographs overlaid across Avista windows by year',
+        'description': 'Downstream hydrographs overlaid across low-flow windows by year',
         'requires': ['df_upstream', 'df_downstream'],
         'default_size': (12, 7)
     },
