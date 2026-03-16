@@ -461,6 +461,104 @@ def percentile_bands_hydrograph(
     return fig
 
 
+def interactive_return_period(
+    observed: pd.DataFrame,
+    fitted: dict,
+    return_period_table: pd.DataFrame = None,
+    title: str = "Flood Frequency Analysis",
+) -> go.Figure:
+    """
+    Interactive return period plot showing observed data and fitted distributions.
+
+    Args:
+        observed: DataFrame from get_plotting_positions() with return_period and flow_cfs
+        fitted: Dict from fit_flood_frequency() mapping dist name to DistributionFit
+        return_period_table: Optional DataFrame from estimate_return_periods() with CIs
+        title: Plot title
+
+    Returns:
+        Plotly Figure with log-scale return period axis
+    """
+    fig = go.Figure()
+
+    # Plot observed data (plotting positions)
+    if observed is not None and not observed.empty:
+        fig.add_trace(go.Scatter(
+            x=observed['return_period'], y=observed['flow_cfs'],
+            mode='markers', name='Observed',
+            marker=dict(color='black', size=6, symbol='circle'),
+            hovertemplate='T=%{x:.1f} yr<br>Q=%{y:,.0f} cfs<extra>Observed</extra>',
+        ))
+
+    # Plot fitted distribution curves
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
+    rp_range = np.logspace(np.log10(1.01), np.log10(500), 200)
+
+    for i, (name, fit) in enumerate(fitted.items()):
+        quantiles = []
+        for rp in rp_range:
+            p = 1 / rp
+            if name == 'lp3':
+                from hydrology.analysis.frequency import _lp3_quantile
+                q = _lp3_quantile(fit.params, p)
+            elif name == 'gev':
+                from scipy import stats as sp_stats
+                q = sp_stats.genextreme.ppf(1 - p, *fit.params)
+            elif name == 'gumbel':
+                from scipy import stats as sp_stats
+                q = sp_stats.gumbel_r.ppf(1 - p, *fit.params)
+            elif name == 'lognormal':
+                from scipy import stats as sp_stats
+                q = sp_stats.lognorm.ppf(1 - p, *fit.params)
+            elif name == 'pearson3':
+                from scipy import stats as sp_stats
+                q = sp_stats.pearson3.ppf(1 - p, *fit.params)
+            else:
+                continue
+            quantiles.append(q)
+
+        color = colors[i % len(colors)]
+        aic_label = f" (AIC={fit.aic:.0f})" if np.isfinite(fit.aic) else ""
+        fig.add_trace(go.Scatter(
+            x=rp_range, y=quantiles,
+            mode='lines', name=f'{fit.display_name}{aic_label}',
+            line=dict(color=color, width=2),
+            hovertemplate=f'{fit.display_name}<br>T=%{{x:.1f}} yr<br>Q=%{{y:,.0f}} cfs<extra></extra>',
+        ))
+
+    # Confidence interval band for best distribution
+    if return_period_table is not None and not return_period_table.empty:
+        rp_ci = return_period_table.dropna(subset=['lower_ci', 'upper_ci'])
+        if not rp_ci.empty:
+            fig.add_trace(go.Scatter(
+                x=list(rp_ci['return_period']) + list(rp_ci['return_period'][::-1]),
+                y=list(rp_ci['upper_ci']) + list(rp_ci['lower_ci'][::-1]),
+                fill='toself', fillcolor='rgba(31, 119, 180, 0.12)',
+                line=dict(width=0), name='95% CI',
+                hoverinfo='skip',
+            ))
+
+    fig.update_layout(
+        title=title,
+        xaxis_title="Return Period (years)",
+        yaxis_title="Peak Discharge (cfs)",
+        xaxis_type="log",
+        yaxis_type="log",
+        height=500,
+        hovermode='closest',
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=60, r=20, t=60, b=40),
+    )
+
+    # Add reference lines for common return periods
+    for rp in [10, 50, 100]:
+        fig.add_vline(x=rp, line_dash="dot", line_color="gray",
+                     line_width=0.5, opacity=0.5,
+                     annotation_text=f"{rp}-yr", annotation_position="top")
+
+    return fig
+
+
 def _lyne_hollick(Q: np.ndarray, alpha: float = 0.925) -> np.ndarray:
     """Apply Lyne-Hollick recursive digital filter to separate baseflow."""
     Q_f = np.zeros_like(Q, dtype=float)

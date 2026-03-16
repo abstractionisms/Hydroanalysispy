@@ -182,47 +182,183 @@ def _nwm_comparison(inventory_df):
         return
 
     desc = site_info.get('description', site_id)
-    days_back = st.slider("Days to compare", 7, 90, 30, key="nwm_days")
 
     st.markdown("The **National Water Model (NWM)** produces streamflow forecasts for the entire US river network.")
 
-    if st.button("Compare with NWM", type="primary", key="gen_nwm"):
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days_back)
+    mode = st.radio("Comparison Mode", ["Recent (API)", "Retrospective (S3)"],
+                    horizontal=True, key="nwm_mode",
+                    help="Recent uses the last ~5 days from the API. Retrospective uses the NWM v2.1 Zarr archive (1979-2020).")
 
-        with st.spinner("Fetching NWM data..."):
-            comparison = compare_nwm_usgs(
-                site_id, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')
+    if mode == "Recent (API)":
+        days_back = st.slider("Days to compare", 7, 90, 30, key="nwm_days")
+
+        if st.button("Compare with NWM", type="primary", key="gen_nwm"):
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=days_back)
+
+            with st.spinner("Fetching NWM data..."):
+                comparison = compare_nwm_usgs(
+                    site_id, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')
+                )
+
+            if comparison is None:
+                st.error("Could not complete comparison. Site may not be in NWM network.")
+                return
+
+            st.subheader("Model Performance")
+            col_a, col_b, col_c, col_d = st.columns(4)
+            with col_a:
+                st.metric("Nash-Sutcliffe", f"{comparison.nash_sutcliffe:.3f}")
+            with col_b:
+                st.metric("Correlation", f"{comparison.correlation:.3f}")
+            with col_c:
+                st.metric("RMSE", f"{comparison.rmse:.1f} cfs")
+            with col_d:
+                st.metric("Bias", f"{comparison.bias:+.1f} cfs")
+
+            col_e, col_f, col_g = st.columns(3)
+            with col_e:
+                st.metric("MAE", f"{comparison.mae:.1f} cfs")
+            with col_f:
+                st.metric("Percent Bias", f"{comparison.percent_bias:+.1f}%")
+            with col_g:
+                st.metric("N Observations", comparison.n_observations)
+
+            skill_result = get_forecast_skill(site_id, n_days=days_back)
+            if 'rating' in skill_result:
+                rating = skill_result['rating']
+                icons = {'Excellent': '🟢', 'Good': '🟡', 'Fair': '🟠', 'Poor': '🔴', 'Very Poor': '⚫'}
+                st.markdown(f"### {icons.get(rating, '⚪')} Forecast Skill: {rating}")
+
+    else:
+        # Retrospective mode
+        col1, col2 = st.columns(2)
+        with col1:
+            retro_start = st.date_input("Start date", value=date(2010, 1, 1), key="retro_start")
+        with col2:
+            retro_end = st.date_input("End date", value=date(2020, 12, 31), key="retro_end")
+
+        if st.button("Evaluate Retrospective Skill", type="primary", key="gen_retro"):
+            client = NWMClient()
+
+            with st.spinner("Fetching NWM retrospective data from S3 (this may take a moment)..."):
+                skill = client.evaluate_model_skill(
+                    site_id,
+                    retro_start.strftime('%Y-%m-%d'),
+                    retro_end.strftime('%Y-%m-%d'),
+                )
+
+            if skill is None:
+                st.error("Could not evaluate model skill. Site may not be in NWM network, "
+                        "or xarray/s3fs may not be installed.")
+                return
+
+            st.subheader("Retrospective Model Skill")
+
+            # Rating banner
+            rating = skill.get('rating', 'Unknown')
+            icons = {'Excellent': '🟢', 'Good': '🟡', 'Fair': '🟠', 'Poor': '🔴', 'Very Poor': '⚫'}
+            st.markdown(f"### {icons.get(rating, '⚪')} Model Skill: {rating}")
+
+            col_a, col_b, col_c, col_d = st.columns(4)
+            with col_a:
+                st.metric("NSE", f"{skill['nse']:.3f}")
+            with col_b:
+                st.metric("KGE", f"{skill['kge']:.3f}")
+            with col_c:
+                st.metric("RMSE", f"{skill['rmse']:.1f} cfs")
+            with col_d:
+                st.metric("Correlation", f"{skill['correlation']:.3f}")
+
+            col_e, col_f, col_g, col_h = st.columns(4)
+            with col_e:
+                st.metric("Percent Bias", f"{skill['percent_bias']:+.1f}%")
+            with col_f:
+                st.metric("MAE", f"{skill['mae']:.1f} cfs")
+            with col_g:
+                st.metric("N Days", skill['n_observations'])
+            with col_h:
+                st.metric("Bias", f"{skill['bias']:+.1f} cfs")
+
+            # KGE components
+            st.caption(
+                f"KGE components: r={skill['correlation']:.3f}, "
+                f"alpha={skill['alpha']:.3f} (variability ratio), "
+                f"beta={skill['beta']:.3f} (bias ratio)"
             )
 
-        if comparison is None:
-            st.error("Could not complete comparison. Site may not be in NWM network.")
-            return
+            # Fetch data for overlay plot
+            with st.spinner("Generating comparison plot..."):
+                nwm_retro = client.get_retrospective_streamflow(
+                    site_id,
+                    retro_start.strftime('%Y-%m-%d'),
+                    retro_end.strftime('%Y-%m-%d'),
+                )
+                usgs_data = fetch_daily_values(
+                    site_id, param_cd='00060',
+                    start_date=retro_start.strftime('%Y-%m-%d'),
+                    end_date=retro_end.strftime('%Y-%m-%d'),
+                )
 
-        st.subheader("Model Performance")
-        col_a, col_b, col_c, col_d = st.columns(4)
-        with col_a:
-            st.metric("Nash-Sutcliffe", f"{comparison.nash_sutcliffe:.3f}")
-        with col_b:
-            st.metric("Correlation", f"{comparison.correlation:.3f}")
-        with col_c:
-            st.metric("RMSE", f"{comparison.rmse:.1f} cfs")
-        with col_d:
-            st.metric("Bias", f"{comparison.bias:+.1f} cfs")
+            if nwm_retro is not None and usgs_data is not None:
+                # Time series overlay
+                nwm_daily = nwm_retro['streamflow_cfs'].resample('D').mean()
 
-        col_e, col_f, col_g = st.columns(3)
-        with col_e:
-            st.metric("MAE", f"{comparison.mae:.1f} cfs")
-        with col_f:
-            st.metric("Percent Bias", f"{comparison.percent_bias:+.1f}%")
-        with col_g:
-            st.metric("N Observations", comparison.n_observations)
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=usgs_data.index, y=usgs_data['value'],
+                    mode='lines', name='USGS Observed',
+                    line=dict(color='#1f77b4', width=1.5),
+                    hovertemplate='%{x|%Y-%m-%d}<br>Observed: %{y:,.0f} cfs<extra></extra>',
+                ))
+                fig.add_trace(go.Scatter(
+                    x=nwm_daily.index, y=nwm_daily.values,
+                    mode='lines', name='NWM Retrospective',
+                    line=dict(color='#ff7f0e', width=1.5, dash='dot'),
+                    hovertemplate='%{x|%Y-%m-%d}<br>NWM: %{y:,.0f} cfs<extra></extra>',
+                ))
+                fig.update_layout(
+                    title=f"{desc} - NWM Retrospective vs USGS",
+                    xaxis_title="Date", yaxis_title="Discharge (cfs)",
+                    yaxis_type="log", height=450,
+                    hovermode='x unified',
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                )
+                st.plotly_chart(fig, use_container_width=True, key="retro_overlay")
 
-        skill_result = get_forecast_skill(site_id, n_days=days_back)
-        if 'rating' in skill_result:
-            rating = skill_result['rating']
-            icons = {'Excellent': '🟢', 'Good': '🟡', 'Fair': '🟠', 'Poor': '🔴', 'Very Poor': '⚫'}
-            st.markdown(f"### {icons.get(rating, '⚪')} Forecast Skill: {rating}")
+                # Residual analysis
+                usgs_daily = usgs_data.copy()
+                if usgs_daily.index.tz is not None:
+                    usgs_daily.index = usgs_daily.index.tz_localize(None)
+                usgs_daily.index = usgs_daily.index.normalize()
+
+                merged = pd.merge(
+                    usgs_daily[['value']].rename(columns={'value': 'observed'}),
+                    nwm_daily.rename('simulated').to_frame(),
+                    left_index=True, right_index=True, how='inner'
+                ).dropna()
+
+                if len(merged) > 30:
+                    merged['residual'] = merged['simulated'] - merged['observed']
+                    merged['residual_pct'] = merged['residual'] / merged['observed'] * 100
+
+                    fig_resid = go.Figure()
+                    fig_resid.add_trace(go.Scatter(
+                        x=merged.index, y=merged['residual_pct'],
+                        mode='markers', name='Residual',
+                        marker=dict(size=3, color='#9467bd', opacity=0.5),
+                        hovertemplate='%{x|%Y-%m-%d}<br>%{y:+.1f}%<extra></extra>',
+                    ))
+                    fig_resid.add_hline(y=0, line_color="gray", line_width=1)
+                    fig_resid.update_layout(
+                        title="Residual Analysis (NWM - Observed)",
+                        xaxis_title="Date",
+                        yaxis_title="Residual (% of observed)",
+                        yaxis=dict(range=[-200, 200]),
+                        height=300,
+                        margin=dict(l=60, r=20, t=40, b=40),
+                    )
+                    st.plotly_chart(fig_resid, use_container_width=True, key="retro_residual")
 
 
 def _flood_animation(inventory_df):
@@ -324,7 +460,107 @@ def _flood_animation(inventory_df):
 
 
 def _watershed_view(inventory_df):
-    """National watershed view with all US USGS gages."""
+    """National watershed view with all US USGS gages, plus HyRiver basin boundary."""
+    # Basin boundary section (HyRiver)
+    with st.expander("Basin Boundary & Characteristics (HyRiver)", expanded=False):
+        basin_site = site_picker(inventory_df, key="basin_hr", label="Select Site for Basin",
+                                 location="main", show_search=True)
+
+        if st.button("Load Basin Data", type="primary", key="load_basin"):
+            try:
+                from hydrology.data.hyriver import get_watershed_boundary, get_basin_characteristics, get_nid_dams
+
+                with st.spinner("Fetching watershed boundary..."):
+                    boundary = get_watershed_boundary(basin_site)
+                    chars = get_basin_characteristics(basin_site)
+                    dams = get_nid_dams(basin_site, distance_km=50)
+
+                if boundary is not None and not boundary.empty:
+                    # Basin characteristics cards
+                    if chars:
+                        char_cols = st.columns(4)
+                        with char_cols[0]:
+                            area = chars.get('drainage_area_sq_km', 0)
+                            st.metric("Drainage Area", f"{area:,.1f} km2")
+                        with char_cols[1]:
+                            elev = chars.get('elevation_mean_m')
+                            st.metric("Mean Elevation", f"{elev:,.0f} m" if elev else "N/A")
+                        with char_cols[2]:
+                            elev_min = chars.get('elevation_min_m')
+                            elev_max = chars.get('elevation_max_m')
+                            if elev_min is not None and elev_max is not None:
+                                st.metric("Elevation Range", f"{elev_max - elev_min:,.0f} m")
+                            else:
+                                st.metric("Elevation Range", "N/A")
+                        with char_cols[3]:
+                            n_dams = len(dams) if dams is not None else 0
+                            st.metric("Nearby Dams", n_dams)
+
+                    # Render basin boundary on folium map
+                    import folium
+                    from streamlit_folium import st_folium
+
+                    centroid = boundary.geometry.centroid.iloc[0]
+                    m = folium.Map(location=[centroid.y, centroid.x], zoom_start=10,
+                                  tiles='CartoDB positron')
+
+                    # Add boundary polygon
+                    folium.GeoJson(
+                        boundary.to_json(),
+                        name="Watershed Boundary",
+                        style_function=lambda x: {
+                            'fillColor': '#3388ff',
+                            'color': '#3388ff',
+                            'weight': 2,
+                            'fillOpacity': 0.15,
+                        },
+                    ).add_to(m)
+
+                    # Add dams if available
+                    if dams is not None and not dams.empty:
+                        for _, dam in dams.head(50).iterrows():
+                            dam_lat = dam.get('latitude') or dam.geometry.y if hasattr(dam, 'geometry') else None
+                            dam_lon = dam.get('longitude') or dam.geometry.x if hasattr(dam, 'geometry') else None
+                            if dam_lat and dam_lon:
+                                dam_name = dam.get('dam_name', dam.get('name', 'Unknown'))
+                                folium.CircleMarker(
+                                    location=[dam_lat, dam_lon],
+                                    radius=6, color='red', fill=True, fillOpacity=0.8,
+                                    tooltip=str(dam_name),
+                                ).add_to(m)
+
+                    # Add site marker
+                    site_info = get_cached_site_info(basin_site)
+                    if site_info and site_info.get('latitude'):
+                        folium.Marker(
+                            location=[float(site_info['latitude']), float(site_info['longitude'])],
+                            tooltip=f"USGS {basin_site}",
+                            icon=folium.Icon(color='green', icon='tint', prefix='fa'),
+                        ).add_to(m)
+
+                    folium.LayerControl().add_to(m)
+                    st_folium(m, width=None, height=450)
+
+                    # Land cover breakdown
+                    if chars and 'land_cover' in chars:
+                        st.subheader("Land Cover")
+                        lc = chars['land_cover']
+                        if isinstance(lc, dict):
+                            lc_df = pd.DataFrame(list(lc.items()), columns=['Class', 'Percentage'])
+                            lc_df = lc_df.sort_values('Percentage', ascending=False).head(10)
+                            st.dataframe(lc_df, use_container_width=True, hide_index=True)
+                else:
+                    st.warning("Could not retrieve watershed boundary. pynhd may not be installed.")
+
+            except ImportError:
+                st.error("HyRiver packages not installed. Install with: "
+                        "conda install -c conda-forge pygeohydro pynhd py3dep")
+            except Exception as e:
+                st.error(f"Error loading basin data: {e}")
+
+    st.markdown("---")
+    st.subheader("National Site Inventory")
+
     view_level = st.radio("View Level", ["National Overview", "By Region", "By State"],
                           horizontal=True, key="watershed_view_level")
 

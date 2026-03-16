@@ -119,6 +119,12 @@ def _render_kpi_row(site_id: str, site_info: dict) -> "pd.DataFrame | None":
             else:
                 st.metric("Current Flow", f"{current_val:,.0f} cfs")
             st.caption(f"Updated {latest_time.strftime('%H:%M %b %d')}")
+        elif df_hist is not None and not df_hist.empty:
+            # Fallback: use most recent daily value
+            current_val = df_hist['value'].iloc[-1]
+            latest_time = df_hist.index[-1]
+            st.metric("Current Flow", f"{current_val:,.0f} cfs")
+            st.caption(f"Daily value: {latest_time.strftime('%b %d, %Y')}")
         else:
             st.metric("Current Flow", "N/A")
 
@@ -251,13 +257,25 @@ def _render_quick_stats(df_hist: "pd.DataFrame | None"):
 
 
 def _render_station_map(inventory_df, selected_site_id):
-    """Render station map with condition-colored markers."""
+    """Render station map with condition-colored markers and optional watershed overlay."""
     st.subheader("Station Map")
 
     map_data = inventory_df[['latitude', 'longitude', 'site_id', 'description', 'begin_date']].copy()
     map_data = map_data.dropna(subset=['latitude', 'longitude'])
     map_data['latitude'] = map_data['latitude'].astype(float)
     map_data['longitude'] = map_data['longitude'].astype(float)
+
+    # Map options
+    col_opt1, col_opt2, col_opt3 = st.columns(3)
+    with col_opt1:
+        show_boundary = st.checkbox("Watershed boundary", value=False, key="ov_boundary",
+                                    help="Show contributing area polygon (requires HyRiver)")
+    with col_opt2:
+        show_flowlines = st.checkbox("Flowlines", value=False, key="ov_flowlines",
+                                     help="Show upstream flowline traces")
+    with col_opt3:
+        show_dams = st.checkbox("Nearby dams", value=False, key="ov_dams",
+                                help="Show dams from National Inventory")
 
     # Center on selected site if possible
     selected_info = get_cached_site_info(selected_site_id)
@@ -268,6 +286,60 @@ def _render_station_map(inventory_df, selected_site_id):
         center = [map_data['latitude'].mean(), map_data['longitude'].mean()]
         zoom = 6
 
+    # Try enhanced map if any geospatial features requested
+    if show_boundary or show_flowlines or show_dams:
+        try:
+            from hydrology.visualization.map_utils import create_watershed_map, add_condition_legend
+            from streamlit_folium import st_folium
+
+            additional_sites = []
+            for _, row in map_data.iterrows():
+                if row['site_id'] != selected_site_id:
+                    additional_sites.append({
+                        'site_id': row['site_id'],
+                        'latitude': row['latitude'],
+                        'longitude': row['longitude'],
+                        'description': str(row.get('description', '')),
+                    })
+
+            m = create_watershed_map(
+                selected_site_id,
+                show_boundary=show_boundary,
+                show_flowlines=show_flowlines,
+                show_dams=show_dams,
+                site_info=selected_info,
+                additional_sites=additional_sites,
+            )
+
+            if m is not None:
+                add_condition_legend(m)
+
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total Sites", len(map_data))
+                with col2:
+                    oldest = 'N/A'
+                    try:
+                        if 'begin_date' in map_data.columns:
+                            dates = map_data['begin_date'].dropna().astype(str)
+                            valid = dates[dates.str.match(r'^\d')]
+                            if len(valid) > 0:
+                                oldest = sorted(valid.tolist())[0][:4]
+                    except Exception:
+                        pass
+                    st.metric("Oldest Record", oldest)
+                with col3:
+                    st.metric("Region", "Pacific Northwest")
+
+                st_folium(m, width=None, height=500)
+                return
+
+        except ImportError:
+            st.caption("HyRiver not installed — showing standard map")
+        except Exception as e:
+            st.caption(f"Enhanced map unavailable: {str(e)[:60]}")
+
+    # Standard map (fallback)
     import folium
     from folium.plugins import MarkerCluster
     from streamlit_folium import st_folium

@@ -19,7 +19,7 @@ from hydrology.app.shared import get_inventory
 from hydrology.visualization.plots import AVAILABLE_PLOTS
 
 # Page imports
-from hydrology.app.pages import overview, single_analysis, comparisons, reach_analysis, alerts, advanced
+from hydrology.app.pages import overview, single_analysis, comparisons, reach_analysis, alerts, advanced, indicators
 
 apply_custom_css()
 
@@ -35,6 +35,7 @@ pages = {
     ],
     "Monitor": [
         st.Page(alerts.show, title="Alerts", icon="\U0001f6a8", url_path="alerts"),
+        st.Page(indicators.show, title="Indicators", icon="\U0001f321\ufe0f", url_path="indicators"),
         st.Page(advanced.show, title="Advanced", icon="\U0001f52c", url_path="advanced"),
     ],
 }

@@ -195,6 +195,76 @@ def show():
         )
         st.plotly_chart(fig_pctile, use_container_width=True, key="plotly_pctile")
 
+    # ── Frequency Analysis (on demand) ──
+    st.markdown("---")
+    with st.expander("Frequency Analysis", expanded=False):
+        st.caption("Multi-distribution flood frequency with return period estimation")
+
+        if st.button("Run Frequency Analysis", type="primary", key="gen_freq"):
+            from hydrology.data.usgs import fetch_peak_streamflow
+            from hydrology.analysis.frequency import (
+                fit_flood_frequency, estimate_return_periods, get_plotting_positions,
+            )
+            from hydrology.visualization.interactive import interactive_return_period
+
+            with st.spinner("Fetching peak streamflow data..."):
+                peaks_df = fetch_peak_streamflow(site_id)
+
+            if peaks_df is None or peaks_df.empty:
+                st.warning("No peak streamflow data available for this site")
+            else:
+                peak_col = 'peak_va' if 'peak_va' in peaks_df.columns else peaks_df.columns[0]
+                peak_values = peaks_df[peak_col].dropna().values.astype(float)
+                peak_values = peak_values[peak_values > 0]
+
+                if len(peak_values) < 10:
+                    st.warning(f"Insufficient peaks for analysis ({len(peak_values)} < 10)")
+                else:
+                    st.metric("Peak Records", len(peak_values))
+
+                    # Fit distributions
+                    fits = fit_flood_frequency(peak_values)
+                    observed = get_plotting_positions(peak_values)
+                    rp_table = estimate_return_periods(peak_values)
+
+                    if fits:
+                        # Distribution comparison chart
+                        fig_rp = interactive_return_period(
+                            observed, fits, rp_table,
+                            title=f"{desc} - Flood Frequency Analysis",
+                        )
+                        st.plotly_chart(fig_rp, use_container_width=True, key="plotly_rp")
+
+                        # Return period table
+                        if not rp_table.empty:
+                            st.subheader("Return Period Estimates")
+                            display_rp = rp_table.copy()
+                            for col in ['flow_cfs', 'lower_ci', 'upper_ci']:
+                                if col in display_rp.columns:
+                                    display_rp[col] = display_rp[col].apply(
+                                        lambda x: f"{x:,.0f}" if pd.notna(x) else "N/A"
+                                    )
+                            st.dataframe(display_rp, use_container_width=True, hide_index=True)
+
+                        # Model comparison table
+                        st.subheader("Distribution Comparison")
+                        model_rows = []
+                        for name, fit in fits.items():
+                            model_rows.append({
+                                'Distribution': fit.display_name,
+                                'AIC': f"{fit.aic:.1f}",
+                                'BIC': f"{fit.bic:.1f}",
+                                'KS Statistic': f"{fit.ks_statistic:.4f}",
+                                'KS p-value': f"{fit.ks_pvalue:.4f}",
+                            })
+                        st.dataframe(
+                            pd.DataFrame(model_rows),
+                            use_container_width=True, hide_index=True
+                        )
+                        st.caption("Lower AIC/BIC = better fit. Best distribution listed first.")
+                    else:
+                        st.error("Could not fit any distributions")
+
     # ── Static Matplotlib Plots (on demand) ──
     st.markdown("---")
     with st.expander("Static Plot Grid (matplotlib)", expanded=False):

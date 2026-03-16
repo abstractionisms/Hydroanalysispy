@@ -37,6 +37,9 @@ from .usgs import fetch_daily_values, fetch_instantaneous_values
 
 logger = get_logger(__name__)
 
+# NWM v2.1 retrospective Zarr store on S3 (NOAA Open Data)
+NWM_RETRO_ZARR = "s3://noaa-nwm-retrospective-2-1-zarr-pds/chrtout.zarr"
+
 
 # NWM reach ID mapping service (USGS site to NWM reach)
 # Updated to use the production NLDI API endpoint
@@ -397,6 +400,187 @@ class NWMClient:
         except Exception as e:
             logger.error(f"Error parsing analysis response: {e}")
             return None
+
+    def get_retrospective_streamflow(
+        self,
+        site_id: str,
+        start_date: str,
+        end_date: str,
+    ) -> Optional[pd.DataFrame]:
+        """
+        Get NWM v2.1 retrospective streamflow from the Zarr store on S3.
+
+        The retrospective dataset covers 1979-2020 and provides hourly
+        streamflow for all NWM reaches. This enables proper model evaluation
+        over historical periods (not just the last ~5 days from the API).
+
+        Args:
+            site_id: USGS site ID
+            start_date: Start date (YYYY-MM-DD)
+            end_date: End date (YYYY-MM-DD)
+
+        Returns:
+            DataFrame with streamflow_cfs column, or None
+        """
+        reach_id = self.get_reach_id(site_id)
+        if not reach_id:
+            logger.warning(f"Cannot get retrospective data without reach ID for {site_id}")
+            return None
+
+        try:
+            import xarray as xr
+            import s3fs
+
+            fs = s3fs.S3FileSystem(anon=True)
+            store = s3fs.S3Map(root=NWM_RETRO_ZARR, s3=fs)
+
+            ds = xr.open_zarr(store)
+
+            # Find the feature_id index for this reach
+            reach_int = int(reach_id)
+            feature_ids = ds['feature_id'].values
+            idx = np.where(feature_ids == reach_int)[0]
+
+            if len(idx) == 0:
+                logger.warning(f"Reach {reach_id} not found in NWM retrospective dataset")
+                return None
+
+            idx = idx[0]
+
+            # Select time range and feature
+            streamflow = ds['streamflow'].sel(
+                time=slice(start_date, end_date),
+            ).isel(feature_id=idx)
+
+            df = streamflow.to_dataframe().reset_index()
+            df = df.rename(columns={'time': 'datetime', 'streamflow': 'streamflow_cms'})
+            df = df.set_index('datetime')
+
+            # Convert cms to cfs
+            df['streamflow_cfs'] = df['streamflow_cms'] * 35.3147
+
+            # Keep only relevant columns
+            df = df[['streamflow_cfs', 'streamflow_cms']]
+
+            logger.info(f"Retrieved {len(df)} retrospective NWM records for {site_id}")
+            return df
+
+        except ImportError:
+            logger.error("xarray and s3fs required for retrospective NWM. "
+                        "Install with: conda install -c conda-forge xarray s3fs zarr")
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching retrospective NWM data for {site_id}: {e}")
+            return None
+
+    def evaluate_model_skill(
+        self,
+        site_id: str,
+        start_date: str,
+        end_date: str,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Evaluate NWM retrospective model skill against USGS observations.
+
+        Computes NSE, KGE, RMSE, PBIAS, and correlation over a historical
+        period using the retrospective Zarr dataset.
+
+        Args:
+            site_id: USGS site ID
+            start_date: Start date (YYYY-MM-DD)
+            end_date: End date (YYYY-MM-DD)
+
+        Returns:
+            Dict with skill metrics and rating, or None
+        """
+        # Get NWM retrospective
+        nwm_df = self.get_retrospective_streamflow(site_id, start_date, end_date)
+        if nwm_df is None or nwm_df.empty:
+            return None
+
+        # Get USGS observations
+        usgs_df = fetch_daily_values(
+            site_id, param_cd='00060',
+            start_date=start_date, end_date=end_date
+        )
+        if usgs_df is None or usgs_df.empty:
+            return None
+
+        # Resample NWM to daily mean
+        nwm_daily = nwm_df[['streamflow_cfs']].resample('D').mean()
+
+        # Normalize USGS index
+        usgs_daily = usgs_df.copy()
+        if usgs_daily.index.tz is not None:
+            usgs_daily.index = usgs_daily.index.tz_localize(None)
+        usgs_daily.index = usgs_daily.index.normalize()
+
+        # Merge on common dates
+        merged = pd.merge(
+            usgs_daily[['value']].rename(columns={'value': 'observed'}),
+            nwm_daily.rename(columns={'streamflow_cfs': 'simulated'}),
+            left_index=True, right_index=True,
+            how='inner'
+        ).dropna()
+
+        if len(merged) < 30:
+            logger.warning(f"Insufficient overlap ({len(merged)} days)")
+            return None
+
+        obs = merged['observed'].values
+        sim = merged['simulated'].values
+
+        # Standard metrics
+        bias = float(np.mean(sim - obs))
+        mae = float(np.mean(np.abs(sim - obs)))
+        rmse = float(np.sqrt(np.mean((sim - obs) ** 2)))
+        correlation = float(np.corrcoef(obs, sim)[0, 1])
+
+        # NSE
+        ss_res = np.sum((obs - sim) ** 2)
+        ss_tot = np.sum((obs - np.mean(obs)) ** 2)
+        nse = float(1 - ss_res / ss_tot) if ss_tot > 0 else np.nan
+
+        # KGE (Kling-Gupta Efficiency) — modern alternative to NSE
+        r = correlation
+        alpha = float(np.std(sim) / np.std(obs)) if np.std(obs) > 0 else np.nan
+        beta = float(np.mean(sim) / np.mean(obs)) if np.mean(obs) > 0 else np.nan
+        kge = float(1 - np.sqrt((r - 1)**2 + (alpha - 1)**2 + (beta - 1)**2))
+
+        # Percent bias
+        sum_obs = np.sum(obs)
+        pbias = float(100 * np.sum(sim - obs) / sum_obs) if sum_obs > 0 else np.nan
+
+        return {
+            'site_id': site_id,
+            'start_date': start_date,
+            'end_date': end_date,
+            'n_observations': len(merged),
+            'nse': nse,
+            'kge': kge,
+            'rmse': rmse,
+            'mae': mae,
+            'bias': bias,
+            'correlation': correlation,
+            'percent_bias': pbias,
+            'alpha': alpha,  # KGE variability ratio
+            'beta': beta,    # KGE bias ratio
+            'rating': _rate_model_skill(nse, kge, correlation),
+        }
+
+
+def _rate_model_skill(nse: float, kge: float, correlation: float) -> str:
+    """Rate model skill based on NSE, KGE, and correlation."""
+    if nse > 0.75 and kge > 0.75:
+        return 'Excellent'
+    elif nse > 0.5 and kge > 0.5:
+        return 'Good'
+    elif nse > 0.25 and kge > 0.25:
+        return 'Fair'
+    elif nse > 0:
+        return 'Poor'
+    else:
+        return 'Very Poor'
 
 
 def compare_nwm_usgs(

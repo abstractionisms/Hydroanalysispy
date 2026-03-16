@@ -18,6 +18,16 @@ from .inventory import (
 )
 from .nwm import NWMClient, NWMForecast, compare_nwm_usgs, get_forecast_skill
 
+# HyRiver imports are optional (require conda-forge packages)
+try:
+    from .hyriver import (
+        get_watershed_boundary, get_flowlines, get_basin_characteristics,
+        get_daymet_climate, get_nid_dams, get_elevation_profile,
+    )
+    _HYRIVER_AVAILABLE = True
+except ImportError:
+    _HYRIVER_AVAILABLE = False
+
 __all__ = [
     'fetch_waterml_data',
     'parse_waterml',
@@ -36,4 +46,11 @@ __all__ = [
     'NWMForecast',
     'compare_nwm_usgs',
     'get_forecast_skill',
+    # HyRiver (optional)
+    'get_watershed_boundary',
+    'get_flowlines',
+    'get_basin_characteristics',
+    'get_daymet_climate',
+    'get_nid_dams',
+    'get_elevation_profile',
 ]

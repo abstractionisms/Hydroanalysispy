@@ -790,21 +790,23 @@ def date_range_selector(key_prefix="", default_start=None, default_end=None):
     with st.expander("Fine-tune dates"):
         col3, col4 = st.columns(2)
         with col3:
-            start = st.date_input(
-                "Start Date",
-                value=start,
+            start_kwargs = dict(
                 min_value=date(1900, 1, 1),
                 max_value=today,
-                key=start_key
+                key=start_key,
             )
+            if start_key not in st.session_state:
+                start_kwargs["value"] = start
+            start = st.date_input("Start Date", **start_kwargs)
         with col4:
-            end = st.date_input(
-                "End Date",
-                value=end,
+            end_kwargs = dict(
                 min_value=date(1900, 1, 1),
                 max_value=today,
-                key=end_key
+                key=end_key,
             )
+            if end_key not in st.session_state:
+                end_kwargs["value"] = end
+            end = st.date_input("End Date", **end_kwargs)
 
     if start > end:
         st.warning("⚠️ Start date was after end date - dates have been swapped.")

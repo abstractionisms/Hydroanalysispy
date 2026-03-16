@@ -25,6 +25,7 @@ from .plots import (
 )
 
 from .composer import create_multi_plot, PlotLayout
+from .map_utils import create_watershed_map, get_condition_color, get_condition_label
 
 __all__ = [
     'plot_anomaly',
@@ -50,4 +51,8 @@ __all__ = [
     'create_multi_plot',
     'PlotLayout',
     'AVAILABLE_PLOTS',
+    # Map utilities
+    'create_watershed_map',
+    'get_condition_color',
+    'get_condition_label',
 ]
