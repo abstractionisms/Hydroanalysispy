@@ -22,7 +22,8 @@ from hydrology.core import DEFAULT_DISCHARGE_CODE
 from hydrology.data.inventory import load_inventory, get_site_info
 from hydrology.data.usgs import (
     fetch_waterml_data, parse_waterml, fetch_daily_values, fetch_stage_data,
-    fetch_instantaneous_values, DEFAULT_PARAM_DISCHARGE, DEFAULT_PARAM_STAGE
+    fetch_instantaneous_values, DEFAULT_PARAM_DISCHARGE, DEFAULT_PARAM_STAGE,
+    fetch_current_conditions, fetch_daily_percentiles, classify_condition
 )
 from hydrology.data.climate import fetch_climate_data, fetch_nearest_station_info
 from hydrology.data.nwm import NWMClient, compare_nwm_usgs, get_forecast_skill
@@ -60,6 +61,22 @@ logger = get_logger(__name__)
 def get_inventory():
     """Load and cache inventory data."""
     return load_inventory()
+
+
+
+
+@st.cache_data(ttl=3600, show_spinner="Loading site conditions...")
+def get_site_conditions(site_ids: list) -> dict:
+    """Fetch and classify current streamflow conditions for all sites."""
+    current = fetch_current_conditions(site_ids)
+    percentiles = fetch_daily_percentiles(site_ids)
+    conditions = {}
+    for sid in site_ids:
+        flow = current.get(sid)
+        pcts = percentiles.get(sid)
+        if flow is not None and pcts:
+            conditions[sid] = classify_condition(flow, pcts)
+    return conditions
 
 
 @st.cache_data(ttl=3600)
@@ -394,11 +411,12 @@ def site_picker(inventory_df, key="site", label="Select Site",
         selected = container.multiselect(label, site_options, key=f"{key}_multi", **kwargs)
         return [extract_site_id(s) for s in selected]
     else:
-        # Determine default index: query params > session_state > 0
+        # Determine default index: query params > session_state > preferred site > 0
         default_index = 0
         last_used_key = f"{key}_last_site"
+        preferred_site = "12422500"  # Spokane River at Spokane, WA
         query_site = st.query_params.get("site")
-        target_site = query_site or st.session_state.get(last_used_key)
+        target_site = query_site or st.session_state.get(last_used_key) or preferred_site
 
         if target_site:
             for i, opt in enumerate(site_options):

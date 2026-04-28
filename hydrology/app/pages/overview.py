@@ -14,7 +14,7 @@ from hydrology.app.shared import (
     extract_site_id, display_site_info, site_picker,
     fetch_discharge_data, process_site_data,
     find_availability_windows, format_availability_windows,
-    render_export_buttons,
+    render_export_buttons, get_site_conditions,
     logger,
 )
 from hydrology.app.styles import (
@@ -275,7 +275,8 @@ def _render_station_map(inventory_df, selected_site_id):
                                      help="Show upstream flowline traces")
     with col_opt3:
         show_dams = st.checkbox("Nearby dams", value=False, key="ov_dams",
-                                help="Show dams from National Inventory")
+                                help="Show dams from National Inventory", disabled=True)
+        st.caption("NID unavailable (upstream library issue)")
 
     # Center on selected site if possible
     selected_info = get_cached_site_info(selected_site_id)
@@ -292,6 +293,9 @@ def _render_station_map(inventory_df, selected_site_id):
             from hydrology.visualization.map_utils import create_watershed_map, add_condition_legend
             from streamlit_folium import st_folium
 
+            all_site_ids = map_data['site_id'].tolist()
+            conditions = get_site_conditions(all_site_ids)
+
             additional_sites = []
             for _, row in map_data.iterrows():
                 if row['site_id'] != selected_site_id:
@@ -300,6 +304,7 @@ def _render_station_map(inventory_df, selected_site_id):
                         'latitude': row['latitude'],
                         'longitude': row['longitude'],
                         'description': str(row.get('description', '')),
+                        'percentile': conditions.get(row['site_id']),
                     })
 
             m = create_watershed_map(
@@ -339,7 +344,10 @@ def _render_station_map(inventory_df, selected_site_id):
         except Exception as e:
             st.caption(f"Enhanced map unavailable: {str(e)[:60]}")
 
-    # Standard map (fallback)
+    # Standard map (fallback) - fetch conditions for coloring
+    all_site_ids = map_data['site_id'].tolist()
+    conditions = get_site_conditions(all_site_ids)
+
     import folium
     from folium.plugins import MarkerCluster
     from streamlit_folium import st_folium
@@ -358,8 +366,14 @@ def _render_station_map(inventory_df, selected_site_id):
         lon = row['longitude']
 
         is_selected = (sid == selected_site_id)
-        color = 'red' if is_selected else 'blue'
-        radius = 8 if is_selected else 4
+        if is_selected:
+            color = 'red'
+            radius = 8
+        else:
+            from hydrology.visualization.map_utils import get_condition_color
+            pctile = conditions.get(sid) if 'conditions' in dir() else None
+            color = get_condition_color(pctile) if pctile is not None else '#4488cc'
+            radius = 5
 
         tooltip = f"<b>{sid}</b><br>{desc}"
         popup_html = f"""
@@ -380,6 +394,9 @@ def _render_station_map(inventory_df, selected_site_id):
 
     marker_group.add_to(m)
     folium.LayerControl().add_to(m)
+
+    from hydrology.visualization.map_utils import add_condition_legend
+    add_condition_legend(m)
 
     col1, col2, col3 = st.columns(3)
     with col1:

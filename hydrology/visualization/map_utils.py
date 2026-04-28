@@ -97,7 +97,7 @@ def create_watershed_map(
     if site_info and site_info.get('latitude') and site_info.get('longitude'):
         center = [float(site_info['latitude']), float(site_info['longitude'])]
 
-    m = folium.Map(location=center, zoom_start=zoom, tiles='CartoDB positron', control_scale=True)
+    m = folium.Map(location=center, zoom_start=zoom, tiles='CartoDB dark_matter', control_scale=True)
 
     # Watershed boundary
     if show_boundary:
@@ -109,8 +109,8 @@ def create_watershed_map(
                     boundary.to_json(),
                     name="Watershed Boundary",
                     style_function=lambda x: {
-                        'fillColor': '#3388ff',
-                        'color': '#3388ff',
+                        'fillColor': '#4ecdc4',
+                        'color': '#4ecdc4',
                         'weight': 2,
                         'fillOpacity': 0.12,
                     },
@@ -218,9 +218,9 @@ def add_condition_legend(m) -> None:
 
     legend_html = """
     <div style="position: fixed; bottom: 30px; right: 10px; z-index: 1000;
-                background-color: white; border: 2px solid grey; border-radius: 5px;
-                padding: 8px; font-size: 11px; opacity: 0.9;">
-        <b>Streamflow Condition</b><br>
+                background-color: #1a1a2e; border: 1px solid #4a4a6a; border-radius: 8px;
+                padding: 10px; font-size: 11px; opacity: 0.92; color: #e0e0e0;">
+        <b style="color: #e0e0e0;">Streamflow Condition</b><br>
         <span style="color: #00008B;">&#9679;</span> Much Above Normal (>90th)<br>
         <span style="color: #00BFFF;">&#9679;</span> Above Normal (75-90th)<br>
         <span style="color: #00CC00;">&#9679;</span> Normal (25-75th)<br>

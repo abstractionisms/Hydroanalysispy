@@ -28,23 +28,25 @@ def apply_custom_css():
 
     /* Site header styling */
     .site-header {
-        background: linear-gradient(90deg, #1a5f7a 0%, #0d3b4d 100%);
-        border-radius: 10px;
-        padding: 1.5rem;
-        margin-bottom: 1.5rem;
-        border-left: 4px solid #4ecdc4;
+        background: transparent;
+        padding: 0.5rem 0;
+        margin-bottom: 1rem;
+        border-left: 3px solid #4ecdc4;
+        padding-left: 1rem;
     }
 
     .site-header h1 {
         margin: 0;
-        color: #ffffff;
-        font-size: 1.5rem;
+        color: #e0e0e0;
+        font-size: 1.3rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
     }
 
     .site-header p {
-        margin: 0.5rem 0 0 0;
-        color: #a0d2db;
-        font-size: 0.9rem;
+        margin: 0.25rem 0 0 0;
+        color: #8899a6;
+        font-size: 0.85rem;
     }
 
     /* Data availability badges */

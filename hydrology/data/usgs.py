@@ -730,3 +730,145 @@ def get_top_flood_events(
     df = df.sort_values('peak_discharge_cfs', ascending=False).head(n_events)
 
     return df.reset_index(drop=True)
+
+
+def fetch_current_conditions(site_ids: List[str]) -> Dict[str, float]:
+    """
+    Fetch current instantaneous discharge for multiple sites in bulk.
+
+    Uses the USGS IV service with batches of up to 100 sites per request.
+
+    Args:
+        site_ids: List of USGS site identifiers
+
+    Returns:
+        Dict mapping site_id to current discharge in cfs
+    """
+    results = {}
+    batch_size = 100
+
+    for i in range(0, len(site_ids), batch_size):
+        batch = site_ids[i:i + batch_size]
+        sites_param = ','.join(batch)
+
+        url = (
+            'https://waterservices.usgs.gov/nwis/iv/'
+            f'?format=json&sites={sites_param}'
+            '&parameterCd=00060&siteStatus=active'
+        )
+
+        try:
+            resp = requests.get(url, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+
+            for ts in data.get('value', {}).get('timeSeries', []):
+                site = ts['sourceInfo']['siteCode'][0]['value']
+                values = ts.get('values', [{}])[0].get('value', [])
+                if values:
+                    try:
+                        results[site] = float(values[-1]['value'])
+                    except (ValueError, TypeError):
+                        pass
+        except Exception as e:
+            logger.warning(f"Bulk IV fetch failed for batch starting at {i}: {e}")
+
+    logger.info(f"Fetched current conditions for {len(results)}/{len(site_ids)} sites")
+    return results
+
+
+def fetch_daily_percentiles(site_ids: List[str], month_day: str = None) -> Dict[str, Dict[str, float]]:
+    """
+    Fetch day-of-year percentile thresholds from the USGS Statistics API.
+
+    Args:
+        site_ids: List of USGS site identifiers
+        month_day: Day of year as 'MM-DD' (defaults to today)
+
+    Returns:
+        Dict mapping site_id to dict of percentile thresholds
+    """
+    from datetime import datetime as dt
+
+    if month_day is None:
+        month_day = dt.now().strftime('%m-%d')
+
+    results = {}
+    batch_size = 100
+
+    for i in range(0, len(site_ids), batch_size):
+        batch = site_ids[i:i + batch_size]
+        ids_param = ','.join(f'USGS-{sid}' for sid in batch)
+
+        url = (
+            'https://api.waterdata.usgs.gov/statistics/v0/observationNormals'
+            f'?monitoring_location_id={ids_param}'
+            f'&parameter_code=00060&computation_type=percentile'
+            f'&start_date={month_day}&end_date={month_day}'
+            '&mime_type=application/json&page_size=10000'
+        )
+
+        try:
+            resp = requests.get(url, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+
+            for feature in data.get('features', []):
+                props = feature.get('properties', {})
+                mlid = props.get('monitoring_location_id', '')
+                site = mlid.replace('USGS-', '')
+
+                for param_data in props.get('data', []):
+                    for val_entry in param_data.get('values', []):
+                        pctiles = val_entry.get('percentiles', [])
+                        values = val_entry.get('values', [])
+
+                        if pctiles and values:
+                            pct_map = {}
+                            for p, v in zip(pctiles, values):
+                                try:
+                                    pct_map[f'p{p}'] = float(v)
+                                except (ValueError, TypeError):
+                                    pass
+                            if pct_map:
+                                results[site] = pct_map
+
+        except Exception as e:
+            logger.warning(f"Percentile fetch failed for batch starting at {i}: {e}")
+
+    logger.info(f"Fetched percentile thresholds for {len(results)}/{len(site_ids)} sites")
+    return results
+
+
+def classify_condition(current_flow: float, percentiles: Dict[str, float]) -> Optional[float]:
+    """
+    Classify current flow into a percentile estimate using threshold brackets.
+
+    Args:
+        current_flow: Current discharge in cfs
+        percentiles: Dict with keys like 'p10', 'p25', 'p50', 'p75', 'p90'
+
+    Returns:
+        Approximate percentile (0-100) or None
+    """
+    p10 = percentiles.get('p10')
+    p25 = percentiles.get('p25')
+    p50 = percentiles.get('p50')
+    p75 = percentiles.get('p75')
+    p90 = percentiles.get('p90')
+
+    if p50 is None:
+        return None
+
+    if p90 is not None and current_flow > p90:
+        return 95.0
+    elif p75 is not None and current_flow > p75:
+        return 82.5
+    elif p25 is not None and current_flow > p25:
+        return 50.0
+    elif p10 is not None and current_flow > p10:
+        return 17.5
+    elif p10 is not None:
+        return 5.0
+
+    return 50.0
