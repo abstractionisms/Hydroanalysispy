@@ -1,0 +1,6 @@
+gdal-bin
+libgdal-dev
+libgeos-dev
+libproj-dev
+libhdf5-dev
+libnetcdf-dev

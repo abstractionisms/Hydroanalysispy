@@ -54,7 +54,7 @@ def show():
 def _multisite_analysis(inventory_df):
     """Analyze correlations and relationships between multiple sites."""
     selected_sites = site_picker(inventory_df, key="multisite", label="Select Sites (2-6)",
-                                 location="main", multi=True, max_selections=6)
+                                 location="main", multi=True, max_selections=6, show_search=False)
 
     years_back = st.slider("Years of data", 1, 10, 3, key="multisite_years")
     end_date = datetime.now()
