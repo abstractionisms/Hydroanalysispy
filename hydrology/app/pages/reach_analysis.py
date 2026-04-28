@@ -12,8 +12,7 @@ from hydrology.app.shared import (
     extract_site_id, fetch_discharge_data,
     date_range_selector, render_export_buttons,
     _filter_inventory, FIPS_TO_STATE,
-    logger,
-)
+    logger)
 from hydrology.app.styles import render_site_header
 from hydrology.app.plot_config import REACH_PLOTS, get_display_name
 from hydrology.visualization.plots import AVAILABLE_PLOTS
@@ -283,8 +282,7 @@ def show():
         st.markdown("---")
         st.subheader("Baseflow Separation")
         show_waterfall = st.checkbox(
-            "Show Baseflow Waterfall", value=True, key="show_bf_waterfall",
-            help="Decompose flow into baseflow/quickflow components and quantify reach gain/loss"
+            "Show Baseflow Waterfall", value=True, key="show_bf_waterfall"
         )
         if show_waterfall:
             with st.spinner("Computing baseflow separation..."):
@@ -292,8 +290,7 @@ def show():
                     df_upstream, df_downstream,
                     upstream_name=up_desc[:40],
                     downstream_name=dn_desc[:40],
-                    title=f"Baseflow Waterfall: {up_desc[:35]} → {dn_desc[:35]}",
-                )
+                    title=f"Baseflow Waterfall: {up_desc[:35]} → {dn_desc[:35]}")
             st.plotly_chart(fig_wf, use_container_width=True, key="plotly_bf_waterfall")
     else:
         st.info("Select upstream and downstream stations, choose plots, then click 'Generate Reach Analysis'")

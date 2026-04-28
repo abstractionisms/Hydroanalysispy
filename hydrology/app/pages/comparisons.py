@@ -13,8 +13,7 @@ from hydrology.app.shared import (
     extract_site_id, display_site_info, process_site_data,
     date_range_selector, single_plot_selector_widget,
     create_comparison_figure, render_export_buttons,
-    site_picker, logger,
-)
+    site_picker, logger)
 from hydrology.app.styles import render_site_header
 from hydrology.visualization.plots import AVAILABLE_PLOTS
 from hydrology.visualization.interactive import interactive_comparison, interactive_hydrograph
@@ -270,8 +269,7 @@ def _compare_sites(inventory_df):
                 st.caption(f"{label} ({data['discharge_count']:,} Q, {data['merged_count']:,} merged)")
                 fig_hydro = interactive_hydrograph(
                     data['df_q'], discharge_col='Discharge_cfs',
-                    title=label, show_percentile_bands=True,
-                )
+                    title=label, show_percentile_bands=True)
                 st.plotly_chart(fig_hydro, use_container_width=True, key=f"cs_hydro_{i}")
 
     st.markdown("---")

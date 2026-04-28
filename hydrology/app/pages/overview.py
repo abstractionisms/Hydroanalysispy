@@ -15,8 +15,7 @@ from hydrology.app.shared import (
     fetch_discharge_data, process_site_data,
     find_availability_windows, format_availability_windows,
     render_export_buttons, get_site_conditions,
-    logger,
-)
+    logger)
 from hydrology.app.styles import (
     render_site_header, render_availability_badges, render_metric_cards
 )
@@ -37,8 +36,7 @@ def _mini_sparkline(series, height=50):
         line=dict(color='#4ecdc4', width=1.5),
         fill='tozeroy',
         fillcolor='rgba(78, 205, 196, 0.1)',
-        hoverinfo='skip',
-    ))
+        hoverinfo='skip'))
     fig.update_layout(
         height=height,
         margin=dict(l=0, r=0, t=0, b=0),
@@ -46,8 +44,7 @@ def _mini_sparkline(series, height=50):
         plot_bgcolor='rgba(0,0,0,0)',
         xaxis=dict(visible=False),
         yaxis=dict(visible=False),
-        showlegend=False,
-    )
+        showlegend=False)
     return fig
 
 
@@ -223,9 +220,11 @@ def _render_kpi_row(site_id: str, site_info: dict) -> "pd.DataFrame | None":
                 delta_pct = (delta / val_24h_ago * 100) if val_24h_ago > 0 else 0
                 st.metric("Current Flow", f"{current_val:,.0f} cfs",
                          delta=f"{delta_pct:+.1f}% (24h)",
-                         delta_color="off")
+                         delta_color="off",
+                         help="Latest instantaneous discharge reading from the USGS gage, updated every 15 minutes")
             else:
-                st.metric("Current Flow", f"{current_val:,.0f} cfs")
+                st.metric("Current Flow", f"{current_val:,.0f} cfs",
+                         help="Latest instantaneous discharge reading from the USGS gage, updated every 15 minutes")
             st.caption(f"Updated {latest_time.strftime('%H:%M %b %d')}")
             # Embedded 7-day sparkline
             hourly = df_iv['value'].resample('1h').mean().dropna()
@@ -236,10 +235,12 @@ def _render_kpi_row(site_id: str, site_info: dict) -> "pd.DataFrame | None":
             # Fallback: use most recent daily value
             current_val = df_hist['value'].iloc[-1]
             latest_time = df_hist.index[-1]
-            st.metric("Current Flow", f"{current_val:,.0f} cfs")
+            st.metric("Current Flow", f"{current_val:,.0f} cfs",
+                         help="Latest instantaneous discharge reading from the USGS gage, updated every 15 minutes")
             st.caption(f"Daily value: {latest_time.strftime('%b %d, %Y')}")
         else:
-            st.metric("Current Flow", "N/A")
+            st.metric("Current Flow", "N/A",
+                         help="Latest instantaneous discharge reading from the USGS gage, updated every 15 minutes")
 
     # Seasonal percentile
     with col2:
@@ -272,11 +273,14 @@ def _render_kpi_row(site_id: str, site_info: dict) -> "pd.DataFrame | None":
                     color = "inverse"
 
                 st.metric("Seasonal Percentile", f"{percentile:.0f}%",
-                         delta=status, delta_color=color)
+                         delta=status, delta_color=color,
+                         help="Where current flow ranks compared to historical flows for this day of year. 50% = median, <10% = much below normal, >90% = much above normal")
             else:
-                st.metric("Seasonal Percentile", "N/A")
+                st.metric("Seasonal Percentile", "N/A",
+                         help="Where current flow ranks compared to historical flows for this day of year. 50% = median, <10% = much below normal, >90% = much above normal")
         else:
-            st.metric("Seasonal Percentile", "N/A")
+            st.metric("Seasonal Percentile", "N/A",
+                         help="Where current flow ranks compared to historical flows for this day of year. 50% = median, <10% = much below normal, >90% = much above normal")
 
     # Period of record
     with col3:
@@ -286,9 +290,11 @@ def _render_kpi_row(site_id: str, site_info: dict) -> "pd.DataFrame | None":
             end_label = avail[0][1]
             years = (date.today().year - start_year) if end_label == "present" else (end_label - start_year)
             st.metric("Period of Record", f"{years} years",
-                     delta=f"Since {start_year}", delta_color="off")
+                     delta=f"Since {start_year}", delta_color="off",
+                         help="Total years of continuous discharge data available for this site")
         else:
-            st.metric("Period of Record", "N/A")
+            st.metric("Period of Record", "N/A",
+                         help="Total years of continuous discharge data available for this site")
 
     # Median comparison
     with col4:
@@ -304,11 +310,14 @@ def _render_kpi_row(site_id: str, site_info: dict) -> "pd.DataFrame | None":
                 median_val = seasonal.median()
                 pct_of_median = (current_val / median_val * 100) if median_val > 0 else 0
                 st.metric("% of Median", f"{pct_of_median:.0f}%",
-                         delta=f"Median: {median_val:,.0f} cfs", delta_color="off")
+                         delta=f"Median: {median_val:,.0f} cfs", delta_color="off",
+                         help="Current flow as a percentage of the historical median. 100% = exactly normal, <50% = well below normal, >200% = well above normal")
             else:
-                st.metric("% of Median", "N/A")
+                st.metric("% of Median", "N/A",
+                         help="Current flow as a percentage of the historical median. 100% = exactly normal, <50% = well below normal, >200% = well above normal")
         else:
-            st.metric("% of Median", "N/A")
+            st.metric("% of Median", "N/A",
+                         help="Current flow as a percentage of the historical median. 100% = exactly normal, <50% = well below normal, >200% = well above normal")
 
     return df_hist
 
@@ -361,14 +370,11 @@ def _render_station_map(inventory_df, selected_site_id):
     # Map options
     col_opt1, col_opt2, col_opt3 = st.columns(3)
     with col_opt1:
-        show_boundary = st.checkbox("Watershed boundary", value=False, key="ov_boundary",
-                                    help="Show contributing area polygon (requires HyRiver)")
+        show_boundary = st.checkbox("Watershed boundary", value=False, key="ov_boundary")
     with col_opt2:
-        show_flowlines = st.checkbox("Flowlines", value=False, key="ov_flowlines",
-                                     help="Show upstream flowline traces")
+        show_flowlines = st.checkbox("Flowlines", value=False, key="ov_flowlines")
     with col_opt3:
-        show_dams = st.checkbox("Nearby dams", value=False, key="ov_dams",
-                                help="Show dams from National Inventory")
+        show_dams = st.checkbox("Nearby dams", value=False, key="ov_dams")
 
     # Center on selected site if possible
     selected_info = get_cached_site_info(selected_site_id)
@@ -405,8 +411,7 @@ def _render_station_map(inventory_df, selected_site_id):
                 show_flowlines=show_flowlines,
                 show_dams=show_dams,
                 site_info=selected_info,
-                additional_sites=additional_sites,
-            )
+                additional_sites=additional_sites)
 
             if m is not None:
                 add_condition_legend(m)

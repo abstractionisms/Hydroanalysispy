@@ -12,16 +12,14 @@ from hydrology.app.shared import (
     get_inventory, get_cached_site_info, get_weather_station_info,
     extract_site_id, display_site_info, process_site_data,
     date_range_selector, plot_selector, render_export_buttons,
-    render_data_download, site_picker, logger, AVAILABLE_PLOTS,
-)
+    render_data_download, site_picker, logger, AVAILABLE_PLOTS)
 from hydrology.app.styles import (
     render_site_header, render_availability_badges, render_metric_cards
 )
 from hydrology.visualization import create_multi_plot, PlotLayout
 from hydrology.visualization.interactive import (
     interactive_hydrograph, interactive_fdc,
-    raster_hydrograph, percentile_bands_hydrograph,
-)
+    raster_hydrograph, percentile_bands_hydrograph)
 from hydrology.core import DEFAULT_DISCHARGE_CODE
 
 
@@ -104,8 +102,7 @@ def show():
     fig_hydro = interactive_hydrograph(
         data['df_q'], discharge_col='Discharge_cfs',
         title=f"{desc} - Hydrograph", aggregation=agg,
-        show_percentile_bands=True,
-    )
+        show_percentile_bands=True)
 
     # NWM overlay
     if show_nwm:
@@ -126,8 +123,7 @@ def show():
                     x=nwm_result.nwm_data.index,
                     y=nwm_result.nwm_data['streamflow_cfs'],
                     mode='lines', name='NWM Forecast',
-                    line=dict(color='#ff7f0e', width=2, dash='dot'),
-                ))
+                    line=dict(color='#ff7f0e', width=2, dash='dot')))
                 st.caption(f"NWM: NSE={nwm_result.nash_sutcliffe:.2f}, RMSE={nwm_result.rmse:.0f} cfs")
             else:
                 st.caption("NWM data not available for this site/period")
@@ -150,8 +146,7 @@ def show():
                 yaxis2=dict(
                     title="Gage Height (ft)",
                     overlaying='y', side='right',
-                    showgrid=False,
-                )
+                    showgrid=False)
             )
 
     st.plotly_chart(fig_hydro, use_container_width=True, key="plotly_hydro")
@@ -161,8 +156,7 @@ def show():
     fig_fdc = interactive_fdc(
         data['df_q'], discharge_col='Discharge_cfs',
         title=f"{desc} - Flow Duration Curve",
-        color_by_dqdt=koehler,
-    )
+        color_by_dqdt=koehler)
     st.plotly_chart(fig_fdc, use_container_width=True, key="plotly_fdc")
 
     # CSV download
@@ -174,25 +168,21 @@ def show():
     col_raster, col_pctile = st.columns(2)
     with col_raster:
         show_raster = st.checkbox("Raster Hydrograph", value=False,
-                                   key="show_raster",
-                                   help="Year x Day-of-Year heatmap of entire flow record")
+                                   key="show_raster")
     with col_pctile:
         show_pctile = st.checkbox("Percentile Bands", value=False,
-                                   key="show_pctile",
-                                   help="Current year flow vs historical percentile envelopes")
+                                   key="show_pctile")
 
     if show_raster:
         fig_raster = raster_hydrograph(
             data['df_q'], discharge_col='Discharge_cfs',
-            title=f"{desc} - Raster Hydrograph",
-        )
+            title=f"{desc} - Raster Hydrograph")
         st.plotly_chart(fig_raster, use_container_width=True, key="plotly_raster")
 
     if show_pctile:
         fig_pctile = percentile_bands_hydrograph(
             data['df_q'], discharge_col='Discharge_cfs',
-            title=f"{desc} - Percentile Bands",
-        )
+            title=f"{desc} - Percentile Bands")
         st.plotly_chart(fig_pctile, use_container_width=True, key="plotly_pctile")
 
     # ── Frequency Analysis (on demand) ──
@@ -203,8 +193,7 @@ def show():
         if st.button("Run Frequency Analysis", type="primary", key="gen_freq"):
             from hydrology.data.usgs import fetch_peak_streamflow
             from hydrology.analysis.frequency import (
-                fit_flood_frequency, estimate_return_periods, get_plotting_positions,
-            )
+                fit_flood_frequency, estimate_return_periods, get_plotting_positions)
             from hydrology.visualization.interactive import interactive_return_period
 
             with st.spinner("Fetching peak streamflow data..."):
@@ -231,8 +220,7 @@ def show():
                         # Distribution comparison chart
                         fig_rp = interactive_return_period(
                             observed, fits, rp_table,
-                            title=f"{desc} - Flood Frequency Analysis",
-                        )
+                            title=f"{desc} - Flood Frequency Analysis")
                         st.plotly_chart(fig_rp, use_container_width=True, key="plotly_rp")
 
                         # Return period table

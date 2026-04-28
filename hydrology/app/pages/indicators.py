@@ -14,13 +14,11 @@ from plotly.subplots import make_subplots
 
 from hydrology.app.shared import (
     get_inventory, get_cached_site_info,
-    site_picker, logger,
-)
+    site_picker, logger)
 from hydrology.data.usgs import fetch_daily_values, DEFAULT_PARAM_DISCHARGE
 from hydrology.analysis.indicators import (
     calculate_spi, calculate_sri, classify_drought,
-    calculate_baseflow_index_timeseries, get_seasonal_anomaly,
-)
+    calculate_baseflow_index_timeseries, get_seasonal_anomaly)
 
 
 def show():
@@ -138,8 +136,7 @@ def _render_drought_status_cards(sri_df: pd.DataFrame):
                 f"{window}-Month SRI",
                 f"{val:+.2f}",
                 delta=status['label'],
-                delta_color="off",
-            )
+                delta_color="off")
 
 
 def _create_drought_timeseries(index_df: pd.DataFrame, title: str) -> go.Figure:
@@ -163,8 +160,7 @@ def _create_drought_timeseries(index_df: pd.DataFrame, title: str) -> go.Figure:
             y0=y0, y1=y1,
             fillcolor=color,
             line=dict(width=0),
-            layer="below",
-        )
+            layer="below")
 
     # Zero line
     fig.add_hline(y=0, line_dash="solid", line_color="gray", line_width=1)
@@ -182,8 +178,7 @@ def _create_drought_timeseries(index_df: pd.DataFrame, title: str) -> go.Figure:
             x=series.index, y=series.values,
             mode='lines', name=col,
             line=dict(color=colors[i % len(colors)], width=2),
-            hovertemplate=f'{col}<br>%{{x|%Y-%m}}<br>Value: %{{y:+.2f}}<extra></extra>',
-        ))
+            hovertemplate=f'{col}<br>%{{x|%Y-%m}}<br>Value: %{{y:+.2f}}<extra></extra>'))
 
     fig.update_layout(
         title=title,
@@ -193,8 +188,7 @@ def _create_drought_timeseries(index_df: pd.DataFrame, title: str) -> go.Figure:
         height=450,
         hovermode='x unified',
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=60, r=20, t=60, b=40),
-    )
+        margin=dict(l=60, r=20, t=60, b=40))
 
     # Add drought severity labels on the right
     annotations = [
@@ -235,10 +229,12 @@ def _render_bfi_tab(df_q, q_col, desc):
     col1, col2, col3 = st.columns(3)
     with col1:
         if current_bfi is not None:
-            st.metric("Current BFI", f"{current_bfi:.2f}")
+            st.metric("Current BFI", f"{current_bfi:.2f}",
+                         help="Baseflow Index: fraction of flow from groundwater vs. surface runoff. 0-1, higher = more groundwater")
     with col2:
         mean_bfi = bfi_df['bfi'].mean()
-        st.metric("Mean BFI", f"{mean_bfi:.2f}")
+        st.metric("Mean BFI", f"{mean_bfi:.2f}",
+                         help="Long-term average Baseflow Index. Higher = greater groundwater contribution")
     with col3:
         if current_bfi is not None:
             delta = current_bfi - mean_bfi
@@ -250,8 +246,7 @@ def _render_bfi_tab(df_q, q_col, desc):
     fig = make_subplots(
         rows=2, cols=1, row_heights=[0.6, 0.4],
         shared_xaxes=True, vertical_spacing=0.08,
-        subplot_titles=["Baseflow Separation", f"Rolling {window}-Day BFI"],
-    )
+        subplot_titles=["Baseflow Separation", f"Rolling {window}-Day BFI"])
 
     # Baseflow + quickflow stacked area
     fig.add_trace(go.Scatter(
@@ -259,16 +254,14 @@ def _render_bfi_tab(df_q, q_col, desc):
         mode='lines', name='Baseflow',
         line=dict(width=0), fill='tozeroy',
         fillcolor='rgba(31, 119, 180, 0.4)',
-        hovertemplate='%{x|%Y-%m-%d}<br>Baseflow: %{y:,.0f} cfs<extra></extra>',
-    ), row=1, col=1)
+        hovertemplate='%{x|%Y-%m-%d}<br>Baseflow: %{y:,.0f} cfs<extra></extra>'), row=1, col=1)
 
     fig.add_trace(go.Scatter(
         x=bfi_df.index, y=bfi_df['total_flow'],
         mode='lines', name='Total Flow',
         line=dict(color='#1f77b4', width=1),
         fill='tonexty', fillcolor='rgba(255, 127, 14, 0.3)',
-        hovertemplate='%{x|%Y-%m-%d}<br>Total: %{y:,.0f} cfs<extra></extra>',
-    ), row=1, col=1)
+        hovertemplate='%{x|%Y-%m-%d}<br>Total: %{y:,.0f} cfs<extra></extra>'), row=1, col=1)
 
     # BFI line
     bfi_series = bfi_df['bfi'].dropna()
@@ -276,8 +269,7 @@ def _render_bfi_tab(df_q, q_col, desc):
         x=bfi_series.index, y=bfi_series.values,
         mode='lines', name='BFI',
         line=dict(color='#2ca02c', width=2),
-        hovertemplate='%{x|%Y-%m-%d}<br>BFI: %{y:.2f}<extra></extra>',
-    ), row=2, col=1)
+        hovertemplate='%{x|%Y-%m-%d}<br>BFI: %{y:.2f}<extra></extra>'), row=2, col=1)
 
     # Mean BFI reference line
     fig.add_hline(y=mean_bfi, line_dash="dash", line_color="gray",
@@ -288,8 +280,7 @@ def _render_bfi_tab(df_q, q_col, desc):
         height=600,
         hovermode='x unified',
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=60, r=20, t=80, b=40),
-    )
+        margin=dict(l=60, r=20, t=80, b=40))
     fig.update_yaxes(title_text="Discharge (cfs)", type="log", row=1, col=1)
     fig.update_yaxes(title_text="BFI", range=[0, 1], row=2, col=1)
 
@@ -335,8 +326,7 @@ def _render_anomaly_tab(df_q, q_col, desc):
         subplot_titles=[
             f"{current_year} Flow vs Historical Median",
             "Anomaly (% of Median)"
-        ],
-    )
+        ])
 
     month_starts = [1, 32, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335]
     month_labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -347,15 +337,13 @@ def _render_anomaly_tab(df_q, q_col, desc):
         x=anomaly['doy'], y=anomaly['historical_median'],
         mode='lines', name='Historical Median',
         line=dict(color='gray', width=1.5, dash='dash'),
-        hovertemplate='Day %{x}<br>Median: %{y:,.0f} cfs<extra></extra>',
-    ), row=1, col=1)
+        hovertemplate='Day %{x}<br>Median: %{y:,.0f} cfs<extra></extra>'), row=1, col=1)
 
     fig.add_trace(go.Scatter(
         x=anomaly['doy'], y=anomaly['current_year_flow'],
         mode='lines', name=f'{current_year}',
         line=dict(color='#d62728', width=2),
-        hovertemplate=f'{current_year} Day %{{x}}<br>%{{y:,.0f}} cfs<extra></extra>',
-    ), row=1, col=1)
+        hovertemplate=f'{current_year} Day %{{x}}<br>%{{y:,.0f}} cfs<extra></extra>'), row=1, col=1)
 
     # Bottom: anomaly bars colored by sign
     positive = anomaly[anomaly['anomaly_pct'] >= 0]
@@ -365,15 +353,13 @@ def _render_anomaly_tab(df_q, q_col, desc):
         fig.add_trace(go.Bar(
             x=positive['doy'], y=positive['anomaly_pct'],
             name='Above Normal', marker_color='rgba(44, 160, 44, 0.6)',
-            hovertemplate='Day %{x}<br>%{y:+.0f}%<extra></extra>',
-        ), row=2, col=1)
+            hovertemplate='Day %{x}<br>%{y:+.0f}%<extra></extra>'), row=2, col=1)
 
     if not negative.empty:
         fig.add_trace(go.Bar(
             x=negative['doy'], y=negative['anomaly_pct'],
             name='Below Normal', marker_color='rgba(214, 39, 40, 0.6)',
-            hovertemplate='Day %{x}<br>%{y:+.0f}%<extra></extra>',
-        ), row=2, col=1)
+            hovertemplate='Day %{x}<br>%{y:+.0f}%<extra></extra>'), row=2, col=1)
 
     fig.add_hline(y=0, line_color="gray", line_width=1, row=2, col=1)
 
@@ -381,8 +367,7 @@ def _render_anomaly_tab(df_q, q_col, desc):
         title=f"{desc} - Seasonal Anomaly ({current_year})",
         height=600,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=60, r=20, t=80, b=40),
-    )
+        margin=dict(l=60, r=20, t=80, b=40))
     fig.update_xaxes(tickvals=month_starts, ticktext=month_labels, row=2, col=1)
     fig.update_yaxes(title_text="Discharge (cfs)", type="log", row=1, col=1)
     fig.update_yaxes(title_text="Anomaly (%)", row=2, col=1)
@@ -409,8 +394,7 @@ def _fetch_precip_data(site_id, lat, lon, start_str, end_str):
             climate = fetch_climate_data(
                 float(lat), float(lon),
                 pd.Timestamp(start_str), pd.Timestamp(end_str),
-                include_temp=False, include_precip=True,
-            )
+                include_temp=False, include_precip=True)
             if climate is not None and 'prcp' in climate.columns:
                 return climate['prcp']
     except Exception as e:

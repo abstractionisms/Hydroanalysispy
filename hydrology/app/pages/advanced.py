@@ -13,8 +13,7 @@ import plotly.express as px
 
 from hydrology.app.shared import (
     get_inventory, get_cached_site_info,
-    extract_site_id, site_picker, logger,
-)
+    extract_site_id, site_picker, logger)
 from hydrology.data.usgs import fetch_daily_values, DEFAULT_PARAM_DISCHARGE
 from hydrology.data.nwm import NWMClient, compare_nwm_usgs, get_forecast_skill
 from hydrology.analysis.multisite import MultiSiteAnalyzer
@@ -136,8 +135,7 @@ def _multisite_analysis(inventory_df):
                 z=corr_matrix.values, x=corr_matrix.columns, y=corr_matrix.index,
                 colorscale='Viridis', zmin=0, zmax=1,
                 text=[[f"{val:.3f}" for val in row] for row in corr_matrix.values],
-                texttemplate="%{text}", textfont={"size": 12},
-            ))
+                texttemplate="%{text}", textfont={"size": 12}))
             fig.update_layout(height=350, margin=dict(l=20, r=20, t=30, b=20))
             st.plotly_chart(fig, use_container_width=True)
 
@@ -186,8 +184,7 @@ def _nwm_comparison(inventory_df):
     st.markdown("The **National Water Model (NWM)** produces streamflow forecasts for the entire US river network.")
 
     mode = st.radio("Comparison Mode", ["Recent (API)", "Retrospective (S3)"],
-                    horizontal=True, key="nwm_mode",
-                    help="Recent uses the last ~5 days from the API. Retrospective uses the NWM v2.1 Zarr archive (1979-2020).")
+                    horizontal=True, key="nwm_mode")
 
     if mode == "Recent (API)":
         days_back = st.slider("Days to compare", 7, 90, 30, key="nwm_days")
@@ -208,19 +205,25 @@ def _nwm_comparison(inventory_df):
             st.subheader("Model Performance")
             col_a, col_b, col_c, col_d = st.columns(4)
             with col_a:
-                st.metric("Nash-Sutcliffe", f"{comparison.nash_sutcliffe:.3f}")
+                st.metric("Nash-Sutcliffe", f"{comparison.nash_sutcliffe:.3f}",
+                         help="NSE: Model efficiency. 1.0 = perfect, 0 = no better than using the mean, <0 = worse than the mean. >0.5 is generally acceptable")
             with col_b:
-                st.metric("Correlation", f"{comparison.correlation:.3f}")
+                st.metric("Correlation", f"{comparison.correlation:.3f}",
+                         help="Pearson correlation (r): how well two time series track each other. 1.0 = perfect, 0 = none")
             with col_c:
-                st.metric("RMSE", f"{comparison.rmse:.1f} cfs")
+                st.metric("RMSE", f"{comparison.rmse:.1f} cfs",
+                         help="Root Mean Square Error: average magnitude of errors in cfs. Lower is better. Sensitive to outliers")
             with col_d:
-                st.metric("Bias", f"{comparison.bias:+.1f} cfs")
+                st.metric("Bias", f"{comparison.bias:+.1f} cfs",
+                         help="Mean difference between modeled and observed. Positive = over-prediction, negative = under-prediction")
 
             col_e, col_f, col_g = st.columns(3)
             with col_e:
-                st.metric("MAE", f"{comparison.mae:.1f} cfs")
+                st.metric("MAE", f"{comparison.mae:.1f} cfs",
+                         help="Mean Absolute Error: average error size in cfs, regardless of direction. Less sensitive to outliers than RMSE")
             with col_f:
-                st.metric("Percent Bias", f"{comparison.percent_bias:+.1f}%")
+                st.metric("Percent Bias", f"{comparison.percent_bias:+.1f}%",
+                         help="Systematic over/under-prediction as %. 0% = no bias, positive = over-prediction")
             with col_g:
                 st.metric("N Observations", comparison.n_observations)
 
@@ -245,8 +248,7 @@ def _nwm_comparison(inventory_df):
                 skill = client.evaluate_model_skill(
                     site_id,
                     retro_start.strftime('%Y-%m-%d'),
-                    retro_end.strftime('%Y-%m-%d'),
-                )
+                    retro_end.strftime('%Y-%m-%d'))
 
             if skill is None:
                 st.error("Could not evaluate model skill. Site may not be in NWM network, "
@@ -262,23 +264,30 @@ def _nwm_comparison(inventory_df):
 
             col_a, col_b, col_c, col_d = st.columns(4)
             with col_a:
-                st.metric("NSE", f"{skill['nse']:.3f}")
+                st.metric("NSE", f"{skill['nse']:.3f}",
+                         help="Nash-Sutcliffe Efficiency: 1.0 = perfect match, 0 = as good as the mean, <0 = worse than the mean")
             with col_b:
-                st.metric("KGE", f"{skill['kge']:.3f}")
+                st.metric("KGE", f"{skill['kge']:.3f}",
+                         help="Kling-Gupta Efficiency: combines correlation, variability bias, and mean bias. 1.0 = perfect, >0.5 is generally good")
             with col_c:
-                st.metric("RMSE", f"{skill['rmse']:.1f} cfs")
+                st.metric("RMSE", f"{skill['rmse']:.1f} cfs",
+                         help="Root Mean Square Error: average magnitude of errors in cfs. Lower is better. Sensitive to outliers")
             with col_d:
-                st.metric("Correlation", f"{skill['correlation']:.3f}")
+                st.metric("Correlation", f"{skill['correlation']:.3f}",
+                         help="Pearson correlation (r): how well two time series track each other. 1.0 = perfect, 0 = none")
 
             col_e, col_f, col_g, col_h = st.columns(4)
             with col_e:
-                st.metric("Percent Bias", f"{skill['percent_bias']:+.1f}%")
+                st.metric("Percent Bias", f"{skill['percent_bias']:+.1f}%",
+                         help="Systematic over/under-prediction as %. 0% = no bias, positive = over-prediction")
             with col_f:
-                st.metric("MAE", f"{skill['mae']:.1f} cfs")
+                st.metric("MAE", f"{skill['mae']:.1f} cfs",
+                         help="Mean Absolute Error: average error size in cfs, regardless of direction. Less sensitive to outliers than RMSE")
             with col_g:
                 st.metric("N Days", skill['n_observations'])
             with col_h:
-                st.metric("Bias", f"{skill['bias']:+.1f} cfs")
+                st.metric("Bias", f"{skill['bias']:+.1f} cfs",
+                         help="Mean difference between modeled and observed. Positive = over-prediction, negative = under-prediction")
 
             # KGE components
             st.caption(
@@ -292,13 +301,11 @@ def _nwm_comparison(inventory_df):
                 nwm_retro = client.get_retrospective_streamflow(
                     site_id,
                     retro_start.strftime('%Y-%m-%d'),
-                    retro_end.strftime('%Y-%m-%d'),
-                )
+                    retro_end.strftime('%Y-%m-%d'))
                 usgs_data = fetch_daily_values(
                     site_id, param_cd='00060',
                     start_date=retro_start.strftime('%Y-%m-%d'),
-                    end_date=retro_end.strftime('%Y-%m-%d'),
-                )
+                    end_date=retro_end.strftime('%Y-%m-%d'))
 
             if nwm_retro is not None and usgs_data is not None:
                 # Time series overlay
@@ -309,21 +316,18 @@ def _nwm_comparison(inventory_df):
                     x=usgs_data.index, y=usgs_data['value'],
                     mode='lines', name='USGS Observed',
                     line=dict(color='#1f77b4', width=1.5),
-                    hovertemplate='%{x|%Y-%m-%d}<br>Observed: %{y:,.0f} cfs<extra></extra>',
-                ))
+                    hovertemplate='%{x|%Y-%m-%d}<br>Observed: %{y:,.0f} cfs<extra></extra>'))
                 fig.add_trace(go.Scatter(
                     x=nwm_daily.index, y=nwm_daily.values,
                     mode='lines', name='NWM Retrospective',
                     line=dict(color='#ff7f0e', width=1.5, dash='dot'),
-                    hovertemplate='%{x|%Y-%m-%d}<br>NWM: %{y:,.0f} cfs<extra></extra>',
-                ))
+                    hovertemplate='%{x|%Y-%m-%d}<br>NWM: %{y:,.0f} cfs<extra></extra>'))
                 fig.update_layout(
                     title=f"{desc} - NWM Retrospective vs USGS",
                     xaxis_title="Date", yaxis_title="Discharge (cfs)",
                     yaxis_type="log", height=450,
                     hovermode='x unified',
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                )
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                 st.plotly_chart(fig, use_container_width=True, key="retro_overlay")
 
                 # Residual analysis
@@ -347,8 +351,7 @@ def _nwm_comparison(inventory_df):
                         x=merged.index, y=merged['residual_pct'],
                         mode='markers', name='Residual',
                         marker=dict(size=3, color='#9467bd', opacity=0.5),
-                        hovertemplate='%{x|%Y-%m-%d}<br>%{y:+.1f}%<extra></extra>',
-                    ))
+                        hovertemplate='%{x|%Y-%m-%d}<br>%{y:+.1f}%<extra></extra>'))
                     fig_resid.add_hline(y=0, line_color="gray", line_width=1)
                     fig_resid.update_layout(
                         title="Residual Analysis (NWM - Observed)",
@@ -356,8 +359,7 @@ def _nwm_comparison(inventory_df):
                         yaxis_title="Residual (% of observed)",
                         yaxis=dict(range=[-200, 200]),
                         height=300,
-                        margin=dict(l=60, r=20, t=40, b=40),
-                    )
+                        margin=dict(l=60, r=20, t=40, b=40))
                     st.plotly_chart(fig_resid, use_container_width=True, key="retro_residual")
 
 
@@ -435,8 +437,7 @@ def _flood_animation(inventory_df):
                 fig.add_trace(go.Scatter(
                     x=site.data.index, y=site.data['value'],
                     mode='lines', name=label,
-                    line=dict(color=color, width=2),
-                ))
+                    line=dict(color=color, width=2)))
 
                 if site.peak_time and site.peak_value:
                     fig.add_trace(go.Scatter(
@@ -502,7 +503,7 @@ def _watershed_view(inventory_df):
 
                     centroid = boundary.geometry.centroid.iloc[0]
                     m = folium.Map(location=[centroid.y, centroid.x], zoom_start=10,
-                                  tiles='CartoDB positron')
+                                  tiles='CartoDB dark_matter')
 
                     # Add boundary polygon
                     folium.GeoJson(
@@ -513,8 +514,7 @@ def _watershed_view(inventory_df):
                             'color': '#3388ff',
                             'weight': 2,
                             'fillOpacity': 0.15,
-                        },
-                    ).add_to(m)
+                        }).add_to(m)
 
                     # Add dams if available
                     if dams is not None and not dams.empty:
@@ -526,8 +526,7 @@ def _watershed_view(inventory_df):
                                 folium.CircleMarker(
                                     location=[dam_lat, dam_lon],
                                     radius=6, color='red', fill=True, fillOpacity=0.8,
-                                    tooltip=str(dam_name),
-                                ).add_to(m)
+                                    tooltip=str(dam_name)).add_to(m)
 
                     # Add site marker
                     site_info = get_cached_site_info(basin_site)
@@ -535,8 +534,7 @@ def _watershed_view(inventory_df):
                         folium.Marker(
                             location=[float(site_info['latitude']), float(site_info['longitude'])],
                             tooltip=f"USGS {basin_site}",
-                            icon=folium.Icon(color='green', icon='tint', prefix='fa'),
-                        ).add_to(m)
+                            icon=folium.Icon(color='green', icon='tint', prefix='fa')).add_to(m)
 
                     folium.LayerControl().add_to(m)
                     st_folium(m, width=None, height=450)
@@ -639,7 +637,7 @@ def _watershed_view(inventory_df):
             from folium.plugins import MarkerCluster
             from streamlit_folium import st_folium
 
-            m = folium.Map(location=center, zoom_start=zoom, tiles='CartoDB positron')
+            m = folium.Map(location=center, zoom_start=zoom, tiles='CartoDB dark_matter')
             marker_cluster = MarkerCluster(name="USGS Sites")
             for _, row in map_df.iterrows():
                 folium.CircleMarker(

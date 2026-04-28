@@ -13,8 +13,7 @@ import plotly.graph_objects as go
 from hydrology.app.shared import (
     get_inventory, get_cached_site_info, get_weather_station_info,
     extract_site_id, display_site_info, site_picker,
-    logger,
-)
+    logger)
 from hydrology.data.usgs import (
     fetch_daily_values, fetch_instantaneous_values,
     DEFAULT_PARAM_DISCHARGE, DEFAULT_PARAM_STAGE
@@ -98,12 +97,14 @@ def show():
 
                     col_a, col_b, col_c = st.columns(3)
                     with col_a:
-                        st.metric("Latest Discharge", f"{latest['value']:.1f} cfs")
+                        st.metric("Latest Discharge", f"{latest['value']:.1f} cfs",
+                         help="Most recent instantaneous discharge from the USGS gage")
                     with col_b:
                         st.metric("Reading Time", latest_time.strftime('%Y-%m-%d %H:%M'))
                     with col_c:
                         if alerts:
-                            st.metric("Active Alerts", len(alerts))
+                            st.metric("Active Alerts", len(alerts),
+                         help="Number of active flood or low-flow alerts based on current conditions")
                         else:
                             st.metric("Status", "Normal")
                 else:
@@ -201,13 +202,17 @@ def show():
                                 pct_status = "Very Low"
 
                             st.metric("Seasonal Percentile", f"{percentile:.0f}%",
-                                     delta=pct_status, delta_color="off")
+                                     delta=pct_status, delta_color="off",
+                         help="Where current flow ranks compared to historical flows for this day of year. 50% = median, <10% = much below normal, >90% = much above normal")
                         else:
-                            st.metric("Seasonal Percentile", "N/A")
+                            st.metric("Seasonal Percentile", "N/A",
+                         help="Where current flow ranks compared to historical flows for this day of year. 50% = median, <10% = much below normal, >90% = much above normal")
                     else:
-                        st.metric("Seasonal Percentile", "N/A")
+                        st.metric("Seasonal Percentile", "N/A",
+                         help="Where current flow ranks compared to historical flows for this day of year. 50% = median, <10% = much below normal, >90% = much above normal")
                 except Exception:
-                    st.metric("Seasonal Percentile", "N/A")
+                    st.metric("Seasonal Percentile", "N/A",
+                         help="Where current flow ranks compared to historical flows for this day of year. 50% = median, <10% = much below normal, >90% = much above normal")
 
             with col2:
                 try:
@@ -234,13 +239,17 @@ def show():
                                 precip_status = "Minimal"
 
                             st.metric("7-Day Precipitation", f"{total_precip_in:.2f} in",
-                                     delta=precip_status, delta_color="off")
+                                     delta=precip_status, delta_color="off",
+                         help="Total precipitation in the last 7 days from nearest weather station")
                         else:
-                            st.metric("7-Day Precipitation", "N/A")
+                            st.metric("7-Day Precipitation", "N/A",
+                         help="Total precipitation in the last 7 days from nearest weather station")
                     else:
-                        st.metric("7-Day Precipitation", "N/A")
+                        st.metric("7-Day Precipitation", "N/A",
+                         help="Total precipitation in the last 7 days from nearest weather station")
                 except Exception:
-                    st.metric("7-Day Precipitation", "N/A")
+                    st.metric("7-Day Precipitation", "N/A",
+                         help="Total precipitation in the last 7 days from nearest weather station")
         else:
             st.info("No recent instantaneous data available")
     except Exception as e:
