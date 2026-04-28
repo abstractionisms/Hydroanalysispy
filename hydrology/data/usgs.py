@@ -809,29 +809,34 @@ def fetch_daily_percentiles(site_ids: List[str], month_day: str = None) -> Dict[
         )
 
         try:
-            resp = requests.get(url, timeout=30)
-            resp.raise_for_status()
-            data = resp.json()
+            page_url = url
+            while page_url:
+                resp = requests.get(page_url, timeout=30)
+                resp.raise_for_status()
+                data = resp.json()
 
-            for feature in data.get('features', []):
-                props = feature.get('properties', {})
-                mlid = props.get('monitoring_location_id', '')
-                site = mlid.replace('USGS-', '')
+                for feature in data.get('features', []):
+                    props = feature.get('properties', {})
+                    mlid = props.get('monitoring_location_id', '')
+                    site = mlid.replace('USGS-', '')
 
-                for param_data in props.get('data', []):
-                    for val_entry in param_data.get('values', []):
-                        pctiles = val_entry.get('percentiles', [])
-                        values = val_entry.get('values', [])
+                    for param_data in props.get('data', []):
+                        for val_entry in param_data.get('values', []):
+                            pctiles = val_entry.get('percentiles', [])
+                            values = val_entry.get('values', [])
 
-                        if pctiles and values:
-                            pct_map = {}
-                            for p, v in zip(pctiles, values):
-                                try:
-                                    pct_map[f'p{p}'] = float(v)
-                                except (ValueError, TypeError):
-                                    pass
-                            if pct_map:
-                                results[site] = pct_map
+                            if pctiles and values:
+                                pct_map = {}
+                                for p, v in zip(pctiles, values):
+                                    try:
+                                        pct_map[f'p{p}'] = float(v)
+                                    except (ValueError, TypeError):
+                                        pass
+                                if pct_map:
+                                    results[site] = pct_map
+
+                # Follow pagination token if present
+                page_url = data.get('next')
 
         except Exception as e:
             logger.warning(f"Percentile fetch failed for batch starting at {i}: {e}")

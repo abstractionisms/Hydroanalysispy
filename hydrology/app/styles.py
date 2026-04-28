@@ -129,6 +129,51 @@ def apply_custom_css():
         border-top: 1px solid #374151;
         margin-top: 2rem;
     }
+
+    /* Mobile responsiveness */
+    @media (max-width: 768px) {
+        .main .block-container {
+            padding-top: 1rem;
+            padding-left: 0.5rem;
+            padding-right: 0.5rem;
+        }
+
+        [data-testid="stMetricValue"] {
+            font-size: 1.2rem;
+        }
+
+        [data-testid="stMetricLabel"] {
+            font-size: 0.75rem;
+        }
+
+        .site-header h1 {
+            font-size: 1.1rem;
+        }
+
+        .site-header p {
+            font-size: 0.8rem;
+        }
+
+        .badge-available, .badge-unavailable, .badge-warning {
+            font-size: 0.7rem;
+            padding: 0.15rem 0.5rem;
+        }
+    }
+
+    @media (max-width: 480px) {
+        [data-testid="column"] {
+            min-width: 100% !important;
+        }
+
+        [data-testid="stMetricValue"] {
+            font-size: 1rem;
+        }
+
+        .site-header {
+            padding: 0.3rem 0;
+            padding-left: 0.75rem;
+        }
+    }
     </style>
     """, unsafe_allow_html=True)
 

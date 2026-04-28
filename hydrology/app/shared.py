@@ -57,7 +57,7 @@ logger = get_logger(__name__)
 # CACHED DATA FUNCTIONS
 # =============================================================================
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_inventory():
     """Load and cache inventory data."""
     return load_inventory()
@@ -79,13 +79,13 @@ def get_site_conditions(site_ids: list) -> dict:
     return conditions
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def get_cached_site_info(site_id: str):
     """Get site info from inventory."""
     return get_site_info(site_id)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=86400, show_spinner=False)
 def get_weather_station_info(lat: float, lon: float):
     """Get nearest weather station info."""
     try:
@@ -108,7 +108,7 @@ def extract_site_id(site_string: str) -> str:
     return None
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=43200, show_spinner=False)
 def get_parameter_availability(site_id: str) -> dict:
     """
     Get exact availability dates for all parameters at a site using USGS series catalog.
@@ -167,7 +167,7 @@ def get_parameter_availability(site_id: str) -> dict:
         return {}
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=43200, show_spinner=False)
 def find_availability_windows(site_id: str, param_cd: str, check_iv: bool = False):
     """
     Find data availability for a parameter using USGS series catalog.
@@ -411,12 +411,22 @@ def site_picker(inventory_df, key="site", label="Select Site",
         selected = container.multiselect(label, site_options, key=f"{key}_multi", **kwargs)
         return [extract_site_id(s) for s in selected]
     else:
-        # Determine default index: query params > session_state > preferred site > 0
+        # Determine default index: query params > global state > preferred site > 0
         default_index = 0
         last_used_key = f"{key}_last_site"
         preferred_site = "12422500"  # Spokane River at Spokane, WA
+
+        # On fresh page load, clear stale widget key so global state wins
+        page_init_key = f"{key}_page_initialized"
+        widget_key = f"{key}_select"
+        if page_init_key not in st.session_state:
+            st.session_state[page_init_key] = True
+            if widget_key in st.session_state:
+                del st.session_state[widget_key]
+
         query_site = st.query_params.get("site")
-        target_site = query_site or st.session_state.get(last_used_key) or preferred_site
+        global_site = st.session_state.get("global_last_site")
+        target_site = query_site or global_site or st.session_state.get(last_used_key) or preferred_site
 
         if target_site:
             for i, opt in enumerate(site_options):
@@ -428,9 +438,10 @@ def site_picker(inventory_df, key="site", label="Select Site",
                                        key=f"{key}_select")
         site_id = extract_site_id(selected)
 
-        # Persist selection to session_state and query params
+        # Persist selection to session_state, global state, and query params
         if site_id:
             st.session_state[last_used_key] = site_id
+            st.session_state["global_last_site"] = site_id
             st.query_params["site"] = site_id
 
         return site_id

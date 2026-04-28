@@ -22,6 +22,8 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 
+import requests
+
 from ..core.logging_setup import get_logger
 from ..core.paths import CACHE_DIR, ensure_dir
 
@@ -389,6 +391,9 @@ def get_nid_dams(
     """
     Get dams from the National Inventory of Dams near a USGS site.
 
+    Uses the NID REST API directly instead of pygeohydro (which has
+    a schema mismatch bug with the current NID data).
+
     Args:
         site_id: USGS site identifier
         distance_km: Search radius in kilometers
@@ -397,36 +402,88 @@ def get_nid_dams(
         geopandas GeoDataFrame with dam locations and attributes, or None
     """
     try:
-        from pygeohydro import NID
+        import geopandas as gpd
+        from shapely.geometry import Point
+    except ImportError:
+        logger.error("geopandas not installed")
+        return None
 
-        coords = _get_site_coords(site_id)
-        if coords is None:
+    coords = _get_site_coords(site_id)
+    if coords is None:
+        logger.warning(f"Could not get coordinates for {site_id}")
+        return None
+
+    lat, lon = coords
+
+    # Query NID REST API with bounding box
+    deg_offset = distance_km / 111.0
+    bbox = f"{lon - deg_offset},{lat - deg_offset},{lon + deg_offset},{lat + deg_offset}"
+
+    url = "https://nid.sec.usace.army.mil/api/nation/dams"
+    params = {
+        "bbox": bbox,
+        "limit": 100,
+    }
+
+    try:
+        resp = requests.get(url, params=params, timeout=30, headers={
+            "Accept": "application/json",
+        })
+
+        # If bbox param doesn't work, fall back to downloading nearby via offset query
+        if resp.status_code != 200:
+            # Try alternative: query by state and filter locally
+            logger.debug(f"NID bbox query returned {resp.status_code}, trying spatial filter")
+            return _nid_fallback_spatial(lat, lon, distance_km)
+
+        data = resp.json()
+        if not data:
             return None
 
-        lat, lon = coords
-        nid = NID()
+        records = []
+        for dam in data:
+            dam_lat = dam.get('latitude')
+            dam_lon = dam.get('longitude')
+            if dam_lat is None or dam_lon is None:
+                continue
+            records.append({
+                'dam_name': dam.get('name', dam.get('damName', 'Unknown')),
+                'latitude': float(dam_lat),
+                'longitude': float(dam_lon),
+                'height_ft': dam.get('nidHeight', dam.get('height')),
+                'storage_acre_ft': dam.get('maxStorage'),
+                'year_completed': dam.get('yearCompleted'),
+                'hazard': dam.get('hazardPotentialClassification', dam.get('hazard')),
+                'purposes': dam.get('purposes'),
+                'owner_type': dam.get('primaryOwnerType', dam.get('ownerType')),
+            })
 
-        # Query by bounding box around the site
-        # Approximate degree offset for distance
-        deg_offset = distance_km / 111.0
-        bbox = (
-            lon - deg_offset,
-            lat - deg_offset,
-            lon + deg_offset,
-            lat + deg_offset,
-        )
+        if not records:
+            return None
 
-        dams = nid.get_bygeom(bbox, geo_crs="EPSG:4326")
+        import pandas as pd
+        df = pd.DataFrame(records)
+        geometry = [Point(row['longitude'], row['latitude']) for _, row in df.iterrows()]
+        gdf = gpd.GeoDataFrame(df, geometry=geometry, crs="EPSG:4326")
 
-        if dams is not None and not dams.empty:
-            logger.info(f"Found {len(dams)} dams near {site_id}")
-            return dams
+        logger.info(f"Found {len(gdf)} dams near {site_id} via NID API")
+        return gdf
 
-        return None
-
-    except ImportError:
-        logger.error("pygeohydro not installed")
-        return None
     except Exception as e:
-        logger.error(f"Error fetching dams for {site_id}: {e}")
-        return None
+        logger.error(f"NID API error for {site_id}: {e}")
+        return _nid_fallback_spatial(lat, lon, distance_km)
+
+
+def _nid_fallback_spatial(lat: float, lon: float, distance_km: float) -> Optional[Any]:
+    """Fallback: try pygeohydro NID if REST API fails."""
+    try:
+        from pygeohydro import NID
+        nid = NID()
+        deg_offset = distance_km / 111.0
+        bbox = (lon - deg_offset, lat - deg_offset, lon + deg_offset, lat + deg_offset)
+        dams = nid.get_bygeom(bbox, geo_crs="EPSG:4326")
+        if dams is not None and not dams.empty:
+            return dams
+    except Exception as e:
+        logger.debug(f"pygeohydro NID fallback also failed: {e}")
+    return None

@@ -26,6 +26,86 @@ from hydrology.data.usgs import (
 )
 from hydrology.core import DEFAULT_DISCHARGE_CODE
 
+def _mini_sparkline(series, height=50):
+    """Create a tiny sparkline Plotly figure."""
+    if series is None or len(series) < 2:
+        return None
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        y=series.values,
+        mode='lines',
+        line=dict(color='#4ecdc4', width=1.5),
+        fill='tozeroy',
+        fillcolor='rgba(78, 205, 196, 0.1)',
+        hoverinfo='skip',
+    ))
+    fig.update_layout(
+        height=height,
+        margin=dict(l=0, r=0, t=0, b=0),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False),
+        showlegend=False,
+    )
+    return fig
+
+
+
+# Priority sites for regional summary
+LOCAL_SITES = {
+    "12422500": "Spokane River at Spokane",
+    "12424000": "Hangman Creek at Spokane",
+    "12419000": "Spokane River nr Post Falls",
+    "12422000": "Spokane River bl N Greene St",
+    "12431000": "Little Spokane River at Dartford",
+}
+
+
+def _render_regional_summary():
+    """Show a compact conditions table for local/priority sites."""
+    from hydrology.data.usgs import fetch_current_conditions, fetch_daily_percentiles, classify_condition
+    from hydrology.visualization.map_utils import get_condition_color, get_condition_label
+
+    site_ids = list(LOCAL_SITES.keys())
+    current = fetch_current_conditions(site_ids)
+    percentiles = fetch_daily_percentiles(site_ids)
+
+    rows = []
+    for sid, name in LOCAL_SITES.items():
+        flow = current.get(sid)
+        pcts = percentiles.get(sid)
+        pctile = classify_condition(flow, pcts) if flow and pcts else None
+        label = get_condition_label(pctile) if pctile is not None else "N/A"
+        color = get_condition_color(pctile) if pctile is not None else "#808080"
+
+        rows.append({
+            "Site": name,
+            "Flow (cfs)": f"{flow:,.0f}" if flow else "N/A",
+            "Condition": label,
+            "_color": color,
+            "_site_id": sid,
+        })
+
+    if not rows:
+        return
+
+    # Render as styled cards in columns
+    cols = st.columns(len(rows))
+    for col, row in zip(cols, rows):
+        with col:
+            st.markdown(
+                f'<div style="border-left: 3px solid {row["_color"]}; '
+                f'padding-left: 0.5rem; margin-bottom: 0.5rem;">'
+                f'<div style="font-size: 0.75rem; color: #8899a6;">{row["Site"]}</div>'
+                f'<div style="font-size: 1.1rem; font-weight: 600; color: #e0e0e0;">{row["Flow (cfs)"]}</div>'
+                f'<div style="font-size: 0.7rem; color: {row["_color"]};">{row["Condition"]}</div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+
+
+
 
 def show():
     """Render the Overview page."""
@@ -49,8 +129,19 @@ def show():
 
     display_site_info(site_info)
 
+    # Regional summary for local sites
+    with st.expander("Regional Conditions", expanded=True):
+        _render_regional_summary()
+
+    st.markdown("---")
+
     # Main area
     render_site_header(site_id, desc, float(lat) if lat else None, float(lon) if lon else None)
+
+    # Deep-link to full analysis
+    if st.button("Full Analysis →", type="secondary", key="deep_link_analysis"):
+        st.query_params["site"] = site_id
+        st.switch_page(st.session_state["_page_single_analysis"])
 
     # KPI row - current conditions
     df_hist = _render_kpi_row(site_id, site_info)
@@ -73,30 +164,47 @@ def _render_kpi_row(site_id: str, site_info: dict) -> "pd.DataFrame | None":
     lat = site_info.get('latitude')
     lon = site_info.get('longitude')
 
+    # Parallel fetch: IV (7-day) and DV (10-year) simultaneously
+    from concurrent.futures import ThreadPoolExecutor
+
+    end_date = datetime.now()
+    iv_start = (end_date - timedelta(days=7)).strftime('%Y-%m-%d')
+    hist_start = (end_date - timedelta(days=365 * 10)).strftime('%Y-%m-%d')
+    end_str = end_date.strftime('%Y-%m-%d')
+
+    # Check session_state for stale data to show immediately
+    stale_key = f"kpi_stale_{site_id}"
+    if stale_key in st.session_state:
+        df_iv, df_hist = st.session_state[stale_key]
+        st.caption("Refreshing data...")
+    else:
+        df_iv, df_hist = None, None
+
     with st.spinner("Loading current conditions..."):
-        # Fetch recent instantaneous data for current flow
-        end_date = datetime.now()
-        start_date_iv = end_date - timedelta(days=7)
+        def _fetch_iv():
+            try:
+                return fetch_instantaneous_values(
+                    site_id, param_cd=DEFAULT_PARAM_DISCHARGE,
+                    start_date=iv_start, end_date=end_str)
+            except Exception:
+                return None
 
-        try:
-            df_iv = fetch_instantaneous_values(
-                site_id, param_cd=DEFAULT_PARAM_DISCHARGE,
-                start_date=start_date_iv.strftime('%Y-%m-%d'),
-                end_date=end_date.strftime('%Y-%m-%d')
-            )
-        except Exception:
-            df_iv = None
+        def _fetch_hist():
+            try:
+                return fetch_daily_values(
+                    site_id, param_cd=DEFAULT_PARAM_DISCHARGE,
+                    start_date=hist_start, end_date=end_str)
+            except Exception:
+                return None
 
-        # Fetch historical for percentile calculation
-        try:
-            hist_start = (end_date - timedelta(days=365 * 10)).strftime('%Y-%m-%d')
-            hist_end = end_date.strftime('%Y-%m-%d')
-            df_hist = fetch_daily_values(
-                site_id, param_cd=DEFAULT_PARAM_DISCHARGE,
-                start_date=hist_start, end_date=hist_end
-            )
-        except Exception:
-            df_hist = None
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            fut_iv = executor.submit(_fetch_iv)
+            fut_hist = executor.submit(_fetch_hist)
+            df_iv = fut_iv.result()
+            df_hist = fut_hist.result()
+
+        # Cache for stale-while-revalidate on next page visit
+        st.session_state[stale_key] = (df_iv, df_hist)
 
     # Build KPI columns
     col1, col2, col3, col4 = st.columns(4)
@@ -119,6 +227,11 @@ def _render_kpi_row(site_id: str, site_info: dict) -> "pd.DataFrame | None":
             else:
                 st.metric("Current Flow", f"{current_val:,.0f} cfs")
             st.caption(f"Updated {latest_time.strftime('%H:%M %b %d')}")
+            # Embedded 7-day sparkline
+            hourly = df_iv['value'].resample('1h').mean().dropna()
+            spark_fig = _mini_sparkline(hourly)
+            if spark_fig:
+                st.plotly_chart(spark_fig, use_container_width=True, key="kpi_spark")
         elif df_hist is not None and not df_hist.empty:
             # Fallback: use most recent daily value
             current_val = df_hist['value'].iloc[-1]
@@ -197,26 +310,6 @@ def _render_kpi_row(site_id: str, site_info: dict) -> "pd.DataFrame | None":
         else:
             st.metric("% of Median", "N/A")
 
-    # Sparkline - 7-day trend
-    if df_iv is not None and not df_iv.empty:
-        # Resample to hourly for cleaner sparkline
-        hourly = df_iv['value'].resample('1h').mean().dropna()
-        if len(hourly) > 2:
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=hourly.index, y=hourly.values,
-                mode='lines', line=dict(color='#1f77b4', width=2),
-                fill='tozeroy', fillcolor='rgba(31, 119, 180, 0.15)',
-                hovertemplate='%{x|%b %d %H:%M}<br>%{y:,.0f} cfs<extra></extra>'
-            ))
-            fig.update_layout(
-                height=80, margin=dict(l=0, r=0, t=0, b=0),
-                xaxis=dict(visible=False), yaxis=dict(visible=False),
-                showlegend=False, paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)'
-            )
-            st.plotly_chart(fig, use_container_width=True, key="overview_sparkline")
-
     return df_hist
 
 
@@ -275,8 +368,7 @@ def _render_station_map(inventory_df, selected_site_id):
                                      help="Show upstream flowline traces")
     with col_opt3:
         show_dams = st.checkbox("Nearby dams", value=False, key="ov_dams",
-                                help="Show dams from National Inventory", disabled=True)
-        st.caption("NID unavailable (upstream library issue)")
+                                help="Show dams from National Inventory")
 
     # Center on selected site if possible
     selected_info = get_cached_site_info(selected_site_id)
@@ -344,11 +436,11 @@ def _render_station_map(inventory_df, selected_site_id):
         except Exception as e:
             st.caption(f"Enhanced map unavailable: {str(e)[:60]}")
 
-    # Standard map (fallback) - fetch conditions for coloring
-    all_site_ids = map_data['site_id'].tolist()
-    conditions = get_site_conditions(all_site_ids)
-
+    # Standard map — lazy-load conditions
     import folium
+    all_site_ids = map_data['site_id'].tolist()
+    with st.spinner("Loading site conditions..."):
+        conditions = get_site_conditions(all_site_ids)
     from folium.plugins import MarkerCluster
     from streamlit_folium import st_folium
 
