@@ -476,7 +476,26 @@ def _watershed_view(inventory_df):
                     chars = get_basin_characteristics(basin_site)
                     dams = get_nid_dams(basin_site, distance_km=50)
 
-                if boundary is not None and not boundary.empty:
+                # Store in session_state so results persist across reruns
+                st.session_state["basin_data"] = {
+                    "site": basin_site, "boundary": boundary,
+                    "chars": chars, "dams": dams,
+                }
+
+            except ImportError:
+                st.error("HyRiver packages not installed. Install with: "
+                        "conda install -c conda-forge pygeohydro pynhd py3dep")
+            except Exception as e:
+                st.error(f"Error loading basin data: {e}")
+
+        # Render from session_state (persists across reruns)
+        basin_data = st.session_state.get("basin_data")
+        if basin_data and basin_data.get("site") == basin_site:
+            boundary = basin_data["boundary"]
+            chars = basin_data["chars"]
+            dams = basin_data["dams"]
+
+            if boundary is not None and not boundary.empty:
                     # Basin characteristics cards
                     if chars:
                         char_cols = st.columns(4)
@@ -547,14 +566,8 @@ def _watershed_view(inventory_df):
                             lc_df = pd.DataFrame(list(lc.items()), columns=['Class', 'Percentage'])
                             lc_df = lc_df.sort_values('Percentage', ascending=False).head(10)
                             st.dataframe(lc_df, use_container_width=True, hide_index=True)
-                else:
+            else:
                     st.warning("Could not retrieve watershed boundary. pynhd may not be installed.")
-
-            except ImportError:
-                st.error("HyRiver packages not installed. Install with: "
-                        "conda install -c conda-forge pygeohydro pynhd py3dep")
-            except Exception as e:
-                st.error(f"Error loading basin data: {e}")
 
     st.markdown("---")
     st.subheader("National Site Inventory")
