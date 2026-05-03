@@ -28,6 +28,9 @@ Thumbs.db
 .vscode/
 *.swp
 
+# Local agent/brainstorm artifacts
+.superpowers/
+
 # Environment
 .env
 .venv/
