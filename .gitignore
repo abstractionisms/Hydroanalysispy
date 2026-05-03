@@ -30,6 +30,7 @@ Thumbs.db
 
 # Local agent/brainstorm artifacts
 .superpowers/
+.worktrees/
 
 # Environment
 .env
