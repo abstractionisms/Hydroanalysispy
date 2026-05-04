@@ -30,8 +30,8 @@ def show():
         st.error("Could not load site inventory")
         return
 
-    st.sidebar.header("Alert Configuration")
-    site_id = site_picker(inventory_df, key="alert", label="Monitor Site", location="sidebar")
+    st.subheader("Monitor Site")
+    site_id = site_picker(inventory_df, key="alert", label="Monitor Site", location="main")
 
     site_info = get_cached_site_info(site_id)
     if not site_info:

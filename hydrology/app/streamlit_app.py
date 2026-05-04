@@ -14,7 +14,10 @@ import streamlit as st
 
 st.set_page_config(page_title="Hydrology Analysis", page_icon="\U0001f4a7", layout="wide")
 
-from hydrology.app.styles import apply_custom_css, render_footer, render_dashboard_hero, render_workflow_strip
+from hydrology.app.styles import (
+    apply_custom_css, render_footer, render_dashboard_hero,
+    render_workflow_strip, render_main_nav
+)
 from hydrology.app.shared import get_inventory
 from hydrology.visualization.plots import AVAILABLE_PLOTS
 
@@ -57,33 +60,39 @@ if "warmup_started" not in st.session_state:
 
 # Define pages with grouping
 _single_analysis_page = st.Page(single_analysis.show, title="Single Analysis", icon="📈", url_path="single-analysis")
+_overview_page = st.Page(overview.show, title="Overview", icon="\U0001f4ca", default=True, url_path="overview")
+_comparisons_page = st.Page(comparisons.show, title="Comparisons", icon="\U0001f504", url_path="comparisons")
+_reach_page = st.Page(reach_analysis.show, title="Reach Analysis", icon="\U0001f30a", url_path="reach-analysis")
+_alerts_page = st.Page(alerts.show, title="Alerts", icon="\U0001f6a8", url_path="alerts")
+_indicators_page = st.Page(indicators.show, title="Indicators", icon="\U0001f321\ufe0f", url_path="indicators")
+_advanced_page = st.Page(advanced.show, title="Advanced", icon="\U0001f52c", url_path="advanced")
 
 pages = {
     "Dashboard": [
-        st.Page(overview.show, title="Overview", icon="\U0001f4ca", default=True, url_path="overview"),
+        _overview_page,
         _single_analysis_page,
     ],
     "Compare": [
-        st.Page(comparisons.show, title="Comparisons", icon="\U0001f504", url_path="comparisons"),
-        st.Page(reach_analysis.show, title="Reach Analysis", icon="\U0001f30a", url_path="reach-analysis"),
+        _comparisons_page,
+        _reach_page,
     ],
     "Monitor": [
-        st.Page(alerts.show, title="Alerts", icon="\U0001f6a8", url_path="alerts"),
-        st.Page(indicators.show, title="Indicators", icon="\U0001f321\ufe0f", url_path="indicators"),
-        st.Page(advanced.show, title="Advanced", icon="\U0001f52c", url_path="advanced"),
+        _alerts_page,
+        _indicators_page,
+        _advanced_page,
     ],
 }
+
+render_main_nav()
 
 pg = st.navigation(pages)
 
 # Store page refs for cross-page navigation
 st.session_state["_page_single_analysis"] = _single_analysis_page
 
-# Footer in sidebar
 inventory_df = get_inventory()
-st.sidebar.markdown("---")
 site_count = len(inventory_df) if not inventory_df.empty else 0
-st.sidebar.caption(f"Sites: {site_count} | Plots: {len(AVAILABLE_PLOTS)}")
+st.caption(f"{site_count} sites | {len(AVAILABLE_PLOTS)} plot types")
 
 pg.run()
 

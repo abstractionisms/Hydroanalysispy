@@ -110,9 +110,8 @@ def show():
         st.error("Could not load site inventory")
         return
 
-    # Sidebar: Site Selection with search
-    st.sidebar.header("Select Site")
-    site_id = site_picker(inventory_df, key="single", label="Select Site", location="sidebar")
+    st.subheader("Analysis Workspace")
+    site_id = site_picker(inventory_df, key="single", label="Select Site", location="main")
 
     site_info = get_cached_site_info(site_id)
     if not site_info:
@@ -122,9 +121,6 @@ def show():
     lat = site_info.get('latitude')
     lon = site_info.get('longitude')
     desc = site_info.get('description', site_id)
-
-    st.sidebar.caption(f"Selected: `{site_id}`")
-    st.sidebar.caption(desc)
 
     # Main Area
     st.header("Single Site Analysis")

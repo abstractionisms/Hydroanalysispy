@@ -114,9 +114,9 @@ def show():
         st.error("Could not load site inventory")
         return
 
-    # Sidebar: site picker with search
-    st.sidebar.header("Select Site")
-    site_id = site_picker(inventory_df, key="overview", label="Site", location="sidebar")
+    st.subheader("Site Workspace")
+    st.caption("Search or click a station on the map, then move directly into analysis, comparison, or monitoring.")
+    site_id = site_picker(inventory_df, key="overview", label="Site", location="main")
 
     site_info = get_cached_site_info(site_id)
     if not site_info:
@@ -126,9 +126,6 @@ def show():
     lat = site_info.get('latitude')
     lon = site_info.get('longitude')
     desc = site_info.get('description', site_id)
-
-    st.sidebar.caption(f"Selected: `{site_id}`")
-    st.sidebar.caption(desc)
 
     _render_site_workspace(site_id, desc, float(lat) if lat else None, float(lon) if lon else None)
 
@@ -159,9 +156,7 @@ def show():
 
 
 def _render_site_workspace(site_id: str, desc: str, lat: float | None, lon: float | None):
-    """Render a visible main-page site workspace instead of burying context in the sidebar."""
-    st.subheader("Site Workspace")
-    st.caption("Search in the sidebar, then use these actions to move through the analysis workflow.")
+    """Render a visible main-page site workspace with workflow actions."""
 
     col_site, col_actions = st.columns([2, 1])
     with col_site:

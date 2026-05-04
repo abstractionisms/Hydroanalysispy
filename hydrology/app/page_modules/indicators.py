@@ -33,9 +33,8 @@ def show():
         st.error("Could not load site inventory")
         return
 
-    # Site selection
-    st.sidebar.header("Select Site")
-    site_id = site_picker(inventory_df, key="indicators", label="Site", location="sidebar")
+    st.subheader("Indicator Workspace")
+    site_id = site_picker(inventory_df, key="indicators", label="Site", location="main")
 
     site_info = get_cached_site_info(site_id)
     if not site_info:
@@ -45,10 +44,9 @@ def show():
     desc = site_info.get('description', site_id)
     lat = site_info.get('latitude')
     lon = site_info.get('longitude')
-    st.sidebar.caption(f"Selected: `{site_id}`")
-    st.sidebar.caption(desc)
+    st.caption(f"Selected `{site_id}` - {desc}")
 
-    years_back = st.sidebar.slider("Years of data", 5, 30, 15, key="ind_years")
+    years_back = st.slider("Years of data", 5, 30, 15, key="ind_years")
 
     end_date = datetime.now()
     start_date = end_date - timedelta(days=years_back * 365)

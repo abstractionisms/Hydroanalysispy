@@ -306,7 +306,47 @@ def apply_custom_css():
         box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
     }
 
-    /* Sidebar improvements */
+    /* Sidebar is hidden so the app works from the main workspace instead of
+       splitting navigation and controls into a secondary rail. */
+    [data-testid="stSidebar"],
+    [data-testid="collapsedControl"] {
+        display: none;
+    }
+
+    .main-nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+        align-items: center;
+        margin: 0.25rem 0 1rem 0;
+        padding: 0.55rem;
+        border: 1px solid var(--hydro-border);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.035);
+    }
+
+    .main-nav a {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.42rem 0.7rem;
+        border-radius: 7px;
+        border: 1px solid rgba(118, 169, 192, 0.18);
+        color: var(--hydro-text);
+        text-decoration: none;
+        font-size: 0.86rem;
+        font-weight: 600;
+        background: rgba(8, 18, 32, 0.55);
+    }
+
+    .main-nav a:hover {
+        border-color: rgba(78, 205, 196, 0.65);
+        background: rgba(78, 205, 196, 0.12);
+        color: var(--hydro-text);
+        text-decoration: none;
+    }
+
+    /*
     [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #0a1524 0%, #07111d 100%);
         border-right: 1px solid rgba(118, 169, 192, 0.18);
@@ -332,6 +372,7 @@ def apply_custom_css():
         background: rgba(78, 205, 196, 0.10);
         color: var(--hydro-text);
     }
+    */
 
     /* Button styling */
     .stButton > button {
@@ -461,6 +502,21 @@ def render_dashboard_hero(title: str, subtitle: str):
         <h1>{title}</h1>
         <p>{subtitle}</p>
     </div>
+    """, unsafe_allow_html=True)
+
+
+def render_main_nav():
+    """Render main-page navigation so the sidebar is not the primary workflow."""
+    st.markdown("""
+    <nav class="main-nav" aria-label="Main workflow navigation">
+        <a href="overview" target="_self">Explore</a>
+        <a href="single-analysis" target="_self">Analyze</a>
+        <a href="comparisons" target="_self">Compare</a>
+        <a href="reach-analysis" target="_self">Reach</a>
+        <a href="alerts" target="_self">Monitor</a>
+        <a href="indicators" target="_self">Indicators</a>
+        <a href="advanced" target="_self">Advanced</a>
+    </nav>
     """, unsafe_allow_html=True)
 
 
