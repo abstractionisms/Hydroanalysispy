@@ -11,14 +11,15 @@ import plotly.graph_objects as go
 
 from hydrology.app.shared import (
     get_inventory, get_cached_site_info, get_weather_station_info,
-    extract_site_id, display_site_info, site_picker,
+    extract_site_id, site_picker,
     fetch_discharge_data, process_site_data,
     find_availability_windows, format_availability_windows,
     render_export_buttons, get_site_conditions,
     logger)
 from hydrology.app.styles import (
-    render_site_header, render_availability_badges, render_metric_cards
+    render_site_header, render_availability_badges, render_metric_cards, render_insight_board
 )
+from hydrology.app.interpretation import summarize_flow_context
 from hydrology.data.usgs import (
     fetch_daily_values, fetch_instantaneous_values,
     DEFAULT_PARAM_DISCHARGE, DEFAULT_PARAM_STAGE
@@ -124,11 +125,10 @@ def show():
     lon = site_info.get('longitude')
     desc = site_info.get('description', site_id)
 
-    display_site_info(site_info)
+    st.sidebar.caption(f"Selected: `{site_id}`")
+    st.sidebar.caption(desc)
 
-    # Regional summary for local sites
-    with st.expander("Regional Conditions", expanded=True):
-        _render_regional_summary()
+    _render_site_workspace(site_id, desc, float(lat) if lat else None, float(lon) if lon else None)
 
     st.markdown("---")
 
@@ -142,6 +142,10 @@ def show():
 
     # KPI row - current conditions
     df_hist = _render_kpi_row(site_id, site_info)
+    if df_hist is not None and not df_hist.empty:
+        st.subheader("Current Interpretation")
+        st.caption("Fast context from the last 10 years of daily discharge.")
+        render_insight_board(summarize_flow_context(df_hist))
 
     # Quick Stats summary table
     _render_quick_stats(df_hist)
@@ -150,6 +154,22 @@ def show():
 
     # Station map
     _render_station_map(inventory_df, site_id)
+
+
+def _render_site_workspace(site_id: str, desc: str, lat: float | None, lon: float | None):
+    """Render a visible main-page site workspace instead of burying context in the sidebar."""
+    st.subheader("Site Workspace")
+    st.caption("Search in the sidebar, then use these actions to move through the analysis workflow.")
+
+    col_site, col_actions = st.columns([2, 1])
+    with col_site:
+        coord_text = f"{lat:.4f}, {lon:.4f}" if lat is not None and lon is not None else "coordinates unavailable"
+        st.markdown(f"**{desc}**")
+        st.caption(f"USGS `{site_id}` | {coord_text}")
+    with col_actions:
+        if st.button("Open Single Analysis", type="primary", use_container_width=True, key="overview_open_single"):
+            st.query_params["site"] = site_id
+            st.switch_page(st.session_state["_page_single_analysis"])
 
 
 def _render_kpi_row(site_id: str, site_info: dict) -> "pd.DataFrame | None":
@@ -226,11 +246,6 @@ def _render_kpi_row(site_id: str, site_info: dict) -> "pd.DataFrame | None":
                 st.metric("Current Flow", f"{current_val:,.0f} cfs",
                          help="Latest instantaneous discharge reading from the USGS gage, updated every 15 minutes")
             st.caption(f"Updated {latest_time.strftime('%H:%M %b %d')}")
-            # Embedded 7-day sparkline
-            hourly = df_iv['value'].resample('1h').mean().dropna()
-            spark_fig = _mini_sparkline(hourly)
-            if spark_fig:
-                st.plotly_chart(spark_fig, use_container_width=True, key="kpi_spark")
         elif df_hist is not None and not df_hist.empty:
             # Fallback: use most recent daily value
             current_val = df_hist['value'].iloc[-1]
@@ -361,20 +376,49 @@ def _render_quick_stats(df_hist: "pd.DataFrame | None"):
 def _render_station_map(inventory_df, selected_site_id):
     """Render station map with condition-colored markers and optional watershed overlay."""
     st.subheader("Station Map")
+    st.caption("Fast station map loads by default. Basin boundaries, flowlines, dams, and live condition coloring are optional because they call slower external geospatial services.")
 
     map_data = inventory_df[['latitude', 'longitude', 'site_id', 'description', 'begin_date']].copy()
     map_data = map_data.dropna(subset=['latitude', 'longitude'])
     map_data['latitude'] = map_data['latitude'].astype(float)
     map_data['longitude'] = map_data['longitude'].astype(float)
 
-    # Map options
-    col_opt1, col_opt2, col_opt3 = st.columns(3)
-    with col_opt1:
-        show_boundary = st.checkbox("Watershed boundary", value=False, key="ov_boundary")
-    with col_opt2:
-        show_flowlines = st.checkbox("Flowlines", value=False, key="ov_flowlines")
-    with col_opt3:
-        show_dams = st.checkbox("Nearby dams", value=False, key="ov_dams")
+    show_boundary = False
+    show_flowlines = False
+    show_dams = False
+    color_by_conditions = False
+
+    with st.expander("Optional slow map layers", expanded=False):
+        st.caption("These layers may take a while or fail if HyRiver/NLDI services are unavailable.")
+        col_opt1, col_opt2, col_opt3, col_opt4 = st.columns(4)
+        with col_opt1:
+            color_by_conditions = st.checkbox(
+                "Color by live flow",
+                value=False,
+                key="ov_conditions",
+                help="Fetches current conditions for all inventory sites. Leave off for fastest map loading.",
+            )
+        with col_opt2:
+            show_boundary = st.checkbox(
+                "Watershed boundary",
+                value=False,
+                key="ov_boundary",
+                help="Requires HyRiver basin delineation and can be slow.",
+            )
+        with col_opt3:
+            show_flowlines = st.checkbox(
+                "Flowlines",
+                value=False,
+                key="ov_flowlines",
+                help="Requires NHD/NLDI geospatial services and can be slow.",
+            )
+        with col_opt4:
+            show_dams = st.checkbox(
+                "Nearby dams",
+                value=False,
+                key="ov_dams",
+                help="Requires National Inventory of Dams geospatial lookup.",
+            )
 
     # Center on selected site if possible
     selected_info = get_cached_site_info(selected_site_id)
@@ -441,11 +485,13 @@ def _render_station_map(inventory_df, selected_site_id):
         except Exception as e:
             st.caption(f"Enhanced map unavailable: {str(e)[:60]}")
 
-    # Standard map — lazy-load conditions
+    # Standard map
     import folium
-    all_site_ids = map_data['site_id'].tolist()
-    with st.spinner("Loading site conditions..."):
-        conditions = get_site_conditions(all_site_ids)
+    conditions = {}
+    if color_by_conditions:
+        all_site_ids = map_data['site_id'].tolist()
+        with st.spinner("Loading live flow conditions for map markers..."):
+            conditions = get_site_conditions(all_site_ids)
     from folium.plugins import MarkerCluster
     from streamlit_folium import st_folium
 
@@ -467,9 +513,12 @@ def _render_station_map(inventory_df, selected_site_id):
             color = 'red'
             radius = 8
         else:
-            from hydrology.visualization.map_utils import get_condition_color
-            pctile = conditions.get(sid) if 'conditions' in dir() else None
-            color = get_condition_color(pctile) if pctile is not None else '#4488cc'
+            if color_by_conditions:
+                from hydrology.visualization.map_utils import get_condition_color
+                pctile = conditions.get(sid)
+                color = get_condition_color(pctile) if pctile is not None else '#4488cc'
+            else:
+                color = '#4488cc'
             radius = 5
 
         tooltip = f"<b>{sid}</b><br>{desc}"
@@ -492,8 +541,9 @@ def _render_station_map(inventory_df, selected_site_id):
     marker_group.add_to(m)
     folium.LayerControl().add_to(m)
 
-    from hydrology.visualization.map_utils import add_condition_legend
-    add_condition_legend(m)
+    if color_by_conditions:
+        from hydrology.visualization.map_utils import add_condition_legend
+        add_condition_legend(m)
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -528,6 +578,13 @@ def _render_station_map(inventory_df, selected_site_id):
             ]
 
             if not matches.empty:
-                site = matches.iloc[0]
-                st.success(f"Selected: **{site['site_id']}** - {site['description']}")
-                st.caption("Switch to 'Single Analysis' in the sidebar to analyze this site")
+                matches["_click_distance"] = (
+                    (matches["latitude"] - clicked_lat) ** 2 +
+                    (matches["longitude"] - clicked_lng) ** 2
+                )
+                site = matches.sort_values("_click_distance").iloc[0]
+                clicked_id = str(site["site_id"])
+                st.query_params["site"] = clicked_id
+                st.success(f"Selected: **{clicked_id}** - {site['description']}")
+                if st.button("Open analysis for selected site", type="primary", key="map_open_analysis"):
+                    st.switch_page(st.session_state["_page_single_analysis"])

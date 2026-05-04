@@ -6,6 +6,7 @@ Static matplotlib grid available via Generate button.
 
 import streamlit as st
 import matplotlib.pyplot as plt
+import pandas as pd
 from datetime import date
 
 from hydrology.app.shared import (

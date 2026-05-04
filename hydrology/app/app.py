@@ -35,21 +35,13 @@ if "warmup_started" not in st.session_state:
 
     def _warmup():
         try:
-            from hydrology.app.shared import get_site_conditions
             from hydrology.data.usgs import fetch_current_conditions, fetch_daily_values
             from hydrology.data.usgs import DEFAULT_PARAM_DISCHARGE
-
-            # Warm inventory (already called below, but ensures cache)
-            inv = get_inventory()
-            site_ids = inv['site_id'].tolist() if not inv.empty else []
-
-            # Warm site conditions for map
-            if site_ids:
-                get_site_conditions(site_ids)
 
             # Warm priority sites
             from datetime import datetime, timedelta
             priority = ["12422500", "12424000", "12419000"]
+            fetch_current_conditions(priority)
             end = datetime.now().strftime('%Y-%m-%d')
             start = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
             for sid in priority:
