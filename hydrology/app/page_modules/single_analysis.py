@@ -349,12 +349,14 @@ def show():
 
     # ── Static Matplotlib Plots (on demand) ──
     st.markdown("---")
-    st.subheader("Static Plot Grid (matplotlib)")
-    st.caption("Select plots and generate a static multi-plot figure for export.")
+    st.subheader("Guided Plot Builder")
+    st.caption("Use presets for common workflows or choose any plot manually. Static figures are generated on demand for export.")
     selected_plots = plot_selector()
 
     # Filter out plots already shown interactively
     static_plots = [p for p in selected_plots if p not in {'timeseries', 'flow_duration'}]
+    if any(p in selected_plots for p in {'timeseries', 'flow_duration'}):
+        st.caption("Recent time series and flow-duration views are already shown interactively above, so they are skipped in the static export grid.")
 
     layout_options = {
         'Auto': PlotLayout.AUTO,
