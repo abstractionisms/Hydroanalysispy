@@ -27,7 +27,7 @@ from hydrology.app.page_modules import overview, single_analysis, comparisons, r
 apply_custom_css()
 render_dashboard_hero(
     "HydroPlot analysis dashboard",
-    "Explore stations, analyze site behavior, compare records, and monitor climate-linked flow signals from one workspace.",
+    "Find stations, analyze one site, compare gages, and run current hydrologic checks from one workspace.",
 )
 render_workflow_strip()
 

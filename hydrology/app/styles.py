@@ -509,13 +509,13 @@ def render_main_nav():
     """Render main-page navigation so the sidebar is not the primary workflow."""
     st.markdown("""
     <nav class="main-nav" aria-label="Main workflow navigation">
-        <a href="overview" target="_self">Explore</a>
-        <a href="single-analysis" target="_self">Analyze</a>
-        <a href="comparisons" target="_self">Compare</a>
-        <a href="reach-analysis" target="_self">Reach</a>
-        <a href="alerts" target="_self">Monitor</a>
-        <a href="indicators" target="_self">Indicators</a>
-        <a href="advanced" target="_self">Advanced</a>
+        <a href="overview" target="_self">Stations</a>
+        <a href="single-analysis" target="_self">Site Analysis</a>
+        <a href="comparisons" target="_self">Compare Sites</a>
+        <a href="reach-analysis" target="_self">Reach Tools</a>
+        <a href="alerts" target="_self">Current Check</a>
+        <a href="indicators" target="_self">Climate Indicators</a>
+        <a href="advanced" target="_self">More Tools</a>
     </nav>
     """, unsafe_allow_html=True)
 
@@ -524,10 +524,10 @@ def render_workflow_strip():
     """Render visible navigation intent without replacing Streamlit navigation."""
     st.markdown("""
     <div class="workflow-strip">
-        <div class="workflow-step"><strong>Explore</strong><span>Map stations, basins, current conditions, and record coverage.</span></div>
-        <div class="workflow-step"><strong>Analyze</strong><span>Run single-site plots with availability and requirement context.</span></div>
-        <div class="workflow-step"><strong>Compare</strong><span>Check multi-site overlap before expensive processing.</span></div>
-        <div class="workflow-step"><strong>Monitor</strong><span>Review alerts, drought indicators, and climate-linked signals.</span></div>
+        <div class="workflow-step"><strong>Stations</strong><span>Find gages, inspect map layers, live flow context, and record coverage.</span></div>
+        <div class="workflow-step"><strong>Site Analysis</strong><span>Run guided or fully custom plot sets for one selected gage.</span></div>
+        <div class="workflow-step"><strong>Compare Sites</strong><span>Check overlap and contrast records before heavier multi-site work.</span></div>
+        <div class="workflow-step"><strong>Current Check</strong><span>Run manual threshold checks and review current hydrologic signals.</span></div>
     </div>
     """, unsafe_allow_html=True)
 
