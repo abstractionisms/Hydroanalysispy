@@ -395,8 +395,13 @@ def _fetch_precip_data(site_id, lat, lon, start_str, end_str):
                 float(lat), float(lon),
                 pd.Timestamp(start_str), pd.Timestamp(end_str),
                 include_temp=False, include_precip=True)
-            if climate is not None and 'prcp' in climate.columns:
-                return climate['prcp']
+            if climate is not None:
+                if 'Precip_mm' in climate.columns:
+                    return climate['Precip_mm']
+                if 'precip_mm' in climate.columns:
+                    return climate['precip_mm']
+                if 'prcp' in climate.columns:
+                    return climate['prcp']
     except Exception as e:
         logger.debug(f"Meteostat precip fetch failed: {e}")
 
