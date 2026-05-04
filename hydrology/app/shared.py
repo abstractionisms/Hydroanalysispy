@@ -108,6 +108,38 @@ def get_site_condition_details(site_ids: list) -> dict:
     return details
 
 
+def build_site_summary(site_id: str, site_info: dict, condition: dict | None = None) -> dict:
+    """Build display-ready selected-site summary data."""
+    from hydrology.visualization.map_utils import get_condition_label
+
+    condition = condition or {}
+    desc = site_info.get("description") or site_id
+    lat = site_info.get("latitude")
+    lon = site_info.get("longitude")
+    subtitle = f"USGS {site_id}"
+    if lat is not None and lon is not None:
+        subtitle = f"{subtitle} | {float(lat):.4f}, {float(lon):.4f}"
+
+    chips = []
+    flow = condition.get("flow_cfs")
+    if flow is not None:
+        chips.append({"label": f"Flow {flow:,.0f} cfs", "state": "ready"})
+
+    pctile = condition.get("percentile")
+    if pctile is not None:
+        chips.append({"label": get_condition_label(pctile), "state": "ready"})
+
+    begin_date = str(site_info.get("begin_date") or "")
+    if len(begin_date) >= 4 and begin_date[:4].isdigit():
+        chips.append({"label": f"Record since {begin_date[:4]}", "state": "ready"})
+
+    return {
+        "title": desc,
+        "subtitle": subtitle,
+        "chips": chips,
+    }
+
+
 @st.cache_data(ttl=86400)
 def get_cached_site_info(site_id: str):
     """Get site info from inventory."""
