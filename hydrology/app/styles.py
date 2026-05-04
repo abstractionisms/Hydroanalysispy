@@ -615,14 +615,43 @@ def render_main_nav():
 
 def render_workflow_strip():
     """Render visible navigation intent without replacing Streamlit navigation."""
-    st.markdown("""
-    <div class="workflow-strip">
-        <div class="workflow-step"><strong>Stations</strong><span>Find gages, inspect map layers, live flow context, and record coverage.</span></div>
-        <div class="workflow-step"><strong>Site Analysis</strong><span>Run guided or fully custom plot sets for one selected gage.</span></div>
-        <div class="workflow-step"><strong>Compare Sites</strong><span>Check overlap and contrast records before heavier multi-site work.</span></div>
-        <div class="workflow-step"><strong>Current Check</strong><span>Run manual threshold checks and review current hydrologic signals.</span></div>
-    </div>
-    """, unsafe_allow_html=True)
+    render_action_cards([
+        {
+            "title": "Stations",
+            "href": "overview",
+            "body": "Find gages, inspect map layers, live flow context, and record coverage.",
+        },
+        {
+            "title": "Site Analysis",
+            "href": "single-analysis",
+            "body": "Run guided or fully custom plot sets for one selected gage.",
+        },
+        {
+            "title": "Compare Sites",
+            "href": "comparisons",
+            "body": "Check overlap and contrast records before heavier multi-site work.",
+        },
+        {
+            "title": "Reach Tools",
+            "href": "reach-analysis",
+            "body": "Evaluate paired gages, gain/loss patterns, and reach behavior.",
+        },
+        {
+            "title": "Current Check",
+            "href": "alerts",
+            "body": "Run manual threshold checks against latest available readings.",
+        },
+        {
+            "title": "Climate Indicators",
+            "href": "indicators",
+            "body": "Review drought, SPI, precipitation, and climate-linked signals.",
+        },
+        {
+            "title": "More Tools",
+            "href": "advanced",
+            "body": "Open specialized analysis utilities without cluttering core workflows.",
+        },
+    ])
 
 
 def render_workspace_panel(title: str, body: str, chips: list[dict] | None = None):

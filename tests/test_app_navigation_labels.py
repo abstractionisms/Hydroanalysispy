@@ -30,7 +30,22 @@ def test_main_navigation_uses_role_specific_labels():
 def test_workflow_tiles_match_primary_navigation_terms():
     text = (ROOT / "hydrology/app/styles.py").read_text(encoding="utf-8")
 
-    assert "<strong>Stations</strong>" in text
-    assert "<strong>Site Analysis</strong>" in text
-    assert "<strong>Compare Sites</strong>" in text
-    assert "<strong>Current Check</strong>" in text
+    assert '"title": "Stations"' in text
+    assert '"title": "Site Analysis"' in text
+    assert '"title": "Compare Sites"' in text
+    assert '"title": "Current Check"' in text
+
+
+def test_workflow_tiles_cover_all_navigation_roles():
+    text = (ROOT / "hydrology/app/styles.py").read_text(encoding="utf-8")
+
+    for label in [
+        '"title": "Stations"',
+        '"title": "Site Analysis"',
+        '"title": "Compare Sites"',
+        '"title": "Reach Tools"',
+        '"title": "Current Check"',
+        '"title": "Climate Indicators"',
+        '"title": "More Tools"',
+    ]:
+        assert label in text
