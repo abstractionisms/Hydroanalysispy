@@ -31,9 +31,10 @@ def apply_custom_css():
         color: var(--hydro-text);
     }
 
-    /* Main container padding */
+    /* Main container padding. Extra top clearance keeps Streamlit's deploy ribbon
+       from covering the dashboard header on hosted and preview builds. */
     .main .block-container {
-        padding-top: 1.35rem;
+        padding-top: 4.25rem;
         padding-bottom: 2rem;
         max-width: 1480px;
     }
@@ -379,7 +380,7 @@ def apply_custom_css():
     /* Mobile responsiveness */
     @media (max-width: 768px) {
         .main .block-container {
-            padding-top: 1rem;
+            padding-top: 3.5rem;
             padding-left: 0.5rem;
             padding-right: 0.5rem;
         }
