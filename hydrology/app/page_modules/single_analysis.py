@@ -10,13 +10,14 @@ from datetime import date
 
 from hydrology.app.shared import (
     get_inventory, get_cached_site_info, get_weather_station_info,
-    extract_site_id, display_site_info, process_site_data,
+    extract_site_id, process_site_data,
     date_range_selector, plot_selector, render_export_buttons,
     render_data_download, site_picker, logger, AVAILABLE_PLOTS)
 from hydrology.app.styles import (
     render_site_header, render_availability_badges, render_metric_cards,
-    render_plot_capability_board
+    render_plot_capability_board, render_insight_board
 )
+from hydrology.app.interpretation import summarize_flow_context, summarize_recommendations
 from hydrology.visualization import create_multi_plot, PlotLayout
 from hydrology.visualization.interactive import (
     interactive_hydrograph, interactive_fdc,
@@ -75,6 +76,32 @@ def _render_analysis_readiness(data, has_stage: bool, climate_info):
     render_plot_capability_board(cards)
 
 
+def _render_hydrologic_summary(data, has_stage: bool, climate_info):
+    """Render automated interpretation cards for the selected record."""
+    df_q = data.get('df_q') if data else None
+    df_merged = data.get('df_merged') if data else None
+    has_climate = df_merged is not None and not df_merged.empty and (
+        'Precip_mm' in df_merged.columns or 'Temp_C' in df_merged.columns
+    )
+    record_years = 0
+    if df_q is not None and not df_q.empty:
+        record_years = (df_q.index.max() - df_q.index.min()).days / 365.25
+
+    st.subheader("Hydrologic Summary")
+    st.caption("Automated context from the selected site's historical daily record.")
+    render_insight_board(summarize_flow_context(df_q))
+
+    with st.expander("Recommended next views", expanded=False):
+        render_insight_board(summarize_recommendations(has_stage, has_climate, record_years))
+        if climate_info:
+            station = climate_info.get('name', 'nearest weather station')
+            distance = climate_info.get('distance_km')
+            if distance is not None:
+                st.caption(f"Climate-linked recommendations use {station}, about {distance:.1f} km from this gage.")
+            else:
+                st.caption(f"Climate-linked recommendations use {station}.")
+
+
 def show():
     """Render the Single Analysis page."""
     inventory_df = get_inventory()
@@ -95,7 +122,8 @@ def show():
     lon = site_info.get('longitude')
     desc = site_info.get('description', site_id)
 
-    display_site_info(site_info)
+    st.sidebar.caption(f"Selected: `{site_id}`")
+    st.sidebar.caption(desc)
 
     # Main Area
     st.header("Single Site Analysis")
@@ -128,6 +156,8 @@ def show():
     render_availability_badges(True, has_stage, climate_info)
     render_metric_cards(data['df_q'], data['df_merged'])
 
+    st.markdown("---")
+    _render_hydrologic_summary(data, has_stage, climate_info)
     st.markdown("---")
     _render_analysis_readiness(data, has_stage, climate_info)
 

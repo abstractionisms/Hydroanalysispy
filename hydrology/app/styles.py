@@ -173,6 +173,56 @@ def apply_custom_css():
         color: #f87171;
     }
 
+    .insight-board {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0.65rem;
+        margin: 0.7rem 0 1.1rem;
+    }
+
+    .insight-card {
+        background: rgba(15, 27, 44, 0.86);
+        border: 1px solid rgba(118, 169, 192, 0.20);
+        border-radius: 8px;
+        padding: 0.8rem;
+        min-height: 128px;
+    }
+
+    .insight-card.ready {
+        border-top: 3px solid var(--hydro-accent);
+    }
+
+    .insight-card.limited {
+        border-top: 3px solid var(--hydro-warn);
+    }
+
+    .insight-card.blocked {
+        border-top: 3px solid #f87171;
+    }
+
+    .insight-card .label {
+        color: var(--hydro-muted);
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+    }
+
+    .insight-card .value {
+        color: var(--hydro-text);
+        font-size: 1.1rem;
+        font-weight: 700;
+        line-height: 1.2;
+        margin-top: 0.22rem;
+    }
+
+    .insight-card .body {
+        color: var(--hydro-muted);
+        font-size: 0.78rem;
+        line-height: 1.32;
+        margin-top: 0.42rem;
+    }
+
     /* Site header styling */
     .site-header {
         background: linear-gradient(90deg, rgba(78, 205, 196, 0.12), rgba(120, 166, 255, 0.06), transparent);
@@ -342,6 +392,10 @@ def apply_custom_css():
             grid-template-columns: 1fr 1fr;
         }
 
+        .insight-board {
+            grid-template-columns: 1fr 1fr;
+        }
+
         .dashboard-hero h1 {
             font-size: 1.35rem;
         }
@@ -387,6 +441,10 @@ def apply_custom_css():
         }
 
         .plot-board {
+            grid-template-columns: 1fr;
+        }
+
+        .insight-board {
             grid-template-columns: 1fr;
         }
     }
@@ -438,6 +496,31 @@ def render_plot_capability_board(cards: list[dict]):
 
     st.markdown(
         '<div class="plot-board">' + "".join(html_cards) + "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_insight_board(cards):
+    """Render data interpretation cards."""
+    if not cards:
+        return
+
+    html_cards = []
+    for card in cards:
+        state = getattr(card, "state", "ready")
+        title = getattr(card, "title", "")
+        value = getattr(card, "value", "")
+        body = getattr(card, "body", "")
+        html_cards.append(
+            f'<div class="insight-card {state}">'
+            f'<div class="label">{title}</div>'
+            f'<div class="value">{value}</div>'
+            f'<div class="body">{body}</div>'
+            "</div>"
+        )
+
+    st.markdown(
+        '<div class="insight-board">' + "".join(html_cards) + "</div>",
         unsafe_allow_html=True,
     )
 
