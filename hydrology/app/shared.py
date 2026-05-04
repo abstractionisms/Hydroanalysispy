@@ -68,22 +68,44 @@ def get_inventory():
 @st.cache_data(ttl=3600, show_spinner="Loading site conditions...")
 def get_site_conditions(site_ids: list) -> dict:
     """Fetch and classify current streamflow conditions for all sites."""
+    details = get_site_condition_details(site_ids)
+    return {
+        sid: values["percentile"]
+        for sid, values in details.items()
+        if values.get("percentile") is not None
+    }
+
+
+@st.cache_data(ttl=3600, show_spinner="Loading site condition details...")
+def get_site_condition_details(site_ids: list) -> dict:
+    """Fetch current flow plus condition metadata for map hovers and popups."""
     current = fetch_current_conditions(site_ids)
     percentiles = fetch_daily_percentiles(site_ids)
-    conditions = {}
+    details = {}
+
     for sid in site_ids:
         flow = current.get(sid)
         pcts = percentiles.get(sid)
-        if flow is not None and pcts:
-            conditions[sid] = classify_condition(flow, pcts)
+        if flow is None:
+            continue
+        percentile = classify_condition(flow, pcts) if pcts else None
+        details[sid] = {
+            "flow_cfs": flow,
+            "percentile": percentile,
+            "source": "USGS seasonal percentile" if percentile is not None else "USGS live flow",
+        }
 
-    if not conditions and current:
-        sorted_flows = sorted(current.items(), key=lambda item: item[1])
+    if details and not any(v.get("percentile") is not None for v in details.values()):
+        sorted_flows = sorted(
+            ((sid, values["flow_cfs"]) for sid, values in details.items()),
+            key=lambda item: item[1],
+        )
         total = len(sorted_flows)
         for rank, (sid, _flow) in enumerate(sorted_flows):
-            conditions[sid] = 100.0 * rank / max(total - 1, 1)
+            details[sid]["percentile"] = 100.0 * rank / max(total - 1, 1)
+            details[sid]["source"] = "Relative live-flow rank among mapped sites"
 
-    return conditions
+    return details
 
 
 @st.cache_data(ttl=86400)

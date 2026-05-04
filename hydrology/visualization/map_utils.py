@@ -10,6 +10,7 @@ Example:
 """
 
 from typing import Dict, List, Optional, Any
+from html import escape
 import numpy as np
 
 from ..core.logging_setup import get_logger
@@ -58,6 +59,46 @@ def get_condition_label(percentile: float) -> str:
         return 'Below Normal'
     else:
         return 'Much Below Normal'
+
+
+def _available_fields(frame: Any, candidates: List[str]) -> List[str]:
+    """Return candidate columns that exist in a GeoDataFrame."""
+    try:
+        columns = set(frame.columns)
+    except Exception:
+        return []
+    return [field for field in candidates if field in columns]
+
+
+def _format_site_tooltip(site: Dict, selected: bool = False) -> str:
+    """Build a compact HTML tooltip for a station marker."""
+    sid = escape(str(site.get("site_id", "")))
+    desc = escape(str(site.get("description", "")))
+    pctile = site.get("percentile")
+    flow = site.get("flow_cfs")
+    source = escape(str(site.get("source", "")))
+    label = get_condition_label(pctile) if pctile is not None and not np.isnan(pctile) else None
+
+    rows = [f"<b>{sid}</b>{' (selected)' if selected else ''}", desc]
+    if flow is not None:
+        rows.append(f"Flow: {flow:,.0f} cfs")
+    if label is not None:
+        rows.append(f"Condition: {label} ({pctile:.0f}th pctile)")
+    elif source:
+        rows.append(source)
+    return "<br>".join(row for row in rows if row)
+
+
+def _format_site_popup(site: Dict, selected: bool = False) -> str:
+    """Build a richer station popup with current-flow context."""
+    tooltip = _format_site_tooltip(site, selected=selected)
+    source = escape(str(site.get("source", "USGS inventory")))
+    return (
+        '<div style="width:240px">'
+        f"{tooltip}<br>"
+        f'<span style="font-size:11px;color:#667;">{source}</span>'
+        "</div>"
+    )
 
 
 def create_watershed_map(
@@ -132,6 +173,10 @@ def create_watershed_map(
             from ..data.hyriver import get_flowlines
             flowlines = get_flowlines(site_id, distance_km=50)
             if flowlines is not None and not flowlines.empty:
+                tooltip_fields = _available_fields(
+                    flowlines,
+                    ["gnis_name", "name", "streamorde", "stream_order", "lengthkm", "nhdplusid", "comid"],
+                )
                 folium.GeoJson(
                     flowlines.to_json(),
                     name="Flowlines",
@@ -140,6 +185,16 @@ def create_watershed_map(
                         'weight': 2,
                         'opacity': 0.6,
                     },
+                    tooltip=folium.GeoJsonTooltip(
+                        fields=tooltip_fields,
+                        aliases=[field.replace("_", " ").title() for field in tooltip_fields],
+                        sticky=True,
+                    ) if tooltip_fields else "NHDPlus flowline",
+                    popup=folium.GeoJsonPopup(
+                        fields=tooltip_fields,
+                        aliases=[field.replace("_", " ").title() for field in tooltip_fields],
+                        max_width=300,
+                    ) if tooltip_fields else None,
                 ).add_to(m)
 
         except ImportError:
@@ -159,10 +214,25 @@ def create_watershed_map(
                     dam_lon = dam.get('longitude') or (dam.geometry.x if hasattr(dam, 'geometry') else None)
                     if dam_lat and dam_lon:
                         dam_name = str(dam.get('dam_name', dam.get('name', 'Dam')))
+                        height = dam.get('height_ft')
+                        storage = dam.get('storage_acre_ft')
+                        hazard = dam.get('hazard')
+                        year = dam.get('year_completed')
+                        popup_rows = [
+                            f"<b>{escape(dam_name)}</b>",
+                            f"Height: {height} ft" if height not in (None, "") else "",
+                            f"Storage: {storage} acre-ft" if storage not in (None, "") else "",
+                            f"Hazard: {escape(str(hazard))}" if hazard not in (None, "") else "",
+                            f"Completed: {year}" if year not in (None, "") else "",
+                        ]
                         folium.CircleMarker(
                             location=[float(dam_lat), float(dam_lon)],
                             radius=5, color='#d62728', fill=True, fillOpacity=0.7,
-                            tooltip=dam_name,
+                            tooltip=f"Dam: {escape(dam_name)}",
+                            popup=folium.Popup(
+                                '<div style="width:220px">' + "<br>".join(row for row in popup_rows if row) + "</div>",
+                                max_width=260,
+                            ),
                         ).add_to(dam_group)
                 dam_group.add_to(m)
 
@@ -173,9 +243,19 @@ def create_watershed_map(
 
     # Primary site marker
     if site_info and site_info.get('latitude'):
+        primary_site = {
+            "site_id": site_id,
+            "latitude": site_info.get("latitude"),
+            "longitude": site_info.get("longitude"),
+            "description": site_info.get("description", ""),
+            "flow_cfs": site_info.get("flow_cfs"),
+            "percentile": site_info.get("percentile"),
+            "source": site_info.get("source", ""),
+        }
         folium.Marker(
             location=[float(site_info['latitude']), float(site_info['longitude'])],
-            tooltip=f"USGS {site_id} (selected)",
+            tooltip=_format_site_tooltip(primary_site, selected=True),
+            popup=folium.Popup(_format_site_popup(primary_site, selected=True), max_width=280),
             icon=folium.Icon(color='red', icon='tint', prefix='fa'),
         ).add_to(m)
 
@@ -194,14 +274,12 @@ def create_watershed_map(
             sid = site.get('site_id', '')
             desc = site.get('description', '')[:40]
 
-            tooltip = f"<b>{sid}</b><br>{desc}<br>{label}"
-            if pctile is not None and not np.isnan(pctile):
-                tooltip += f" ({pctile:.0f}th percentile)"
-
             folium.CircleMarker(
                 location=[float(lat), float(lon)],
                 radius=6, color=color, fill=True, fillColor=color, fillOpacity=0.8,
-                tooltip=tooltip, weight=1,
+                tooltip=_format_site_tooltip(site),
+                popup=folium.Popup(_format_site_popup(site), max_width=280),
+                weight=1,
             ).add_to(site_group)
         site_group.add_to(m)
 

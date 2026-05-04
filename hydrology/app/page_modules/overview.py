@@ -6,6 +6,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import importlib.util
+from html import escape
 from datetime import datetime, timedelta, date
 import plotly.graph_objects as go
 # Deferred imports: folium/streamlit_folium can't be imported outside Streamlit runtime
@@ -15,7 +16,7 @@ from hydrology.app.shared import (
     extract_site_id, site_picker,
     fetch_discharge_data, process_site_data,
     find_availability_windows, format_availability_windows,
-    render_export_buttons, get_site_conditions,
+    render_export_buttons, get_site_conditions, get_site_condition_details,
     logger)
 from hydrology.app.styles import (
     render_site_header, render_availability_badges, render_metric_cards, render_insight_board
@@ -448,18 +449,35 @@ def _render_station_map(inventory_df, selected_site_id):
             from streamlit_folium import st_folium
 
             all_site_ids = map_data['site_id'].tolist()
-            conditions = get_site_conditions(all_site_ids)
+            condition_details = get_site_condition_details(all_site_ids)
+            conditions = {
+                sid: details.get("percentile")
+                for sid, details in condition_details.items()
+                if details.get("percentile") is not None
+            }
 
             additional_sites = []
             for _, row in map_data.iterrows():
+                details = condition_details.get(row['site_id'], {})
                 if row['site_id'] != selected_site_id:
                     additional_sites.append({
                         'site_id': row['site_id'],
                         'latitude': row['latitude'],
                         'longitude': row['longitude'],
                         'description': str(row.get('description', '')),
-                        'percentile': conditions.get(row['site_id']),
+                        'flow_cfs': details.get('flow_cfs'),
+                        'percentile': details.get('percentile'),
+                        'source': details.get('source'),
                     })
+
+            if selected_info:
+                selected_details = condition_details.get(selected_site_id, {})
+                selected_info = {
+                    **selected_info,
+                    'flow_cfs': selected_details.get('flow_cfs'),
+                    'percentile': selected_details.get('percentile'),
+                    'source': selected_details.get('source'),
+                }
 
             m = create_watershed_map(
                 selected_site_id,
@@ -471,6 +489,15 @@ def _render_station_map(inventory_df, selected_site_id):
 
             if m is not None:
                 add_condition_legend(m)
+                active_layers = []
+                if show_boundary:
+                    active_layers.append("watershed boundary")
+                if show_flowlines:
+                    active_layers.append("flowlines with clickable NHD attributes")
+                if show_dams:
+                    active_layers.append("nearby dams with marker popups when NID returns records")
+                if active_layers:
+                    st.caption("Requested layers: " + ", ".join(active_layers) + ".")
 
                 col1, col2, col3 = st.columns(3)
                 with col1:
@@ -499,11 +526,17 @@ def _render_station_map(inventory_df, selected_site_id):
 
     # Standard map
     import folium
+    condition_details = {}
     conditions = {}
     if color_by_conditions:
         all_site_ids = map_data['site_id'].tolist()
         with st.spinner("Loading live flow conditions for map markers..."):
-            conditions = get_site_conditions(all_site_ids)
+            condition_details = get_site_condition_details(all_site_ids)
+            conditions = {
+                sid: details.get("percentile")
+                for sid, details in condition_details.items()
+                if details.get("percentile") is not None
+            }
         if conditions:
             st.caption(
                 "Marker colors use USGS seasonal percentiles when available; if not, they use relative live-flow rank among mapped sites."
@@ -539,11 +572,30 @@ def _render_station_map(inventory_df, selected_site_id):
                 color = '#4488cc'
             radius = 5
 
-        tooltip = f"<b>{sid}</b><br>{desc}"
+        details = condition_details.get(sid, {})
+        flow = details.get("flow_cfs")
+        pctile = details.get("percentile")
+        source = details.get("source")
+        condition_label = None
+        if pctile is not None:
+            from hydrology.visualization.map_utils import get_condition_label
+            condition_label = get_condition_label(pctile)
+
+        tooltip_rows = [
+            f"<b>{escape(str(sid))}</b>",
+            escape(str(desc)),
+            f"Flow: {flow:,.0f} cfs" if flow is not None else "",
+            f"Condition: {condition_label} ({pctile:.0f}th pctile)" if condition_label and pctile is not None else "",
+            "Live flow not loaded; enable Color by live flow" if color_by_conditions and flow is None else "",
+        ]
+        tooltip = "<br>".join(row for row in tooltip_rows if row)
         popup_html = f"""
-        <div style="width:200px">
-            <b>{sid}</b><br>
-            <span style="font-size:11px">{desc}</span><br>
+        <div style="width:240px">
+            <b>{escape(str(sid))}</b><br>
+            <span style="font-size:11px">{escape(str(desc))}</span><br>
+            {f"<b>Flow:</b> {flow:,.0f} cfs<br>" if flow is not None else ""}
+            {f"<b>Condition:</b> {condition_label} ({pctile:.0f}th pctile)<br>" if condition_label and pctile is not None else ""}
+            {f'<span style="font-size:11px;color:#667;">{escape(str(source))}</span>' if source else ""}
         </div>
         """
 

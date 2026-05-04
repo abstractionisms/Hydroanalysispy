@@ -14,6 +14,23 @@ def test_get_site_conditions_falls_back_to_live_flow_rank(monkeypatch):
     assert conditions == {"1": 0.0, "3": 50.0, "2": 100.0}
 
 
+def test_get_site_condition_details_include_flow_and_rank_source(monkeypatch):
+    monkeypatch.setattr(
+        shared,
+        "fetch_current_conditions",
+        lambda site_ids: {"1": 10.0, "2": 30.0},
+    )
+    monkeypatch.setattr(shared, "fetch_daily_percentiles", lambda site_ids: {})
+
+    details = shared.get_site_condition_details(["1", "2"])
+
+    assert details["1"]["flow_cfs"] == 10.0
+    assert details["1"]["percentile"] == 0.0
+    assert details["1"]["source"] == "Relative live-flow rank among mapped sites"
+    assert details["2"]["flow_cfs"] == 30.0
+    assert details["2"]["percentile"] == 100.0
+
+
 def test_get_site_conditions_prefers_seasonal_percentiles(monkeypatch):
     monkeypatch.setattr(shared, "fetch_current_conditions", lambda site_ids: {"1": 35.0})
     monkeypatch.setattr(
@@ -25,3 +42,18 @@ def test_get_site_conditions_prefers_seasonal_percentiles(monkeypatch):
     conditions = shared.get_site_conditions(["1"])
 
     assert conditions == {"1": 50.0}
+
+
+def test_get_site_condition_details_prefer_seasonal_percentiles(monkeypatch):
+    monkeypatch.setattr(shared, "fetch_current_conditions", lambda site_ids: {"1": 35.0})
+    monkeypatch.setattr(
+        shared,
+        "fetch_daily_percentiles",
+        lambda site_ids: {"1": {"p10": 10.0, "p25": 20.0, "p50": 30.0, "p75": 40.0}},
+    )
+
+    details = shared.get_site_condition_details(["1"])
+
+    assert details["1"]["flow_cfs"] == 35.0
+    assert details["1"]["percentile"] == 50.0
+    assert details["1"]["source"] == "USGS seasonal percentile"

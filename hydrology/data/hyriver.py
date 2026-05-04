@@ -32,6 +32,8 @@ logger = get_logger(__name__)
 # Cache for expensive geospatial lookups
 _boundary_cache: Dict[str, Any] = {}
 _characteristics_cache: Dict[str, Dict] = {}
+_flowlines_cache: Dict[Tuple[str, float], Any] = {}
+_dams_cache: Dict[Tuple[str, float], Any] = {}
 
 
 def _get_site_coords(site_id: str) -> Optional[Tuple[float, float]]:
@@ -91,6 +93,10 @@ def get_flowlines(site_id: str, distance_km: float = 50) -> Optional[Any]:
     Returns:
         geopandas GeoDataFrame with flowline geometries, or None
     """
+    cache_key = (site_id, float(distance_km))
+    if cache_key in _flowlines_cache:
+        return _flowlines_cache[cache_key]
+
     try:
         from pynhd import NLDI
 
@@ -104,9 +110,11 @@ def get_flowlines(site_id: str, distance_km: float = 50) -> Optional[Any]:
         )
 
         if flowlines is not None and not flowlines.empty:
+            _flowlines_cache[cache_key] = flowlines
             logger.info(f"Retrieved {len(flowlines)} flowlines for {site_id}")
             return flowlines
 
+        _flowlines_cache[cache_key] = None
         return None
 
     except ImportError:
@@ -401,6 +409,10 @@ def get_nid_dams(
     Returns:
         geopandas GeoDataFrame with dam locations and attributes, or None
     """
+    cache_key = (site_id, float(distance_km))
+    if cache_key in _dams_cache:
+        return _dams_cache[cache_key]
+
     try:
         import geopandas as gpd
         from shapely.geometry import Point
@@ -411,6 +423,7 @@ def get_nid_dams(
     coords = _get_site_coords(site_id)
     if coords is None:
         logger.warning(f"Could not get coordinates for {site_id}")
+        _dams_cache[cache_key] = None
         return None
 
     lat, lon = coords
@@ -426,7 +439,7 @@ def get_nid_dams(
     }
 
     try:
-        resp = requests.get(url, params=params, timeout=30, headers={
+        resp = requests.get(url, params=params, timeout=12, headers={
             "Accept": "application/json",
         })
 
@@ -434,10 +447,13 @@ def get_nid_dams(
         if resp.status_code != 200:
             # Try alternative: query by state and filter locally
             logger.debug(f"NID bbox query returned {resp.status_code}, trying spatial filter")
-            return _nid_fallback_spatial(lat, lon, distance_km)
+            dams = _nid_fallback_spatial(lat, lon, distance_km)
+            _dams_cache[cache_key] = dams
+            return dams
 
         data = resp.json()
         if not data:
+            _dams_cache[cache_key] = None
             return None
 
         records = []
@@ -459,6 +475,7 @@ def get_nid_dams(
             })
 
         if not records:
+            _dams_cache[cache_key] = None
             return None
 
         import pandas as pd
@@ -467,11 +484,14 @@ def get_nid_dams(
         gdf = gpd.GeoDataFrame(df, geometry=geometry, crs="EPSG:4326")
 
         logger.info(f"Found {len(gdf)} dams near {site_id} via NID API")
+        _dams_cache[cache_key] = gdf
         return gdf
 
     except Exception as e:
         logger.error(f"NID API error for {site_id}: {e}")
-        return _nid_fallback_spatial(lat, lon, distance_km)
+        dams = _nid_fallback_spatial(lat, lon, distance_km)
+        _dams_cache[cache_key] = dams
+        return dams
 
 
 def _nid_fallback_spatial(lat: float, lon: float, distance_km: float) -> Optional[Any]:
