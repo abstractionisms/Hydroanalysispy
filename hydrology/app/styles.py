@@ -5,6 +5,7 @@ Custom styling and UI components for the Hydrology Dashboard.
 import streamlit as st
 from typing import Dict, Any, Optional
 import pandas as pd
+from html import escape
 
 
 def apply_custom_css():
@@ -104,6 +105,98 @@ def apply_custom_css():
 
     .workflow-step span {
         display: block;
+        color: var(--hydro-muted);
+        font-size: 0.76rem;
+        line-height: 1.25;
+    }
+
+    .workspace-panel {
+        border: 1px solid var(--hydro-border);
+        border-radius: 8px;
+        background: linear-gradient(180deg, rgba(10, 21, 36, 0.92), rgba(7, 17, 29, 0.88));
+        padding: 0.95rem;
+        box-shadow: 0 14px 34px rgba(0, 0, 0, 0.20);
+    }
+
+    .workspace-panel h3 {
+        margin: 0 0 0.25rem 0;
+        font-size: 1rem;
+        color: var(--hydro-text);
+    }
+
+    .workspace-panel p {
+        margin: 0;
+        color: var(--hydro-muted);
+        font-size: 0.82rem;
+        line-height: 1.35;
+    }
+
+    .status-chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        margin-top: 0.65rem;
+    }
+
+    .status-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        border-radius: 999px;
+        padding: 0.22rem 0.55rem;
+        font-size: 0.72rem;
+        font-weight: 700;
+        border: 1px solid rgba(118, 169, 192, 0.22);
+        color: var(--hydro-text);
+        background: rgba(255, 255, 255, 0.055);
+    }
+
+    .status-chip.ready {
+        border-color: rgba(78, 205, 196, 0.48);
+    }
+
+    .status-chip.limited {
+        border-color: rgba(255, 193, 7, 0.55);
+    }
+
+    .status-chip.blocked {
+        border-color: rgba(255, 107, 107, 0.55);
+    }
+
+    .action-card-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        gap: 0.55rem;
+        margin: 0.75rem 0;
+    }
+
+    .action-card {
+        display: block;
+        border: 1px solid rgba(118, 169, 192, 0.20);
+        border-radius: 8px;
+        padding: 0.75rem;
+        background: rgba(12, 21, 34, 0.72);
+        color: var(--hydro-text);
+        text-decoration: none;
+        min-height: 92px;
+    }
+
+    .action-card:hover {
+        border-color: rgba(78, 205, 196, 0.62);
+        background: rgba(78, 205, 196, 0.11);
+        text-decoration: none;
+        color: var(--hydro-text);
+    }
+
+    .action-card strong {
+        display: block;
+        font-size: 0.9rem;
+        line-height: 1.2;
+    }
+
+    .action-card span {
+        display: block;
+        margin-top: 0.25rem;
         color: var(--hydro-muted);
         font-size: 0.76rem;
         line-height: 1.25;
@@ -530,6 +623,47 @@ def render_workflow_strip():
         <div class="workflow-step"><strong>Current Check</strong><span>Run manual threshold checks and review current hydrologic signals.</span></div>
     </div>
     """, unsafe_allow_html=True)
+
+
+def render_workspace_panel(title: str, body: str, chips: list[dict] | None = None):
+    """Render a reusable workspace panel."""
+    chip_html = ""
+    if chips:
+        chip_html = '<div class="status-chip-row">' + "".join(
+            f'<span class="status-chip {escape(str(chip.get("state", "ready")))}">{escape(str(chip["label"]))}</span>'
+            for chip in chips
+        ) + "</div>"
+    st.markdown(
+        f'<section class="workspace-panel"><h3>{escape(str(title))}</h3><p>{escape(str(body))}</p>{chip_html}</section>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_status_chips(chips: list[dict]):
+    """Render standalone status chips."""
+    if not chips:
+        return
+    st.markdown(
+        '<div class="status-chip-row">' + "".join(
+            f'<span class="status-chip {escape(str(chip.get("state", "ready")))}">{escape(str(chip["label"]))}</span>'
+            for chip in chips
+        ) + "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_action_cards(cards: list[dict]):
+    """Render action cards that link to app pages."""
+    html = []
+    for card in cards:
+        href = escape(str(card["href"]), quote=True)
+        title = escape(str(card["title"]))
+        body = escape(str(card["body"]))
+        html.append(
+            f'<a class="action-card" href="{href}" target="_self">'
+            f"<strong>{title}</strong><span>{body}</span></a>"
+        )
+    st.markdown('<div class="action-card-grid">' + "".join(html) + "</div>", unsafe_allow_html=True)
 
 
 def render_plot_capability_board(cards: list[dict]):
