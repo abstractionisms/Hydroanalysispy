@@ -108,6 +108,71 @@ def apply_custom_css():
         line-height: 1.25;
     }
 
+    .plot-board {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0.65rem;
+        margin: 0.75rem 0 1rem;
+    }
+
+    .plot-card {
+        border: 1px solid rgba(118, 169, 192, 0.18);
+        border-radius: 8px;
+        padding: 0.72rem 0.78rem;
+        background: rgba(12, 21, 34, 0.76);
+        min-height: 112px;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+    }
+
+    .plot-card.ready {
+        border-color: rgba(78, 205, 196, 0.35);
+    }
+
+    .plot-card.limited {
+        border-color: rgba(251, 191, 36, 0.34);
+    }
+
+    .plot-card.blocked {
+        border-color: rgba(248, 113, 113, 0.34);
+        opacity: 0.84;
+    }
+
+    .plot-card strong {
+        display: block;
+        color: var(--hydro-text);
+        font-size: 0.86rem;
+        line-height: 1.2;
+        margin-bottom: 0.22rem;
+    }
+
+    .plot-card span {
+        color: var(--hydro-muted);
+        font-size: 0.74rem;
+        line-height: 1.25;
+    }
+
+    .plot-card .status {
+        display: inline-block;
+        margin-top: 0.55rem;
+        padding: 0.12rem 0.45rem;
+        border-radius: 999px;
+        background: rgba(78, 205, 196, 0.12);
+        color: var(--hydro-accent);
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+    }
+
+    .plot-card.limited .status {
+        background: rgba(251, 191, 36, 0.12);
+        color: var(--hydro-warn);
+    }
+
+    .plot-card.blocked .status {
+        background: rgba(248, 113, 113, 0.12);
+        color: #f87171;
+    }
+
     /* Site header styling */
     .site-header {
         background: linear-gradient(90deg, rgba(78, 205, 196, 0.12), rgba(120, 166, 255, 0.06), transparent);
@@ -273,6 +338,10 @@ def apply_custom_css():
             grid-template-columns: 1fr 1fr;
         }
 
+        .plot-board {
+            grid-template-columns: 1fr 1fr;
+        }
+
         .dashboard-hero h1 {
             font-size: 1.35rem;
         }
@@ -316,6 +385,10 @@ def apply_custom_css():
         .workflow-strip {
             grid-template-columns: 1fr;
         }
+
+        .plot-board {
+            grid-template-columns: 1fr;
+        }
     }
     </style>
     """, unsafe_allow_html=True)
@@ -342,6 +415,31 @@ def render_workflow_strip():
         <div class="workflow-step"><strong>Monitor</strong><span>Review alerts, drought indicators, and climate-linked signals.</span></div>
     </div>
     """, unsafe_allow_html=True)
+
+
+def render_plot_capability_board(cards: list[dict]):
+    """Render compact plot capability cards."""
+    if not cards:
+        return
+
+    html_cards = []
+    for card in cards:
+        state = card.get("state", "ready")
+        title = card.get("title", "Plot")
+        body = card.get("body", "")
+        status = card.get("status", "Ready")
+        html_cards.append(
+            f'<div class="plot-card {state}">'
+            f"<strong>{title}</strong>"
+            f"<span>{body}</span>"
+            f'<div class="status">{status}</div>'
+            "</div>"
+        )
+
+    st.markdown(
+        '<div class="plot-board">' + "".join(html_cards) + "</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def render_site_header(site_id: str, description: str, lat: float = None, lon: float = None):

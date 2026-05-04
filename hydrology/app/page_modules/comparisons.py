@@ -14,7 +14,7 @@ from hydrology.app.shared import (
     date_range_selector, single_plot_selector_widget,
     create_comparison_figure, render_export_buttons,
     site_picker, logger)
-from hydrology.app.styles import render_site_header
+from hydrology.app.styles import render_site_header, render_plot_capability_board
 from hydrology.visualization.plots import AVAILABLE_PLOTS
 from hydrology.visualization.interactive import interactive_comparison, interactive_hydrograph
 
@@ -239,6 +239,7 @@ def _compare_sites(inventory_df):
     # ── Interactive Charts (auto-loaded) ──
     st.header("Multi-Site Comparison")
     st.caption(f"{len(selected_sites)} sites | {start_date} to {end_date}")
+    _render_compare_readiness(selected_sites, all_site_data, start_date, end_date)
 
     # Interactive overlay comparison
     site_dict = {}
@@ -312,6 +313,60 @@ def _compare_sites(inventory_df):
             st.pyplot(fig)
             render_export_buttons(fig, "multi_site_comparison", dpi)
             plt.close(fig)
+
+
+def _render_compare_readiness(selected_sites, all_site_data, start_date, end_date):
+    """Show visible multi-site readiness and overlap context."""
+    loaded_count = len(all_site_data)
+    requested_count = len(selected_sites)
+    lengths = []
+    merged_counts = []
+    starts = []
+    ends = []
+
+    for data in all_site_data.values():
+        df_q = data.get('df_q')
+        if df_q is not None and not df_q.empty:
+            lengths.append(len(df_q))
+            starts.append(df_q.index.min())
+            ends.append(df_q.index.max())
+        merged_counts.append(data.get('merged_count', 0))
+
+    overlap_days = 0
+    if starts and ends:
+        overlap_start = max(starts)
+        overlap_end = min(ends)
+        overlap_days = max((overlap_end - overlap_start).days + 1, 0)
+
+    climate_ready = sum(1 for count in merged_counts if count)
+    cards = [
+        {
+            "title": "Selected Sites",
+            "body": f"{loaded_count} of {requested_count} sites loaded for {start_date} to {end_date}.",
+            "status": "Ready" if loaded_count == requested_count else "Partial",
+            "state": "ready" if loaded_count == requested_count else "limited",
+        },
+        {
+            "title": "Shared Overlap",
+            "body": f"{overlap_days:,} common days across loaded stations for aligned comparison.",
+            "status": "Ready" if overlap_days >= 365 else "Short overlap",
+            "state": "ready" if overlap_days >= 365 else "limited",
+        },
+        {
+            "title": "Climate Merge",
+            "body": f"{climate_ready} sites include merged weather context for climate plots.",
+            "status": "Ready" if climate_ready == loaded_count else "Limited",
+            "state": "ready" if climate_ready == loaded_count else "limited",
+        },
+        {
+            "title": "Interactive Review",
+            "body": "Overlay and individual hydrographs load first; static export grids remain on demand.",
+            "status": "Fast path",
+            "state": "ready",
+        },
+    ]
+
+    render_plot_capability_board(cards)
 
 
 def _quad_comparison(inventory_df):

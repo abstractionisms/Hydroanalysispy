@@ -14,7 +14,8 @@ from hydrology.app.shared import (
     date_range_selector, plot_selector, render_export_buttons,
     render_data_download, site_picker, logger, AVAILABLE_PLOTS)
 from hydrology.app.styles import (
-    render_site_header, render_availability_badges, render_metric_cards
+    render_site_header, render_availability_badges, render_metric_cards,
+    render_plot_capability_board
 )
 from hydrology.visualization import create_multi_plot, PlotLayout
 from hydrology.visualization.interactive import (
@@ -27,6 +28,51 @@ from hydrology.core import DEFAULT_DISCHARGE_CODE
 def _load_site_data(site_id, lat, lon, start_str, end_str):
     """Cached wrapper around process_site_data."""
     return process_site_data(site_id, lat, lon, start_str, end_str)
+
+
+def _render_analysis_readiness(data, has_stage: bool, climate_info):
+    """Show visible plot readiness before users open deeper controls."""
+    df_q = data.get('df_q') if data else None
+    df_merged = data.get('df_merged') if data else None
+    discharge_days = len(df_q) if df_q is not None else 0
+    has_climate = df_merged is not None and not df_merged.empty and (
+        'Precip_mm' in df_merged.columns or 'Temp_C' in df_merged.columns
+    )
+
+    climate_status = "Ready" if has_climate else "Limited"
+    if climate_info and climate_info.get('distance_km') is not None and climate_info['distance_km'] > 50:
+        climate_status = "Distant station"
+
+    cards = [
+        {
+            "title": "Core Flow",
+            "body": f"{discharge_days:,} daily observations for hydrographs, duration curves, anomalies, and seasonal context.",
+            "status": "Ready" if discharge_days else "Unavailable",
+            "state": "ready" if discharge_days else "blocked",
+        },
+        {
+            "title": "Climate Links",
+            "body": "Temperature and precipitation overlays, lag response, SPI, and correlation views.",
+            "status": climate_status,
+            "state": "ready" if has_climate else "limited",
+        },
+        {
+            "title": "Stage + Rating",
+            "body": "Dual-axis stage overlay and stage-discharge rating curve when gage height exists.",
+            "status": "Ready" if has_stage else "Needs gage height",
+            "state": "ready" if has_stage else "blocked",
+        },
+        {
+            "title": "Frequency",
+            "body": "Flood frequency runs on demand from annual peak records so it does not slow page load.",
+            "status": "On demand",
+            "state": "limited",
+        },
+    ]
+
+    st.subheader("Analysis Readiness")
+    st.caption("Plot availability is based on the selected site, date range, and linked weather station.")
+    render_plot_capability_board(cards)
 
 
 def show():
@@ -83,6 +129,7 @@ def show():
     render_metric_cards(data['df_q'], data['df_merged'])
 
     st.markdown("---")
+    _render_analysis_readiness(data, has_stage, climate_info)
 
     # ── Interactive Charts (auto-loaded) ──
     st.subheader("Interactive Charts")
@@ -92,12 +139,23 @@ def show():
     col_agg, col_nwm, col_stage = st.columns(3)
     with col_agg:
         agg = st.radio("Aggregation", ["daily", "weekly", "monthly"],
-                        horizontal=True, key="hydrograph_agg")
+                        horizontal=True, key="hydrograph_agg",
+                        help="Changes the hydrograph time scale without refetching the selected site data.")
     with col_nwm:
-        show_nwm = st.checkbox("NWM forecast overlay", value=False, key="nwm_overlay")
+        show_nwm = st.checkbox(
+            "NWM forecast overlay",
+            value=False,
+            key="nwm_overlay",
+            help="Adds NOAA National Water Model streamflow where a matching forecast record is available.",
+        )
     with col_stage:
-        show_stage = st.checkbox("Show stage (dual axis)", value=False,
-                                 disabled=not has_stage, key="stage_overlay")
+        show_stage = st.checkbox(
+            "Show stage (dual axis)",
+            value=False,
+            disabled=not has_stage,
+            key="stage_overlay",
+            help="Requires gage-height observations at this site for the selected period.",
+        )
 
     fig_hydro = interactive_hydrograph(
         data['df_q'], discharge_col='Discharge_cfs',
@@ -152,7 +210,12 @@ def show():
     st.plotly_chart(fig_hydro, use_container_width=True, key="plotly_hydro")
 
     # Flow Duration Curve
-    koehler = st.checkbox("Koehler (2025) dQ/dt coloring", value=True, key="fdc_koehler")
+    koehler = st.checkbox(
+        "Koehler (2025) dQ/dt coloring",
+        value=True,
+        key="fdc_koehler",
+        help="Colors the flow-duration curve by rate-of-change to separate stable flow states from flashier transitions.",
+    )
     fig_fdc = interactive_fdc(
         data['df_q'], discharge_col='Discharge_cfs',
         title=f"{desc} - Flow Duration Curve",
@@ -255,52 +318,52 @@ def show():
 
     # ── Static Matplotlib Plots (on demand) ──
     st.markdown("---")
-    with st.expander("Static Plot Grid (matplotlib)", expanded=False):
-        st.caption("Select plots and generate a static multi-plot figure for export.")
-        selected_plots = plot_selector()
+    st.subheader("Static Plot Grid (matplotlib)")
+    st.caption("Select plots and generate a static multi-plot figure for export.")
+    selected_plots = plot_selector()
 
-        # Filter out plots already shown interactively
-        static_plots = [p for p in selected_plots if p not in {'timeseries', 'flow_duration'}]
+    # Filter out plots already shown interactively
+    static_plots = [p for p in selected_plots if p not in {'timeseries', 'flow_duration'}]
 
-        layout_options = {
-            'Auto': PlotLayout.AUTO,
-            'Vertical': PlotLayout.VERTICAL,
-            'Quad (2x2)': PlotLayout.QUAD,
-            'Grid 2x3': PlotLayout.GRID_2x3,
-            'Grid 3x2': PlotLayout.GRID_3x2,
-            'Grid 2x5': PlotLayout.GRID_2x5,
-        }
+    layout_options = {
+        'Auto': PlotLayout.AUTO,
+        'Vertical': PlotLayout.VERTICAL,
+        'Quad (2x2)': PlotLayout.QUAD,
+        'Grid 2x3': PlotLayout.GRID_2x3,
+        'Grid 3x2': PlotLayout.GRID_3x2,
+        'Grid 2x5': PlotLayout.GRID_2x5,
+    }
 
-        col_layout, col_dpi, col_btn = st.columns([2, 1, 2])
-        with col_layout:
-            layout = st.selectbox("Layout", list(layout_options.keys()))
-        with col_dpi:
-            dpi = st.number_input("DPI", min_value=72, max_value=300, value=150)
-        with col_btn:
-            st.markdown("<br>", unsafe_allow_html=True)
-            generate = st.button("Generate Plots", type="primary", use_container_width=True)
+    col_layout, col_dpi, col_btn = st.columns([2, 1, 2])
+    with col_layout:
+        layout = st.selectbox("Layout", list(layout_options.keys()))
+    with col_dpi:
+        dpi = st.number_input("DPI", min_value=72, max_value=300, value=150)
+    with col_btn:
+        st.markdown("<br>", unsafe_allow_html=True)
+        generate = st.button("Generate Plots", type="primary", use_container_width=True)
 
-        if generate:
-            if not static_plots:
-                st.warning("Select at least one plot type")
-            else:
-                plot_data = {
-                    'df_q': data['df_q'],
-                    'df_merged': data['df_merged'],
-                    'analysis_results': data['analysis_results']
-                }
+    if generate:
+        if not static_plots:
+            st.warning("Select at least one plot type")
+        else:
+            plot_data = {
+                'df_q': data['df_q'],
+                'df_merged': data['df_merged'],
+                'analysis_results': data['analysis_results']
+            }
 
-                with st.spinner("Generating plots..."):
-                    fig = create_multi_plot(
-                        plots=static_plots,
-                        layout=layout_options[layout],
-                        data=plot_data,
-                        site_id=site_id,
-                        title=desc,
-                        dpi=dpi
-                    )
+            with st.spinner("Generating plots..."):
+                fig = create_multi_plot(
+                    plots=static_plots,
+                    layout=layout_options[layout],
+                    data=plot_data,
+                    site_id=site_id,
+                    title=desc,
+                    dpi=dpi
+                )
 
-                if fig:
-                    st.pyplot(fig)
-                    render_export_buttons(fig, site_id, dpi)
-                    plt.close(fig)
+            if fig:
+                st.pyplot(fig)
+                render_export_buttons(fig, site_id, dpi)
+                plt.close(fig)

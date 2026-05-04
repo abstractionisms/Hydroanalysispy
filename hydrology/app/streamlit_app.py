@@ -19,7 +19,7 @@ from hydrology.app.shared import get_inventory
 from hydrology.visualization.plots import AVAILABLE_PLOTS
 
 # Page imports
-from hydrology.app.pages import overview, single_analysis, comparisons, reach_analysis, alerts, advanced, indicators
+from hydrology.app.page_modules import overview, single_analysis, comparisons, reach_analysis, alerts, advanced, indicators
 
 apply_custom_css()
 render_dashboard_hero(
