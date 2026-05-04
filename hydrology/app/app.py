@@ -14,7 +14,7 @@ import streamlit as st
 
 st.set_page_config(page_title="Hydrology Analysis", page_icon="\U0001f4a7", layout="wide")
 
-from hydrology.app.styles import apply_custom_css, render_footer
+from hydrology.app.styles import apply_custom_css, render_footer, render_dashboard_hero, render_workflow_strip
 from hydrology.app.shared import get_inventory
 from hydrology.visualization.plots import AVAILABLE_PLOTS
 
@@ -22,6 +22,11 @@ from hydrology.visualization.plots import AVAILABLE_PLOTS
 from hydrology.app.pages import overview, single_analysis, comparisons, reach_analysis, alerts, advanced, indicators
 
 apply_custom_css()
+render_dashboard_hero(
+    "HydroPlot analysis dashboard",
+    "Explore stations, analyze site behavior, compare records, and monitor climate-linked flow signals from one workspace.",
+)
+render_workflow_strip()
 
 # Background cache warmup — pre-fetch data so first user doesn't wait
 if "warmup_started" not in st.session_state:

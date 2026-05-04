@@ -11,41 +11,125 @@ def apply_custom_css():
     """Apply custom CSS for a polished dark theme."""
     st.markdown("""
     <style>
+    :root {
+        --hydro-bg: #08111f;
+        --hydro-panel: #101c2e;
+        --hydro-panel-2: #13283d;
+        --hydro-border: rgba(118, 169, 192, 0.26);
+        --hydro-text: #e7eef7;
+        --hydro-muted: #8da2b8;
+        --hydro-accent: #4ecdc4;
+        --hydro-accent-2: #78a6ff;
+        --hydro-warn: #fbbf24;
+    }
+
+    .stApp {
+        background:
+            radial-gradient(circle at 16% 8%, rgba(78, 205, 196, 0.10), transparent 26rem),
+            radial-gradient(circle at 90% 12%, rgba(120, 166, 255, 0.10), transparent 30rem),
+            linear-gradient(180deg, #08111f 0%, #0d1420 48%, #090f18 100%);
+        color: var(--hydro-text);
+    }
+
     /* Main container padding */
     .main .block-container {
-        padding-top: 2rem;
+        padding-top: 1.35rem;
         padding-bottom: 2rem;
+        max-width: 1480px;
     }
 
     /* Card-style containers */
     .metric-card {
-        background: linear-gradient(135deg, #1e3a5f 0%, #0d1b2a 100%);
-        border-radius: 10px;
+        background: linear-gradient(135deg, rgba(30, 58, 95, 0.95) 0%, rgba(13, 27, 42, 0.95) 100%);
+        border-radius: 8px;
         padding: 1rem;
-        border: 1px solid #2d4a6f;
+        border: 1px solid var(--hydro-border);
         margin-bottom: 0.5rem;
+        box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
+    }
+
+    .dashboard-hero {
+        border: 1px solid var(--hydro-border);
+        border-radius: 8px;
+        padding: 1rem 1.1rem;
+        margin: 0 0 1rem 0;
+        background: linear-gradient(135deg, rgba(16, 28, 46, 0.92), rgba(12, 40, 55, 0.72));
+        box-shadow: 0 16px 38px rgba(0, 0, 0, 0.28);
+    }
+
+    .dashboard-hero .eyebrow {
+        color: var(--hydro-accent);
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        margin-bottom: 0.25rem;
+    }
+
+    .dashboard-hero h1 {
+        font-size: 1.85rem;
+        line-height: 1.15;
+        margin: 0;
+        color: var(--hydro-text);
+    }
+
+    .dashboard-hero p {
+        margin: 0.4rem 0 0 0;
+        color: var(--hydro-muted);
+        max-width: 78ch;
+    }
+
+    .workflow-strip {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0.55rem;
+        margin: 0.75rem 0 1.1rem;
+    }
+
+    .workflow-step {
+        border: 1px solid rgba(118, 169, 192, 0.20);
+        background: rgba(12, 21, 34, 0.72);
+        border-radius: 8px;
+        padding: 0.65rem 0.75rem;
+        min-height: 72px;
+    }
+
+    .workflow-step strong {
+        display: block;
+        color: var(--hydro-text);
+        font-size: 0.86rem;
+        margin-bottom: 0.15rem;
+    }
+
+    .workflow-step span {
+        display: block;
+        color: var(--hydro-muted);
+        font-size: 0.76rem;
+        line-height: 1.25;
     }
 
     /* Site header styling */
     .site-header {
-        background: transparent;
-        padding: 0.5rem 0;
+        background: linear-gradient(90deg, rgba(78, 205, 196, 0.12), rgba(120, 166, 255, 0.06), transparent);
+        padding: 0.85rem 1rem;
         margin-bottom: 1rem;
-        border-left: 3px solid #4ecdc4;
-        padding-left: 1rem;
+        border-left: 4px solid var(--hydro-accent);
+        border-top: 1px solid rgba(78, 205, 196, 0.18);
+        border-bottom: 1px solid rgba(78, 205, 196, 0.10);
+        border-radius: 8px;
     }
 
     .site-header h1 {
         margin: 0;
-        color: #e0e0e0;
-        font-size: 1.3rem;
+        color: var(--hydro-text);
+        font-size: 1.42rem;
         font-weight: 600;
-        letter-spacing: 0.02em;
+        letter-spacing: 0;
     }
 
     .site-header p {
         margin: 0.25rem 0 0 0;
-        color: #8899a6;
+        color: var(--hydro-muted);
         font-size: 0.85rem;
     }
 
@@ -54,7 +138,7 @@ def apply_custom_css():
         background-color: #2d5a3d;
         color: #4ade80;
         padding: 0.25rem 0.75rem;
-        border-radius: 15px;
+        border-radius: 999px;
         font-size: 0.8rem;
         display: inline-block;
         margin: 0.2rem;
@@ -64,7 +148,7 @@ def apply_custom_css():
         background-color: #5a2d2d;
         color: #f87171;
         padding: 0.25rem 0.75rem;
-        border-radius: 15px;
+        border-radius: 999px;
         font-size: 0.8rem;
         display: inline-block;
         margin: 0.2rem;
@@ -74,7 +158,7 @@ def apply_custom_css():
         background-color: #5a4d2d;
         color: #fbbf24;
         padding: 0.25rem 0.75rem;
-        border-radius: 15px;
+        border-radius: 999px;
         font-size: 0.8rem;
         display: inline-block;
         margin: 0.2rem;
@@ -88,16 +172,49 @@ def apply_custom_css():
 
     /* Metric styling */
     [data-testid="stMetricValue"] {
-        font-size: 1.8rem;
+        font-size: 1.75rem;
+        color: var(--hydro-text);
     }
 
     [data-testid="stMetricLabel"] {
         font-size: 0.85rem;
+        color: var(--hydro-muted);
+    }
+
+    [data-testid="stMetric"] {
+        background: rgba(16, 28, 46, 0.72);
+        border: 1px solid rgba(118, 169, 192, 0.18);
+        border-radius: 8px;
+        padding: 0.75rem 0.85rem;
+        min-height: 96px;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
     }
 
     /* Sidebar improvements */
-    .css-1d391kg {
-        padding-top: 1rem;
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0a1524 0%, #07111d 100%);
+        border-right: 1px solid rgba(118, 169, 192, 0.18);
+    }
+
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h3,
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2,
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h1 {
+        color: var(--hydro-text);
+    }
+
+    [data-testid="stSidebarNav"] {
+        padding-top: 0.35rem;
+    }
+
+    [data-testid="stSidebarNav"] a {
+        border-radius: 8px;
+        margin: 0.12rem 0.35rem;
+        color: var(--hydro-muted);
+    }
+
+    [data-testid="stSidebarNav"] a:hover {
+        background: rgba(78, 205, 196, 0.10);
+        color: var(--hydro-text);
     }
 
     /* Button styling */
@@ -105,6 +222,7 @@ def apply_custom_css():
         border-radius: 8px;
         font-weight: 500;
         transition: all 0.2s ease;
+        border-color: rgba(78, 205, 196, 0.45);
     }
 
     .stButton > button:hover {
@@ -114,10 +232,23 @@ def apply_custom_css():
 
     /* Plot container */
     .plot-container {
-        background: #0e1117;
-        border-radius: 10px;
+        background: rgba(14, 17, 23, 0.82);
+        border: 1px solid rgba(118, 169, 192, 0.18);
+        border-radius: 8px;
         padding: 1rem;
         margin-bottom: 1rem;
+    }
+
+    div[data-testid="stPlotlyChart"],
+    iframe[title="streamlit_folium.st_folium"] {
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    div[data-testid="stDataFrame"] {
+        border: 1px solid rgba(118, 169, 192, 0.14);
+        border-radius: 8px;
+        overflow: hidden;
     }
 
     /* Footer styling */
@@ -126,7 +257,7 @@ def apply_custom_css():
         color: #6b7280;
         font-size: 0.8rem;
         padding: 1rem;
-        border-top: 1px solid #374151;
+        border-top: 1px solid rgba(118, 169, 192, 0.18);
         margin-top: 2rem;
     }
 
@@ -136,6 +267,14 @@ def apply_custom_css():
             padding-top: 1rem;
             padding-left: 0.5rem;
             padding-right: 0.5rem;
+        }
+
+        .workflow-strip {
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .dashboard-hero h1 {
+            font-size: 1.35rem;
         }
 
         [data-testid="stMetricValue"] {
@@ -173,8 +312,35 @@ def apply_custom_css():
             padding: 0.3rem 0;
             padding-left: 0.75rem;
         }
+
+        .workflow-strip {
+            grid-template-columns: 1fr;
+        }
     }
     </style>
+    """, unsafe_allow_html=True)
+
+
+def render_dashboard_hero(title: str, subtitle: str):
+    """Render a compact first-screen dashboard header."""
+    st.markdown(f"""
+    <div class="dashboard-hero">
+        <div class="eyebrow">Pacific Northwest hydrology workspace</div>
+        <h1>{title}</h1>
+        <p>{subtitle}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def render_workflow_strip():
+    """Render visible navigation intent without replacing Streamlit navigation."""
+    st.markdown("""
+    <div class="workflow-strip">
+        <div class="workflow-step"><strong>Explore</strong><span>Map stations, basins, current conditions, and record coverage.</span></div>
+        <div class="workflow-step"><strong>Analyze</strong><span>Run single-site plots with availability and requirement context.</span></div>
+        <div class="workflow-step"><strong>Compare</strong><span>Check multi-site overlap before expensive processing.</span></div>
+        <div class="workflow-step"><strong>Monitor</strong><span>Review alerts, drought indicators, and climate-linked signals.</span></div>
+    </div>
     """, unsafe_allow_html=True)
 
 
