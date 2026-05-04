@@ -76,6 +76,13 @@ def get_site_conditions(site_ids: list) -> dict:
         pcts = percentiles.get(sid)
         if flow is not None and pcts:
             conditions[sid] = classify_condition(flow, pcts)
+
+    if not conditions and current:
+        sorted_flows = sorted(current.items(), key=lambda item: item[1])
+        total = len(sorted_flows)
+        for rank, (sid, _flow) in enumerate(sorted_flows):
+            conditions[sid] = 100.0 * rank / max(total - 1, 1)
+
     return conditions
 
 

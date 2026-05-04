@@ -5,6 +5,7 @@ Overview page - KPI cards, station map, and condition summary.
 import streamlit as st
 import pandas as pd
 import numpy as np
+import importlib.util
 from datetime import datetime, timedelta, date
 import plotly.graph_objects as go
 # Deferred imports: folium/streamlit_folium can't be imported outside Streamlit runtime
@@ -387,6 +388,8 @@ def _render_station_map(inventory_df, selected_site_id):
     show_flowlines = False
     show_dams = False
     color_by_conditions = False
+    has_pynhd = importlib.util.find_spec("pynhd") is not None
+    has_pygeohydro = importlib.util.find_spec("pygeohydro") is not None
 
     with st.expander("Optional slow map layers", expanded=False):
         st.caption("These layers may take a while or fail if HyRiver/NLDI services are unavailable.")
@@ -403,22 +406,31 @@ def _render_station_map(inventory_df, selected_site_id):
                 "Watershed boundary",
                 value=False,
                 key="ov_boundary",
+                disabled=not has_pynhd,
                 help="Requires HyRiver basin delineation and can be slow.",
             )
+            if not has_pynhd:
+                st.caption("Unavailable: install `pynhd`.")
         with col_opt3:
             show_flowlines = st.checkbox(
                 "Flowlines",
                 value=False,
                 key="ov_flowlines",
+                disabled=not has_pynhd,
                 help="Requires NHD/NLDI geospatial services and can be slow.",
             )
+            if not has_pynhd:
+                st.caption("Unavailable: install `pynhd`.")
         with col_opt4:
             show_dams = st.checkbox(
                 "Nearby dams",
                 value=False,
                 key="ov_dams",
+                disabled=not has_pygeohydro,
                 help="Requires National Inventory of Dams geospatial lookup.",
             )
+            if not has_pygeohydro:
+                st.caption("Unavailable: install `pygeohydro`.")
 
     # Center on selected site if possible
     selected_info = get_cached_site_info(selected_site_id)
@@ -492,6 +504,12 @@ def _render_station_map(inventory_df, selected_site_id):
         all_site_ids = map_data['site_id'].tolist()
         with st.spinner("Loading live flow conditions for map markers..."):
             conditions = get_site_conditions(all_site_ids)
+        if conditions:
+            st.caption(
+                "Marker colors use USGS seasonal percentiles when available; if not, they use relative live-flow rank among mapped sites."
+            )
+        else:
+            st.warning("Live flow coloring is unavailable for these sites right now; showing default station markers.")
     from folium.plugins import MarkerCluster
     from streamlit_folium import st_folium
 
