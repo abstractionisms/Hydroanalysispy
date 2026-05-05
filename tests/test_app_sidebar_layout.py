@@ -23,3 +23,11 @@ def test_app_entrypoint_does_not_write_sidebar_footer():
     text = (ROOT / "hydrology/app/streamlit_app.py").read_text(encoding="utf-8")
 
     assert "st.sidebar" not in text
+
+
+def test_overview_uses_map_first_workspace_copy():
+    text = (ROOT / "hydrology/app/page_modules/overview.py").read_text(encoding="utf-8")
+
+    assert "Station Workspace" in text
+    assert "Selected Site" in text
+    assert "Map Layers" in text

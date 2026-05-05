@@ -17,9 +17,10 @@ from hydrology.app.shared import (
     fetch_discharge_data, process_site_data,
     find_availability_windows, format_availability_windows,
     render_export_buttons, get_site_conditions, get_site_condition_details,
-    logger)
+    build_site_summary, logger)
 from hydrology.app.styles import (
-    render_site_header, render_availability_badges, render_metric_cards, render_insight_board
+    render_site_header, render_availability_badges, render_metric_cards,
+    render_insight_board, render_workspace_panel, render_action_cards
 )
 from hydrology.app.interpretation import summarize_flow_context
 from hydrology.data.usgs import (
@@ -114,8 +115,8 @@ def show():
         st.error("Could not load site inventory")
         return
 
-    st.subheader("Site Workspace")
-    st.caption("Search or click a station on the map, then move directly into analysis, comparison, or monitoring.")
+    st.subheader("Station Workspace")
+    st.caption("Search or click a station on the map, then move directly into analysis, comparison, or current checks.")
     site_id = site_picker(inventory_df, key="overview", label="Site", location="main")
 
     site_info = get_cached_site_info(site_id)
@@ -127,46 +128,46 @@ def show():
     lon = site_info.get('longitude')
     desc = site_info.get('description', site_id)
 
-    _render_site_workspace(site_id, desc, float(lat) if lat else None, float(lon) if lon else None)
+    condition = get_site_condition_details([site_id]).get(site_id, {})
+    _render_site_workspace(site_id, site_info, condition)
+
+    _render_station_map(inventory_df, site_id)
 
     st.markdown("---")
-
-    # Main area
     render_site_header(site_id, desc, float(lat) if lat else None, float(lon) if lon else None)
-
-    # Deep-link to full analysis
-    if st.button("Full Analysis →", type="secondary", key="deep_link_analysis"):
-        st.query_params["site"] = site_id
-        st.switch_page(st.session_state["_page_single_analysis"])
-
-    # KPI row - current conditions
     df_hist = _render_kpi_row(site_id, site_info)
     if df_hist is not None and not df_hist.empty:
         st.subheader("Current Interpretation")
         st.caption("Fast context from the last 10 years of daily discharge.")
         render_insight_board(summarize_flow_context(df_hist))
 
-    # Quick Stats summary table
     _render_quick_stats(df_hist)
 
-    st.markdown("---")
 
-    # Station map
-    _render_station_map(inventory_df, site_id)
-
-
-def _render_site_workspace(site_id: str, desc: str, lat: float | None, lon: float | None):
+def _render_site_workspace(site_id: str, site_info: dict, condition: dict | None):
     """Render a visible main-page site workspace with workflow actions."""
-
-    col_site, col_actions = st.columns([2, 1])
+    summary = build_site_summary(site_id, site_info, condition)
+    col_site, col_actions = st.columns([1.1, 1.9])
     with col_site:
-        coord_text = f"{lat:.4f}, {lon:.4f}" if lat is not None and lon is not None else "coordinates unavailable"
-        st.markdown(f"**{desc}**")
-        st.caption(f"USGS `{site_id}` | {coord_text}")
+        render_workspace_panel("Selected Site", f"{summary['title']} | {summary['subtitle']}", summary["chips"])
     with col_actions:
-        if st.button("Open Single Analysis", type="primary", use_container_width=True, key="overview_open_single"):
-            st.query_params["site"] = site_id
-            st.switch_page(st.session_state["_page_single_analysis"])
+        render_action_cards([
+            {
+                "title": "Open Site Analysis",
+                "href": f"single-analysis?site={site_id}",
+                "body": "Run guided plots and static export grids.",
+            },
+            {
+                "title": "Compare Sites",
+                "href": f"comparisons?site={site_id}",
+                "body": "Check overlap against nearby or selected gages.",
+            },
+            {
+                "title": "Current Check",
+                "href": f"alerts?site={site_id}",
+                "body": "Run manual threshold checks for this gage.",
+            },
+        ])
 
 
 def _render_kpi_row(site_id: str, site_info: dict) -> "pd.DataFrame | None":
@@ -387,7 +388,7 @@ def _render_station_map(inventory_df, selected_site_id):
     has_pynhd = importlib.util.find_spec("pynhd") is not None
     has_pygeohydro = importlib.util.find_spec("pygeohydro") is not None
 
-    with st.expander("Optional slow map layers", expanded=False):
+    with st.expander("Map Layers", expanded=False):
         st.caption("These layers may take a while or fail if HyRiver/NLDI services are unavailable.")
         col_opt1, col_opt2, col_opt3, col_opt4 = st.columns(4)
         with col_opt1:
