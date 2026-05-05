@@ -56,3 +56,9 @@ def test_describe_selected_plots_groups_counts():
     ])
 
     assert summary == "3 selected: Flow behavior, Extremes / frequency, Climate linkage"
+
+
+def test_resolve_generated_plots_keeps_interactive_plot_choices():
+    selected = ["timeseries", "flow_duration", "monthly_boxplot", "annual_trend"]
+
+    assert plot_config.resolve_generated_plots(selected) == selected

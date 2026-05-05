@@ -19,6 +19,7 @@ from hydrology.app.styles import (
     render_plot_capability_board, render_insight_board
 )
 from hydrology.app.interpretation import summarize_flow_context, summarize_recommendations
+from hydrology.app.plot_config import resolve_generated_plots
 from hydrology.visualization import create_multi_plot, PlotLayout
 from hydrology.visualization.interactive import (
     interactive_hydrograph, interactive_fdc,
@@ -349,10 +350,7 @@ def show():
     st.caption("Use presets for common workflows or choose any plot manually. Static figures are generated on demand for export.")
     selected_plots = plot_selector()
 
-    # Filter out plots already shown interactively
-    static_plots = [p for p in selected_plots if p not in {'timeseries', 'flow_duration'}]
-    if any(p in selected_plots for p in {'timeseries', 'flow_duration'}):
-        st.caption("Recent time series and flow-duration views are already shown interactively above, so they are skipped in the static export grid.")
+    static_plots = resolve_generated_plots(selected_plots)
 
     layout_options = {
         'Auto': PlotLayout.AUTO,

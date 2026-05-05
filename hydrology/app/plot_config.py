@@ -215,6 +215,11 @@ def describe_selected_plots(selected_plots: List[str]) -> str:
     return f"{len(selected_plots)} selected: " + ", ".join(labels)
 
 
+def resolve_generated_plots(selected_plots: List[str]) -> List[str]:
+    """Return plot keys that should be generated from the user's selection."""
+    return list(selected_plots)
+
+
 # =============================================================================
 # SELECTOR WIDGETS
 # =============================================================================
