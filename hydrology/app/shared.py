@@ -68,15 +68,76 @@ def get_inventory():
 @st.cache_data(ttl=3600, show_spinner="Loading site conditions...")
 def get_site_conditions(site_ids: list) -> dict:
     """Fetch and classify current streamflow conditions for all sites."""
+    details = get_site_condition_details(site_ids)
+    return {
+        sid: values["percentile"]
+        for sid, values in details.items()
+        if values.get("percentile") is not None
+    }
+
+
+@st.cache_data(ttl=3600, show_spinner="Loading site condition details...")
+def get_site_condition_details(site_ids: list) -> dict:
+    """Fetch current flow plus condition metadata for map hovers and popups."""
     current = fetch_current_conditions(site_ids)
     percentiles = fetch_daily_percentiles(site_ids)
-    conditions = {}
+    details = {}
+
     for sid in site_ids:
         flow = current.get(sid)
         pcts = percentiles.get(sid)
-        if flow is not None and pcts:
-            conditions[sid] = classify_condition(flow, pcts)
-    return conditions
+        if flow is None:
+            continue
+        percentile = classify_condition(flow, pcts) if pcts else None
+        details[sid] = {
+            "flow_cfs": flow,
+            "percentile": percentile,
+            "source": "USGS seasonal percentile" if percentile is not None else "USGS live flow",
+        }
+
+    if details and not any(v.get("percentile") is not None for v in details.values()):
+        sorted_flows = sorted(
+            ((sid, values["flow_cfs"]) for sid, values in details.items()),
+            key=lambda item: item[1],
+        )
+        total = len(sorted_flows)
+        for rank, (sid, _flow) in enumerate(sorted_flows):
+            details[sid]["percentile"] = 100.0 * rank / max(total - 1, 1)
+            details[sid]["source"] = "Relative live-flow rank among mapped sites"
+
+    return details
+
+
+def build_site_summary(site_id: str, site_info: dict, condition: dict | None = None) -> dict:
+    """Build display-ready selected-site summary data."""
+    from hydrology.visualization.map_utils import get_condition_label
+
+    condition = condition or {}
+    desc = site_info.get("description") or site_id
+    lat = site_info.get("latitude")
+    lon = site_info.get("longitude")
+    subtitle = f"USGS {site_id}"
+    if lat is not None and lon is not None:
+        subtitle = f"{subtitle} | {float(lat):.4f}, {float(lon):.4f}"
+
+    chips = []
+    flow = condition.get("flow_cfs")
+    if flow is not None:
+        chips.append({"label": f"Flow {flow:,.0f} cfs", "state": "ready"})
+
+    pctile = condition.get("percentile")
+    if pctile is not None:
+        chips.append({"label": get_condition_label(pctile), "state": "ready"})
+
+    begin_date = str(site_info.get("begin_date") or "")
+    if len(begin_date) >= 4 and begin_date[:4].isdigit():
+        chips.append({"label": f"Record since {begin_date[:4]}", "state": "ready"})
+
+    return {
+        "title": desc,
+        "subtitle": subtitle,
+        "chips": chips,
+    }
 
 
 @st.cache_data(ttl=86400)

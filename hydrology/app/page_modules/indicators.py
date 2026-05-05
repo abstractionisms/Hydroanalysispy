@@ -15,6 +15,8 @@ from plotly.subplots import make_subplots
 from hydrology.app.shared import (
     get_inventory, get_cached_site_info,
     site_picker, logger)
+from hydrology.app.interpretation import InsightCard, describe_standardized_index
+from hydrology.app.styles import render_insight_board
 from hydrology.data.usgs import fetch_daily_values, DEFAULT_PARAM_DISCHARGE
 from hydrology.analysis.indicators import (
     calculate_spi, calculate_sri, classify_drought,
@@ -31,9 +33,8 @@ def show():
         st.error("Could not load site inventory")
         return
 
-    # Site selection
-    st.sidebar.header("Select Site")
-    site_id = site_picker(inventory_df, key="indicators", label="Site", location="sidebar")
+    st.subheader("Indicator Workspace")
+    site_id = site_picker(inventory_df, key="indicators", label="Site", location="main")
 
     site_info = get_cached_site_info(site_id)
     if not site_info:
@@ -43,8 +44,9 @@ def show():
     desc = site_info.get('description', site_id)
     lat = site_info.get('latitude')
     lon = site_info.get('longitude')
+    st.caption(f"Selected `{site_id}` - {desc}")
 
-    years_back = st.sidebar.slider("Years of data", 5, 30, 15, key="ind_years")
+    years_back = st.slider("Years of data", 5, 30, 15, key="ind_years")
 
     end_date = datetime.now()
     start_date = end_date - timedelta(days=years_back * 365)
@@ -94,6 +96,7 @@ def _render_drought_tab(df_q, q_col, site_id, desc, lat, lon, start_str, end_str
 
     # Current drought status
     _render_drought_status_cards(sri_df)
+    _render_index_interpretation(sri_df, "SRI", "streamflow")
 
     # SRI time series with drought bands
     fig = _create_drought_timeseries(sri_df, title=f"{desc} - Standardized Runoff Index")
@@ -111,12 +114,15 @@ def _render_drought_tab(df_q, q_col, site_id, desc, lat, lon, start_str, end_str
         if precip_data is not None and not precip_data.empty:
             spi_df = calculate_spi(precip_data, windows=[1, 3, 6, 12])
             if not spi_df.empty:
+                _render_index_interpretation(spi_df, "SPI", "precipitation")
                 fig_spi = _create_drought_timeseries(spi_df, title=f"{desc} - SPI")
                 st.plotly_chart(fig_spi, use_container_width=True, key="spi_chart")
             else:
-                st.warning("Insufficient precipitation data for SPI")
+                st.warning("Insufficient precipitation data for SPI. Try a longer period or a site with stronger climate coverage.")
         else:
-            st.warning("Could not fetch precipitation data")
+            st.warning(
+                "Could not fetch precipitation data. SPI uses Daymet first and then the nearest Meteostat station from the selected site coordinates."
+            )
 
 
 def _render_drought_status_cards(sri_df: pd.DataFrame):
@@ -137,6 +143,29 @@ def _render_drought_status_cards(sri_df: pd.DataFrame):
                 f"{val:+.2f}",
                 delta=status['label'],
                 delta_color="off")
+
+
+def _render_index_interpretation(index_df: pd.DataFrame, label: str, subject: str):
+    """Show plain-language interpretation for latest standardized indices."""
+    cards = []
+    for col_name in index_df.columns:
+        latest = index_df[col_name].dropna()
+        if latest.empty:
+            continue
+        value = float(latest.iloc[-1])
+        meaning, body = describe_standardized_index(value)
+        window = col_name.split('_')[1] if '_' in col_name else col_name
+        cards.append(
+            InsightCard(
+                f"{window}-Month {label}",
+                f"{value:+.2f}",
+                f"{meaning}. {body} This summarizes {subject} over the selected record.",
+                "limited" if abs(value) >= 1.3 else "ready",
+            )
+        )
+    if cards:
+        st.caption(f"Interpretation of latest {label} values")
+        render_insight_board(cards)
 
 
 def _create_drought_timeseries(index_df: pd.DataFrame, title: str) -> go.Figure:
@@ -395,8 +424,13 @@ def _fetch_precip_data(site_id, lat, lon, start_str, end_str):
                 float(lat), float(lon),
                 pd.Timestamp(start_str), pd.Timestamp(end_str),
                 include_temp=False, include_precip=True)
-            if climate is not None and 'prcp' in climate.columns:
-                return climate['prcp']
+            if climate is not None:
+                if 'Precip_mm' in climate.columns:
+                    return climate['Precip_mm']
+                if 'precip_mm' in climate.columns:
+                    return climate['precip_mm']
+                if 'prcp' in climate.columns:
+                    return climate['prcp']
     except Exception as e:
         logger.debug(f"Meteostat precip fetch failed: {e}")
 

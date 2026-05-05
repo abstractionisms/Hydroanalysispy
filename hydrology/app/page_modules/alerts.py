@@ -30,8 +30,8 @@ def show():
         st.error("Could not load site inventory")
         return
 
-    st.sidebar.header("Alert Configuration")
-    site_id = site_picker(inventory_df, key="alert", label="Monitor Site", location="sidebar")
+    st.subheader("Monitor Site")
+    site_id = site_picker(inventory_df, key="alert", label="Monitor Site", location="main")
 
     site_info = get_cached_site_info(site_id)
     if not site_info:
@@ -40,8 +40,11 @@ def show():
 
     desc = site_info.get('description', site_id)
 
-    st.header("Alert Monitor")
-    st.caption(f"Real-time threshold monitoring for {desc}")
+    st.header("Alert Check")
+    st.caption(
+        f"Manual threshold check for {desc}. Streamlit does not run background monitoring "
+        "unless it is connected to a scheduled job or notification service."
+    )
 
     # Alert configuration
     col1, col2 = st.columns(2)
@@ -63,7 +66,13 @@ def show():
 
     st.markdown("---")
 
-    if st.button("Check Current Conditions", type="primary"):
+    st.info(
+        "This page evaluates the latest USGS reading when you run a check. It does not "
+        "send notifications or keep checking after you leave the page.",
+        icon="ℹ️",
+    )
+
+    if st.button("Run Current Check", type="primary"):
         with st.spinner("Fetching current data..."):
             monitor = AlertMonitor()
 
@@ -79,7 +88,7 @@ def show():
 
             alerts = monitor.check_site(site_id, use_instantaneous=True)
 
-            st.subheader("Current Conditions")
+            st.subheader("Current Check")
 
             try:
                 end_date = datetime.now()
@@ -103,8 +112,8 @@ def show():
                         st.metric("Reading Time", latest_time.strftime('%Y-%m-%d %H:%M'))
                     with col_c:
                         if alerts:
-                            st.metric("Active Alerts", len(alerts),
-                         help="Number of active flood or low-flow alerts based on current conditions")
+                            st.metric("Triggered Thresholds", len(alerts),
+                         help="Number of configured flood or low-flow thresholds triggered by the latest reading")
                         else:
                             st.metric("Status", "Normal")
                 else:
@@ -114,13 +123,13 @@ def show():
                 st.error(f"Error fetching data: {e}")
 
             if alerts:
-                st.subheader("Active Alerts")
+                st.subheader("Triggered Thresholds")
                 for alert in alerts:
                     severity_colors = {'critical': '🔴', 'warning': '🟡', 'info': '🔵'}
                     icon = severity_colors.get(alert.severity, '⚪')
                     st.error(f"{icon} **{alert.severity.upper()}**: {alert.message}")
             else:
-                st.success("No alerts - all conditions normal")
+                st.success("No configured thresholds were triggered by the latest reading")
 
     # Recent history
     st.markdown("---")
