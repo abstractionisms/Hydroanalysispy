@@ -200,6 +200,21 @@ def get_grouped_plot_options(available_plots: Dict[str, Any]) -> List[Dict[str, 
     return grouped
 
 
+def describe_selected_plots(selected_plots: List[str]) -> str:
+    """Summarize the current plot mix by count and analysis purpose."""
+    if not selected_plots:
+        return "No plots selected"
+
+    labels = []
+    for group in PURPOSE_GROUPS:
+        if any(plot in selected_plots for plot in group["plots"]):
+            labels.append(group["label"])
+
+    if not labels:
+        return f"{len(selected_plots)} selected"
+    return f"{len(selected_plots)} selected: " + ", ".join(labels)
+
+
 # =============================================================================
 # SELECTOR WIDGETS
 # =============================================================================
@@ -220,7 +235,7 @@ def multi_plot_selector(available_plots: Dict[str, Any], key_prefix: str = "") -
         help="Choose a guided starting set, then add or remove any plots below.",
     )
     preset = PLOT_PRESETS[selected_preset]
-    st.caption(preset["description"])
+    st.caption(f"{preset['intent']} - {preset['description']}")
     default_plots = resolve_plot_preset(selected_preset, available_plots)
     selected = list(default_plots)
     preset_key = selected_preset.lower().replace(" / ", "_").replace(" ", "_")
@@ -263,6 +278,7 @@ def multi_plot_selector(available_plots: Dict[str, Any], key_prefix: str = "") -
             if plot not in selected:
                 selected.append(plot)
 
+    st.caption(describe_selected_plots(selected))
     return selected
 
 

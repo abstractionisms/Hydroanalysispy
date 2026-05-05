@@ -46,3 +46,13 @@ def test_grouped_plot_options_include_purpose_copy():
     assert "Climate linkage" in labels
     assert labels["Flow behavior"]["plots"] == ["flow_duration"]
     assert labels["Climate linkage"]["plots"] == ["lag_correlation"]
+
+
+def test_describe_selected_plots_groups_counts():
+    summary = plot_config.describe_selected_plots([
+        "timeseries",
+        "flood_frequency",
+        "lag_correlation",
+    ])
+
+    assert summary == "3 selected: Flow behavior, Extremes / frequency, Climate linkage"
