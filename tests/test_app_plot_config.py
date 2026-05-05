@@ -17,6 +17,14 @@ def test_plot_preset_keeps_manual_mode_empty():
     assert plot_config.resolve_plot_preset("Manual selection", {"timeseries": {}}) == []
 
 
+def test_plot_presets_have_card_metadata():
+    for preset_name, preset in plot_config.PLOT_PRESETS.items():
+        assert preset_name
+        assert preset["description"]
+        assert "intent" in preset
+        assert "plots" in preset
+
+
 def test_grouped_plot_options_cover_all_known_plots_once():
     grouped = plot_config.get_grouped_plot_options({plot: {} for plot in plot_config.ALL_PLOTS})
     grouped_plots = [

@@ -79,26 +79,32 @@ ALL_PLOTS = DISCHARGE_PLOTS + CLIMATE_PLOTS + STAGE_PLOTS + REACH_PLOTS
 
 PLOT_PRESETS = {
     "Manual selection": {
+        "intent": "Power user",
         "description": "Start empty and choose any plots below.",
         "plots": [],
     },
     "Quick site summary": {
+        "intent": "First-pass read",
         "description": "A compact read on recent behavior, distribution, seasonality, and trend.",
         "plots": ["timeseries", "flow_duration", "monthly_boxplot", "annual_trend"],
     },
     "Flood frequency": {
+        "intent": "High-flow risk",
         "description": "High-flow context and return-period analysis.",
         "plots": ["timeseries", "flow_duration", "flood_frequency", "anomaly_detection"],
     },
     "Drought / low-flow": {
+        "intent": "Low-flow risk",
         "description": "Low-flow trend, 7Q10, duration, and threshold context.",
         "plots": ["timeseries", "flow_duration", "low_flow_trend", "7q10_analysis"],
     },
     "Climate relationship": {
+        "intent": "Weather response",
         "description": "Precipitation, temperature, lag, and correlation views.",
         "plots": ["precip_discharge", "lag_correlation", "lagged_precip", "hexbin_temp"],
     },
     "Compare sites": {
+        "intent": "Cross-gage context",
         "description": "Plots commonly useful before deeper multi-site comparison.",
         "plots": ["timeseries", "flow_duration", "monthly_boxplot", "cumulative_departure"],
     },
