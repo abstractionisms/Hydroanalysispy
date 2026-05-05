@@ -1,4 +1,5 @@
 from hydrology.app.shared import build_site_summary
+from hydrology.app.page_modules.overview import build_layer_status
 
 
 def test_build_site_summary_formats_core_fields():
@@ -23,4 +24,20 @@ def test_build_site_summary_formats_core_fields():
         {"label": "Flow 5,775 cfs", "state": "ready"},
         {"label": "Above Normal", "state": "ready"},
         {"label": "Record since 1891", "state": "ready"},
+    ]
+
+
+def test_build_layer_status_labels_requested_layers():
+    status = build_layer_status(
+        show_boundary=True,
+        show_flowlines=True,
+        show_dams=False,
+        has_pynhd=True,
+        has_pygeohydro=True,
+    )
+
+    assert status == [
+        {"label": "Boundary requested", "state": "limited"},
+        {"label": "Flowlines requested", "state": "limited"},
+        {"label": "Dams off", "state": "blocked"},
     ]

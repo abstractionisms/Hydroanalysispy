@@ -20,7 +20,8 @@ from hydrology.app.shared import (
     build_site_summary, logger)
 from hydrology.app.styles import (
     render_site_header, render_availability_badges, render_metric_cards,
-    render_insight_board, render_workspace_panel, render_action_cards
+    render_insight_board, render_workspace_panel, render_action_cards,
+    render_status_chips
 )
 from hydrology.app.interpretation import summarize_flow_context
 from hydrology.data.usgs import (
@@ -371,6 +372,36 @@ def _render_quick_stats(df_hist: "pd.DataFrame | None"):
     st.dataframe(stats, use_container_width=True, hide_index=True)
 
 
+def build_layer_status(
+    show_boundary: bool,
+    show_flowlines: bool,
+    show_dams: bool,
+    has_pynhd: bool,
+    has_pygeohydro: bool,
+) -> list[dict]:
+    """Build display-ready map layer status chips."""
+    return [
+        {
+            "label": "Boundary requested" if show_boundary else (
+                "Boundary unavailable" if not has_pynhd else "Boundary off"
+            ),
+            "state": "limited" if show_boundary else "blocked",
+        },
+        {
+            "label": "Flowlines requested" if show_flowlines else (
+                "Flowlines unavailable" if not has_pynhd else "Flowlines off"
+            ),
+            "state": "limited" if show_flowlines else "blocked",
+        },
+        {
+            "label": "Dams requested" if show_dams else (
+                "Dams unavailable" if not has_pygeohydro else "Dams off"
+            ),
+            "state": "limited" if show_dams else "blocked",
+        },
+    ]
+
+
 def _render_station_map(inventory_df, selected_site_id):
     """Render station map with condition-colored markers and optional watershed overlay."""
     st.subheader("Station Map")
@@ -428,6 +459,10 @@ def _render_station_map(inventory_df, selected_site_id):
             )
             if not has_pygeohydro:
                 st.caption("Unavailable: install `pygeohydro`.")
+
+    render_status_chips(
+        build_layer_status(show_boundary, show_flowlines, show_dams, has_pynhd, has_pygeohydro)
+    )
 
     # Center on selected site if possible
     selected_info = get_cached_site_info(selected_site_id)
