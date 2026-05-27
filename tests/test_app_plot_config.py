@@ -37,6 +37,12 @@ def test_grouped_plot_options_cover_all_known_plots_once():
     assert len(grouped_plots) == len(set(grouped_plots))
 
 
+def test_single_site_plots_exclude_reach_only_plots():
+    assert not set(plot_config.REACH_PLOTS) & set(plot_config.SINGLE_SITE_PLOTS)
+    assert "timeseries" in plot_config.SINGLE_SITE_PLOTS
+    assert "lag_correlation" in plot_config.SINGLE_SITE_PLOTS
+
+
 def test_grouped_plot_options_include_purpose_copy():
     grouped = plot_config.get_grouped_plot_options({"flow_duration": {}, "lag_correlation": {}})
 

@@ -19,7 +19,7 @@ from hydrology.app.styles import (
     render_plot_capability_board, render_insight_board
 )
 from hydrology.app.interpretation import summarize_flow_context, summarize_recommendations
-from hydrology.app.plot_config import resolve_generated_plots
+from hydrology.app.plot_config import SINGLE_SITE_PLOTS, resolve_generated_plots
 from hydrology.visualization import create_multi_plot, PlotLayout
 from hydrology.visualization.interactive import (
     interactive_hydrograph, interactive_fdc,
@@ -235,7 +235,7 @@ def show():
                     showgrid=False)
             )
 
-    st.plotly_chart(fig_hydro, use_container_width=True, key="plotly_hydro")
+    st.plotly_chart(fig_hydro, width="stretch", key="plotly_hydro")
 
     # Flow Duration Curve
     koehler = st.checkbox(
@@ -248,7 +248,7 @@ def show():
         data['df_q'], discharge_col='Discharge_cfs',
         title=f"{desc} - Flow Duration Curve",
         color_by_dqdt=koehler)
-    st.plotly_chart(fig_fdc, use_container_width=True, key="plotly_fdc")
+    st.plotly_chart(fig_fdc, width="stretch", key="plotly_fdc")
 
     # CSV download
     render_data_download(data['df_q'], filename_prefix=site_id)
@@ -268,13 +268,13 @@ def show():
         fig_raster = raster_hydrograph(
             data['df_q'], discharge_col='Discharge_cfs',
             title=f"{desc} - Raster Hydrograph")
-        st.plotly_chart(fig_raster, use_container_width=True, key="plotly_raster")
+        st.plotly_chart(fig_raster, width="stretch", key="plotly_raster")
 
     if show_pctile:
         fig_pctile = percentile_bands_hydrograph(
             data['df_q'], discharge_col='Discharge_cfs',
             title=f"{desc} - Percentile Bands")
-        st.plotly_chart(fig_pctile, use_container_width=True, key="plotly_pctile")
+        st.plotly_chart(fig_pctile, width="stretch", key="plotly_pctile")
 
     # ── Frequency Analysis (on demand) ──
     st.markdown("---")
@@ -312,7 +312,7 @@ def show():
                         fig_rp = interactive_return_period(
                             observed, fits, rp_table,
                             title=f"{desc} - Flood Frequency Analysis")
-                        st.plotly_chart(fig_rp, use_container_width=True, key="plotly_rp")
+                        st.plotly_chart(fig_rp, width="stretch", key="plotly_rp")
 
                         # Return period table
                         if not rp_table.empty:
@@ -323,7 +323,7 @@ def show():
                                     display_rp[col] = display_rp[col].apply(
                                         lambda x: f"{x:,.0f}" if pd.notna(x) else "N/A"
                                     )
-                            st.dataframe(display_rp, use_container_width=True, hide_index=True)
+                            st.dataframe(display_rp, width="stretch", hide_index=True)
 
                         # Model comparison table
                         st.subheader("Distribution Comparison")
@@ -338,7 +338,7 @@ def show():
                             })
                         st.dataframe(
                             pd.DataFrame(model_rows),
-                            use_container_width=True, hide_index=True
+                            width="stretch", hide_index=True
                         )
                         st.caption("Lower AIC/BIC = better fit. Best distribution listed first.")
                     else:
@@ -348,7 +348,12 @@ def show():
     st.markdown("---")
     st.subheader("Guided Plot Builder")
     st.caption("Use presets for common workflows or choose any plot manually. Static figures are generated on demand for export.")
-    selected_plots = plot_selector()
+    single_site_available = {
+        plot: info
+        for plot, info in AVAILABLE_PLOTS.items()
+        if plot in SINGLE_SITE_PLOTS
+    }
+    selected_plots = plot_selector(single_site_available)
 
     static_plots = resolve_generated_plots(selected_plots)
 
@@ -368,7 +373,7 @@ def show():
         dpi = st.number_input("DPI", min_value=72, max_value=300, value=150)
     with col_btn:
         st.markdown("<br>", unsafe_allow_html=True)
-        generate = st.button("Generate Plots", type="primary", use_container_width=True)
+        generate = st.button("Generate Plots", type="primary", width="stretch")
 
     if generate:
         if not static_plots:

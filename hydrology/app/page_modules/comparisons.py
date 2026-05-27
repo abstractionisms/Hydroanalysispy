@@ -144,7 +144,7 @@ def _compare_time_periods(inventory_df):
         dpi = st.selectbox("DPI", [100, 150, 200], index=1, key="compare_time_dpi", label_visibility="collapsed")
     with col_btn:
         st.subheader(" ")
-        generate = st.button("Compare Periods", type="primary", use_container_width=True, key="gen_time")
+        generate = st.button("Compare Periods", type="primary", width="stretch", key="gen_time")
 
     if generate:
         if not lat or not lon:
@@ -256,7 +256,7 @@ def _compare_sites(inventory_df):
         fig_interactive = interactive_comparison(
             site_dict, title="Multi-Site Discharge Comparison"
         )
-        st.plotly_chart(fig_interactive, use_container_width=True, key="cs_plotly_overlay")
+        st.plotly_chart(fig_interactive, width="stretch", key="cs_plotly_overlay")
 
     # Individual interactive hydrographs
     st.subheader("Individual Hydrographs")
@@ -271,7 +271,7 @@ def _compare_sites(inventory_df):
                 fig_hydro = interactive_hydrograph(
                     data['df_q'], discharge_col='Discharge_cfs',
                     title=label, show_percentile_bands=True)
-                st.plotly_chart(fig_hydro, use_container_width=True, key=f"cs_hydro_{i}")
+                st.plotly_chart(fig_hydro, width="stretch", key=f"cs_hydro_{i}")
 
     st.markdown("---")
 
@@ -285,7 +285,7 @@ def _compare_sites(inventory_df):
         with col2:
             dpi = st.selectbox("Quality", [100, 150, 200], index=1, key="cs_dpi")
 
-        if st.button("Generate Static Grid", type="primary", use_container_width=True, key="gen_sites"):
+        if st.button("Generate Static Grid", type="primary", width="stretch", key="gen_sites"):
             data_list = []
             titles = []
 
@@ -441,7 +441,7 @@ def _quad_comparison(inventory_df):
         dpi = st.selectbox("DPI", [100, 150, 200], index=1, key="quad_dpi", label_visibility="collapsed")
     with col_btn:
         st.subheader(" ")
-        generate = st.button("Generate 2x2", type="primary", use_container_width=True, key="gen_quad")
+        generate = st.button("Generate 2x2", type="primary", width="stretch", key="gen_quad")
 
     if generate:
         site_id_a = site_a

@@ -100,7 +100,7 @@ def _render_drought_tab(df_q, q_col, site_id, desc, lat, lon, start_str, end_str
 
     # SRI time series with drought bands
     fig = _create_drought_timeseries(sri_df, title=f"{desc} - Standardized Runoff Index")
-    st.plotly_chart(fig, use_container_width=True, key="sri_chart")
+    st.plotly_chart(fig, width="stretch", key="sri_chart")
 
     # SPI if climate data available
     st.markdown("---")
@@ -116,7 +116,7 @@ def _render_drought_tab(df_q, q_col, site_id, desc, lat, lon, start_str, end_str
             if not spi_df.empty:
                 _render_index_interpretation(spi_df, "SPI", "precipitation")
                 fig_spi = _create_drought_timeseries(spi_df, title=f"{desc} - SPI")
-                st.plotly_chart(fig_spi, use_container_width=True, key="spi_chart")
+                st.plotly_chart(fig_spi, width="stretch", key="spi_chart")
             else:
                 st.warning("Insufficient precipitation data for SPI. Try a longer period or a site with stronger climate coverage.")
         else:
@@ -313,7 +313,7 @@ def _render_bfi_tab(df_q, q_col, desc):
     fig.update_yaxes(title_text="Discharge (cfs)", type="log", row=1, col=1)
     fig.update_yaxes(title_text="BFI", range=[0, 1], row=2, col=1)
 
-    st.plotly_chart(fig, use_container_width=True, key="bfi_chart")
+    st.plotly_chart(fig, width="stretch", key="bfi_chart")
 
 
 def _render_anomaly_tab(df_q, q_col, desc):
@@ -401,7 +401,7 @@ def _render_anomaly_tab(df_q, q_col, desc):
     fig.update_yaxes(title_text="Discharge (cfs)", type="log", row=1, col=1)
     fig.update_yaxes(title_text="Anomaly (%)", row=2, col=1)
 
-    st.plotly_chart(fig, use_container_width=True, key="anomaly_chart")
+    st.plotly_chart(fig, width="stretch", key="anomaly_chart")
 
 
 def _fetch_precip_data(site_id, lat, lon, start_str, end_str):

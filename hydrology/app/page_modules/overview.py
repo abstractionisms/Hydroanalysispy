@@ -369,7 +369,7 @@ def _render_quick_stats(df_hist: "pd.DataFrame | None"):
 
     st.subheader("Quick Stats")
     st.caption("Based on the last 10 years of daily discharge data")
-    st.dataframe(stats, use_container_width=True, hide_index=True)
+    st.dataframe(stats, width="stretch", hide_index=True)
 
 
 def build_layer_status(

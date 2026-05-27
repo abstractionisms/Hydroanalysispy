@@ -173,7 +173,7 @@ def show():
         dpi = st.number_input("DPI", min_value=72, max_value=300, value=150, key="reach_dpi")
     with col_btn:
         st.markdown("<br>", unsafe_allow_html=True)
-        generate = st.button("Generate Reach Analysis", type="primary", use_container_width=True, key="gen_reach")
+        generate = st.button("Generate Reach Analysis", type="primary", width="stretch", key="gen_reach")
 
     if generate:
         if not selected_plots:
@@ -206,7 +206,7 @@ def show():
                 with st.spinner("Fetching climate data..."):
                     df_climate = fetch_climate_cached(
                         float(dn_info['latitude']), float(dn_info['longitude']),
-                        start_str, end_str
+                        start_str, end_str, downstream_id
                     )
 
         # Show data summary
@@ -291,6 +291,6 @@ def show():
                     upstream_name=up_desc[:40],
                     downstream_name=dn_desc[:40],
                     title=f"Baseflow Waterfall: {up_desc[:35]} → {dn_desc[:35]}")
-            st.plotly_chart(fig_wf, use_container_width=True, key="plotly_bf_waterfall")
+            st.plotly_chart(fig_wf, width="stretch", key="plotly_bf_waterfall")
     else:
         st.info("Select upstream and downstream stations, choose plots, then click 'Generate Reach Analysis'")

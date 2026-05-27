@@ -1,3 +1,5 @@
+import pandas as pd
+
 from hydrology.app import shared
 
 
@@ -57,3 +59,47 @@ def test_get_site_condition_details_prefer_seasonal_percentiles(monkeypatch):
     assert details["1"]["flow_cfs"] == 35.0
     assert details["1"]["percentile"] == 50.0
     assert details["1"]["source"] == "USGS seasonal percentile"
+
+
+def test_normalize_climate_columns_converts_daymet_names():
+    raw = pd.DataFrame(
+        {
+            "precip_mm": [1.0, None],
+            "tmin_c": [2.0, 4.0],
+            "tmax_c": [8.0, 10.0],
+        },
+        index=pd.date_range("2024-01-01", periods=2, freq="D"),
+    )
+
+    climate = shared.normalize_climate_columns(raw)
+
+    assert list(climate.columns) == ["Temp_C", "Precip_mm"]
+    assert climate["Temp_C"].tolist() == [5.0, 7.0]
+    assert climate["Precip_mm"].tolist() == [1.0, 0.0]
+    assert str(climate.index.tz) == "UTC"
+
+
+def test_fetch_climate_cached_prefers_station_data_before_daymet(monkeypatch):
+    shared.fetch_climate_cached.clear()
+    calls = []
+
+    station = pd.DataFrame(
+        {"Temp_C": [5.0], "Precip_mm": [0.2]},
+        index=pd.date_range("2024-01-01", periods=1, freq="D"),
+    )
+
+    def fake_station(*args, **kwargs):
+        calls.append("station")
+        return station
+
+    def fake_daymet(*args, **kwargs):
+        calls.append("daymet")
+        return pd.DataFrame()
+
+    monkeypatch.setattr(shared, "fetch_climate_data", fake_station)
+    monkeypatch.setattr("hydrology.data.hyriver.get_daymet_climate", fake_daymet)
+
+    climate = shared.fetch_climate_cached(47.0, -117.0, "2024-01-01", "2024-01-01", "12422500")
+
+    assert climate["Temp_C"].tolist() == [5.0]
+    assert calls == ["station"]

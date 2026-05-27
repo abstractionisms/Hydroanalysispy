@@ -1,6 +1,6 @@
 # Hydrology Analysis Package
 
-A professional Python package for hydrological data analysis featuring a Streamlit web dashboard, 23+ visualization types, and integrations with USGS, NOAA, and climate data services.
+A professional Python package for hydrological data analysis featuring a Streamlit web dashboard, 30+ visualization types, and integrations with USGS, NOAA, and climate data services.
 
 **Live Demo:** [hydroplot.streamlit.app](https://hydroplot.streamlit.app)
 
@@ -14,18 +14,20 @@ A professional Python package for hydrological data analysis featuring a Streaml
   - Watershed quick-jump dropdown for WA, OR, and ID regions
   - Click-to-zoom site tables
 
-- **5 Analysis Modes**
+- **6 Analysis Modes**
   1. **Site Map** - Interactive exploration of all monitoring sites
-  2. **Single Analysis** - Deep dive into one site with 23 plot types
+  2. **Single Analysis** - Deep dive into one site with guided plot presets
   3. **Compare Time Periods** - Same site across two date ranges
   4. **Compare Sites** - 2-4 sites for the same period
   5. **2x2 Comparison** - Two sites x two time periods
+  6. **Reach Analysis** - Upstream/downstream gain, loss, and low-flow diagnostics
 
 - **Real-time Data** - Live fetching from USGS NWIS with accurate data availability dates
 - **Flexible Date Selection** - Year sliders with fine-tune inputs
 - **Metric Cards** - Record length, data points, mean/peak flow statistics
+- **Streamlit Cloud Ready** - Pinned Pandas compatibility for Meteostat and current Streamlit width API usage
 
-### 23+ Plot Types
+### 30+ Plot Types
 
 | Category | Plots |
 |----------|-------|
@@ -36,6 +38,7 @@ A professional Python package for hydrological data analysis featuring a Streaml
 | **Climate Correlation** | Hexbin temperature, Lagged precipitation, Seasonal scatter, Correlation matrix, Lag analysis (0-30 days) |
 | **Heatmaps** | Discharge density by day-of-year, Temporal panels (5/10/20 year) |
 | **Advanced** | Double mass curve, Cumulative departure, Spectral analysis (FFT), Climate anomaly (Q/T/P) |
+| **Reach Analysis** | Reach comparison, reach index, paired annual lows, low-flow window comparison, threshold exceedance, precipitation response, summer climate context, seasonal gain/loss |
 
 ## Installation
 
@@ -68,6 +71,17 @@ python run_dashboard.py --port 8502
 ```
 
 Then open http://localhost:8501 in your browser.
+
+### Streamlit Cloud
+
+The deployed app entrypoint is:
+
+```text
+hydrology/app/streamlit_app.py
+```
+
+Streamlit Cloud should install from `requirements.txt`, `packages.txt`, and `runtime.txt`.
+The app uses Meteostat as the primary dashboard climate source and normalizes climate columns to `Temp_C` and `Precip_mm`. HyRiver/Daymet remains available as a fallback for workflows that can use it, but the main dashboard plots do not require Daymet credentials.
 
 ### Command-Line Analysis
 
@@ -118,7 +132,8 @@ hydrology/
 │   ├── inventory.py        # Local site inventory parsing
 │   ├── national_inventory.py  # National USGS inventory by HUC-2
 │   ├── nwm.py              # NOAA National Water Model forecasts
-│   └── nldi.py             # USGS NLDI river network navigation
+│   ├── nldi.py             # USGS NLDI river network navigation
+│   └── hyriver.py          # Optional HyRiver/Daymet/NHD helpers
 │
 ├── analysis/                # Statistical analysis
 │   ├── trends.py           # Mann-Kendall, linear regression trends
@@ -128,13 +143,14 @@ hydrology/
 │   └── flood_events.py     # Flood event detection and animation
 │
 ├── visualization/           # Plotting
-│   ├── plots.py            # 23+ plot functions
+│   ├── plots.py            # 30+ plot functions
 │   └── composer.py         # Multi-panel layout system
 │
 ├── app/                     # Streamlit dashboard
 │   ├── streamlit_app.py    # Main application
 │   ├── plot_config.py      # Plot categorization
-│   └── styles.py           # Custom CSS and UI components
+│   ├── styles.py           # Custom CSS and UI components
+│   └── page_modules/       # Dashboard page implementations
 │
 └── scripts/                 # CLI tools
     ├── analyze_sites.py    # Config-driven batch analysis
@@ -146,7 +162,8 @@ hydrology/
 | Source | Data | API |
 |--------|------|-----|
 | **USGS NWIS** | Discharge, stage, water quality | https://waterservices.usgs.gov/nwis/ |
-| **Meteostat** | Temperature, precipitation | Python library |
+| **Meteostat** | Primary dashboard temperature and precipitation | Python library |
+| **Daymet / HyRiver** | Optional gridded watershed climate fallback | pydaymet / HyRiver |
 | **USGS NLDI** | River network topology | https://api.water.usgs.gov/nldi/ |
 | **NOAA NWM** | Water model forecasts | https://api.water.noaa.gov/nwps/v1 |
 | **USGS WBD** | HUC watershed boundaries | WMS layers |
@@ -178,8 +195,8 @@ alerts:
 
 ## Requirements
 
-- Python 3.8+
-- pandas >= 2.0.0
+- Python 3.11 on Streamlit Cloud (`runtime.txt`)
+- pandas >= 2.0.0, < 3.0.0
 - numpy >= 1.24.0
 - scipy >= 1.10.0
 - matplotlib >= 3.7.0

@@ -76,6 +76,7 @@ REACH_PLOTS = ['reach_comparison', 'reach_index', 'paired_annual_lows',
                'summer_climate_context', 'seasonal_gain_loss', 'seasonal_gain_loss_annual']
 
 ALL_PLOTS = DISCHARGE_PLOTS + CLIMATE_PLOTS + STAGE_PLOTS + REACH_PLOTS
+SINGLE_SITE_PLOTS = DISCHARGE_PLOTS + CLIMATE_PLOTS + STAGE_PLOTS
 
 PLOT_PRESETS = {
     "Manual selection": {

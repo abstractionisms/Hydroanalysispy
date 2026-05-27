@@ -80,7 +80,7 @@ def _multisite_analysis(inventory_df):
             if info:
                 st.caption(info.get('description', '')[:50])
 
-    if st.button("Analyze Relationships", type="primary", use_container_width=True, key="gen_multi"):
+    if st.button("Analyze Relationships", type="primary", width="stretch", key="gen_multi"):
         analyzer = MultiSiteAnalyzer()
         for sid in site_ids:
             info = get_cached_site_info(sid)
@@ -125,7 +125,7 @@ def _multisite_analysis(inventory_df):
             name = info.get('description', sid)[:25] if info else sid
             site_names[sid] = f"{sid} - {name}"
         plot_data = synced_data.rename(columns=site_names)
-        st.line_chart(plot_data, use_container_width=True)
+        st.line_chart(plot_data, width="stretch")
 
         # Correlation matrix
         st.subheader("Correlation Matrix")
@@ -137,7 +137,7 @@ def _multisite_analysis(inventory_df):
                 text=[[f"{val:.3f}" for val in row] for row in corr_matrix.values],
                 texttemplate="%{text}", textfont={"size": 12}))
             fig.update_layout(height=350, margin=dict(l=20, r=20, t=30, b=20))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
             avg_corr = corr_matrix.values[~np.eye(len(corr_matrix), dtype=bool)].mean()
             if avg_corr > 0.8:
@@ -166,7 +166,7 @@ def _multisite_analysis(inventory_df):
                     'Observations': f"{result.n_observations:,}"
                 })
 
-            st.dataframe(pd.DataFrame(summary_data), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(summary_data), width="stretch", hide_index=True)
 
 
 def _nwm_comparison(inventory_df):
@@ -328,7 +328,7 @@ def _nwm_comparison(inventory_df):
                     yaxis_type="log", height=450,
                     hovermode='x unified',
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-                st.plotly_chart(fig, use_container_width=True, key="retro_overlay")
+                st.plotly_chart(fig, width="stretch", key="retro_overlay")
 
                 # Residual analysis
                 usgs_daily = usgs_data.copy()
@@ -360,7 +360,7 @@ def _nwm_comparison(inventory_df):
                         yaxis=dict(range=[-200, 200]),
                         height=300,
                         margin=dict(l=60, r=20, t=40, b=40))
-                    st.plotly_chart(fig_resid, use_container_width=True, key="retro_residual")
+                    st.plotly_chart(fig_resid, width="stretch", key="retro_residual")
 
 
 def _flood_animation(inventory_df):
@@ -457,7 +457,7 @@ def _flood_animation(inventory_df):
             yaxis_type="log", height=500, hovermode='x unified',
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
 
 def _watershed_view(inventory_df):
@@ -565,7 +565,7 @@ def _watershed_view(inventory_df):
                         if isinstance(lc, dict):
                             lc_df = pd.DataFrame(list(lc.items()), columns=['Class', 'Percentage'])
                             lc_df = lc_df.sort_values('Percentage', ascending=False).head(10)
-                            st.dataframe(lc_df, use_container_width=True, hide_index=True)
+                            st.dataframe(lc_df, width="stretch", hide_index=True)
             else:
                     st.warning("Could not retrieve watershed boundary. pynhd may not be installed.")
 
@@ -674,6 +674,6 @@ def _watershed_view(inventory_df):
 
         display_cols = [c for c in ['site_id', 'site_name', 'state_cd', 'huc2', 'drainage_area', 'begin_date']
                        if c in display_df.columns]
-        st.dataframe(display_df[display_cols].head(500), use_container_width=True, hide_index=True)
+        st.dataframe(display_df[display_cols].head(500), width="stretch", hide_index=True)
         if len(display_df) > 500:
             st.caption(f"Showing first 500 of {len(display_df):,} sites")

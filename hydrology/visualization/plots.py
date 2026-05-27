@@ -2507,8 +2507,10 @@ def plot_threshold_exceedance(ax, df_q: pd.DataFrame = None, config: Dict[str, A
     """
     Days below critical flow thresholds by year.
 
-    Stacked bars showing days below 1000, 900, 800 cfs at a gage.
-    Demonstrates worsening low-flow conditions over time.
+    Stacked bars showing summer days below configured thresholds, or
+    site-specific low-flow quantiles when thresholds are not configured.
+    Demonstrates worsening low-flow conditions over time without assuming
+    a Greene St-specific threshold set.
 
     Args:
         ax: Matplotlib axis
@@ -2517,7 +2519,6 @@ def plot_threshold_exceedance(ax, df_q: pd.DataFrame = None, config: Dict[str, A
     """
     cfg = {**DEFAULT_CONFIG, **(config or {})}
     DISCHARGE_COL = cfg['discharge_col']
-    thresholds = cfg.get('flow_thresholds', [1000, 900, 800])
     threshold_colors = cfg.get('threshold_colors', ['#ffc107', '#ff9800', '#d62728'])
 
     if df_q is None or df_q.empty:
@@ -2534,14 +2535,31 @@ def plot_threshold_exceedance(ax, df_q: pd.DataFrame = None, config: Dict[str, A
 
         # Only count summer months (Jun-Sep) for relevance
         df_summer = df[df.index.month.isin([6, 7, 8, 9])]
+        if df_summer.empty:
+            _plot_placeholder(ax, "Threshold Exceedance\nNo summer data")
+            return
 
         years = sorted(df_summer['year'].unique())
         if len(years) < 2:
             _plot_placeholder(ax, "Threshold Exceedance\nNeed 2+ years")
             return
 
+        if cfg.get('flow_thresholds'):
+            thresholds = sorted([float(t) for t in cfg['flow_thresholds']], reverse=True)
+            threshold_source = "configured"
+        else:
+            quantiles = df_summer[DISCHARGE_COL].quantile([0.25, 0.10, 0.05]).dropna()
+            thresholds = sorted(quantiles.unique(), reverse=True)
+            threshold_source = "summer flow quantiles"
+
+        if len(thresholds) < 2:
+            _plot_placeholder(ax, "Threshold Exceedance\nNeed variable summer flows")
+            return
+
+        if len(threshold_colors) < len(thresholds):
+            threshold_colors = list(plt.cm.YlOrRd(np.linspace(0.35, 0.9, len(thresholds))))
+
         # Count days below each threshold per year
-        # Stacked: 800-900 band, 900-1000 band, <800 band
         data = {t: [] for t in thresholds}
         for year in years:
             yr_data = df_summer[df_summer['year'] == year][DISCHARGE_COL]
@@ -2550,26 +2568,25 @@ def plot_threshold_exceedance(ax, df_q: pd.DataFrame = None, config: Dict[str, A
 
         x = np.arange(len(years))
         bar_width = 0.6
+        lower_counts = np.zeros(len(years))
+        bottom = np.zeros(len(years))
 
-        # Plot from highest threshold down (stacked visual)
-        # days<1000 is the total, days<900 is subset, days<800 is smallest subset
-        # So: bar for 800-900 = days<900 - days<800
-        #     bar for 900-1000 = days<1000 - days<900
-        #     bar for <800 = days<800 directly
-        days_1000 = np.array(data[1000])
-        days_900 = np.array(data[900])
-        days_800 = np.array(data[800])
-
-        band_800 = days_800
-        band_900 = days_900 - days_800
-        band_1000 = days_1000 - days_900
-
-        ax.bar(x, band_800, bar_width, color=threshold_colors[2], label='< 800 cfs')
-        ax.bar(x, band_900, bar_width, bottom=band_800, color=threshold_colors[1], label='800–900 cfs')
-        ax.bar(x, band_1000, bar_width, bottom=band_800 + band_900, color=threshold_colors[0], label='900–1000 cfs')
+        for idx, threshold in enumerate(reversed(thresholds)):
+            counts = np.array(data[threshold])
+            band = counts - lower_counts
+            color = threshold_colors[len(thresholds) - idx - 1]
+            if idx == 0:
+                label = f"< {threshold:,.0f} cfs"
+            else:
+                lower = list(reversed(thresholds))[idx - 1]
+                label = f"{lower:,.0f}-{threshold:,.0f} cfs"
+            ax.bar(x, band, bar_width, bottom=bottom, color=color, label=label)
+            bottom += band
+            lower_counts = counts
 
         # Total label on top
-        for i, total in enumerate(days_1000):
+        totals = np.array(data[thresholds[0]])
+        for i, total in enumerate(totals):
             if total > 0:
                 ax.text(x[i], total + 1, str(total), ha='center', va='bottom',
                         fontsize=7, fontweight='bold')
@@ -2578,7 +2595,7 @@ def plot_threshold_exceedance(ax, df_q: pd.DataFrame = None, config: Dict[str, A
         ax.set_xticklabels(years, rotation=45, ha='right')
         ax.set_xlabel('Year')
         ax.set_ylabel('Summer Days Below Threshold (Jun-Sep)')
-        ax.set_title('Days Below Critical Flow Thresholds\nSummer months only',
+        ax.set_title(f'Days Below Low-Flow Thresholds\nSummer months only, {threshold_source}',
                      fontweight='bold')
         ax.legend(loc='upper left', fontsize=8)
         ax.grid(True, alpha=0.3, axis='y')

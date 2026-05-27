@@ -174,7 +174,7 @@ def show():
             y_max = df_recent['value'].max() * 1.2
             fig.update_yaxes(range=[np.log10(max(y_min, 0.1)), np.log10(y_max)])
 
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
             # Historical context
             col1, col2 = st.columns(2)

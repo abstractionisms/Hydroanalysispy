@@ -379,18 +379,62 @@ def fetch_discharge_data(site_id: str, param_cd: str, start_str: str, end_str: s
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def fetch_climate_cached(lat: float, lon: float, start_str: str, end_str: str):
+def fetch_climate_cached(lat: float, lon: float, start_str: str, end_str: str, site_id: str | None = None):
     """Fetch climate data - cached."""
     start_dt = datetime.strptime(start_str, '%Y-%m-%d')
     end_dt = datetime.strptime(end_str, '%Y-%m-%d')
 
-    return fetch_climate_data(
+    station_climate = normalize_climate_columns(fetch_climate_data(
         lat, lon,
         pd.Timestamp(start_dt),
         pd.Timestamp(end_dt),
         include_temp=True,
         include_precip=True
-    )
+    ))
+    if station_climate is not None and not station_climate.empty:
+        return station_climate
+
+    if site_id:
+        try:
+            from hydrology.data.hyriver import get_daymet_climate
+
+            daymet = get_daymet_climate(site_id, start_str, end_str, variables=['prcp', 'tmin', 'tmax'])
+            normalized = normalize_climate_columns(daymet)
+            if normalized is not None and not normalized.empty:
+                return normalized
+        except Exception as e:
+            logger.info(f"Daymet climate unavailable for {site_id}: {e}")
+
+    return None
+
+
+def normalize_climate_columns(df: pd.DataFrame | None) -> pd.DataFrame | None:
+    """Normalize supported climate providers to app column names."""
+    if df is None or df.empty:
+        return df
+
+    climate = df.copy()
+    rename_map = {
+        'precip_mm': 'Precip_mm',
+        'prcp': 'Precip_mm',
+        'tmean_c': 'Temp_C',
+        'tavg': 'Temp_C',
+    }
+    climate = climate.rename(columns={k: v for k, v in rename_map.items() if k in climate.columns})
+
+    if 'Temp_C' not in climate.columns and {'tmin_c', 'tmax_c'}.issubset(climate.columns):
+        climate['Temp_C'] = (climate['tmin_c'] + climate['tmax_c']) / 2
+
+    keep_cols = [col for col in ['Temp_C', 'Precip_mm'] if col in climate.columns]
+    if not keep_cols:
+        return None
+
+    climate = ensure_utc(climate[keep_cols])
+    if 'Precip_mm' in climate.columns:
+        climate['Precip_mm'] = climate['Precip_mm'].fillna(0)
+    if 'Temp_C' in climate.columns:
+        climate['Temp_C'] = climate['Temp_C'].ffill().bfill()
+    return climate
 
 
 # =============================================================================
@@ -691,7 +735,7 @@ def process_site_data(site_id: str, lat: float, lon: float, start_str: str, end_
     except Exception as e:
         logger.info(f"Stage data not available for {site_id}: {e}")
 
-    df_climate = fetch_climate_cached(lat, lon, start_str, end_str)
+    df_climate = fetch_climate_cached(lat, lon, start_str, end_str, site_id)
 
     df_merged = None
     analysis_results = None
@@ -913,9 +957,11 @@ def date_range_selector(key_prefix="", default_start=None, default_end=None):
     return start, end
 
 
-def plot_selector():
+def plot_selector(available_plots=None):
     """Plot type selector. Returns list of selected plot names."""
-    return multi_plot_selector(AVAILABLE_PLOTS, key_prefix="")
+    if available_plots is None:
+        available_plots = AVAILABLE_PLOTS
+    return multi_plot_selector(available_plots, key_prefix="")
 
 
 def single_plot_selector_widget(key_suffix=""):
