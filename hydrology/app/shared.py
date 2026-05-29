@@ -279,6 +279,22 @@ def find_availability_windows(site_id: str, param_cd: str, check_iv: bool = Fals
         except Exception:
             pass
 
+    # Fallback to the local filtered inventory for legacy long-record sites
+    # (e.g. 12510500 Kiona, WA — real POR since ~1905 but USGS series catalog
+    # or the snapshot often only reports 1948). This mitigates the "stale
+    # inventory ignored" problem created by prior agent changes without
+    # discarding the primary live catalog path.
+    try:
+        site_info = get_site_info(site_id)
+        if site_info:
+            begin = site_info.get('begin_date')
+            if begin:
+                start_year = int(str(begin)[:4])
+                if start_year < current_year - 1:
+                    return [(start_year, "present")]
+    except Exception:
+        pass
+
     return None
 
 
