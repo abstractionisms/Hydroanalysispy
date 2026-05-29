@@ -396,10 +396,19 @@ def fetch_discharge_data(site_id: str, param_cd: str, start_str: str, end_str: s
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_climate_cached(lat: float, lon: float, start_str: str, end_str: str, site_id: str | None = None):
-    """Fetch climate data - cached."""
+    """
+    Fetch climate data with per-gage source awareness.
+
+    Tries Meteostat first (station-based), then Daymet watershed/point as fallback.
+    Returns a dict so callers can make dynamic decisions per gage:
+        - data: the climate DataFrame (or None)
+        - source: 'meteostat', 'daymet', or 'none'
+        - quality: rough indicator ('good', 'partial', 'none')
+    """
     start_dt = datetime.strptime(start_str, '%Y-%m-%d')
     end_dt = datetime.strptime(end_str, '%Y-%m-%d')
 
+    # Primary: Meteostat (point / nearest station)
     station_climate = normalize_climate_columns(fetch_climate_data(
         lat, lon,
         pd.Timestamp(start_dt),
@@ -408,8 +417,13 @@ def fetch_climate_cached(lat: float, lon: float, start_str: str, end_str: str, s
         include_precip=True
     ))
     if station_climate is not None and not station_climate.empty:
-        return station_climate
+        return {
+            'data': station_climate,
+            'source': 'meteostat',
+            'quality': 'good' if len(station_climate) > 30 else 'partial'
+        }
 
+    # Fallback: Daymet (gridded, more robust for some remote gages)
     if site_id:
         try:
             from hydrology.data.hyriver import get_daymet_climate
@@ -417,11 +431,15 @@ def fetch_climate_cached(lat: float, lon: float, start_str: str, end_str: str, s
             daymet = get_daymet_climate(site_id, start_str, end_str, variables=['prcp', 'tmin', 'tmax'])
             normalized = normalize_climate_columns(daymet)
             if normalized is not None and not normalized.empty:
-                return normalized
+                return {
+                    'data': normalized,
+                    'source': 'daymet',
+                    'quality': 'good' if len(normalized) > 30 else 'partial'
+                }
         except Exception as e:
             logger.info(f"Daymet climate unavailable for {site_id}: {e}")
 
-    return None
+    return {'data': None, 'source': 'none', 'quality': 'none'}
 
 
 def normalize_climate_columns(df: pd.DataFrame | None) -> pd.DataFrame | None:
@@ -751,7 +769,10 @@ def process_site_data(site_id: str, lat: float, lon: float, start_str: str, end_
     except Exception as e:
         logger.info(f"Stage data not available for {site_id}: {e}")
 
-    df_climate = fetch_climate_cached(lat, lon, start_str, end_str, site_id)
+    climate_result = fetch_climate_cached(lat, lon, start_str, end_str, site_id)
+    df_climate = climate_result.get('data') if isinstance(climate_result, dict) else climate_result
+    climate_source = climate_result.get('source', 'none') if isinstance(climate_result, dict) else ('meteostat' if df_climate is not None else 'none')
+    climate_quality = climate_result.get('quality', 'none') if isinstance(climate_result, dict) else ('good' if df_climate is not None else 'none')
 
     df_merged = None
     analysis_results = None
@@ -763,7 +784,7 @@ def process_site_data(site_id: str, lat: float, lon: float, start_str: str, end_
         df_merged = pd.merge(df_q, df_climate, left_index=True, right_index=True, how='inner')
 
         if df_merged.empty:
-            logger.warning(f"Merge produced empty result. df_q: {len(df_q)} rows, df_climate: {len(df_climate)} rows")
+            logger.warning(f"Merge produced empty result for {site_id}. df_q: {len(df_q)} rows, df_climate: {len(df_climate)} rows")
             df_merged = None
         else:
             analysis_results = analyze_correlation(df_merged)
@@ -783,7 +804,11 @@ def process_site_data(site_id: str, lat: float, lon: float, start_str: str, end_
         'climate_count': len(df_climate) if df_climate is not None else 0,
         'merged_count': len(df_merged) if df_merged is not None else 0,
         'discharge_coverage': discharge_coverage,
-        'stage_coverage': stage_coverage
+        'stage_coverage': stage_coverage,
+        # New per-gage dynamic climate metadata (makes climate behavior gage-specific)
+        'climate_source': climate_source,
+        'climate_quality': climate_quality,
+        'climate_available': df_climate is not None and not (df_climate.empty if df_climate is not None else True),
     }
 
 
