@@ -7,12 +7,20 @@ from the Meteostat API for hydrological analysis.
 
 import pandas as pd
 from typing import Optional, Tuple, Dict
-from meteostat import Point, Daily
 
 from ..core.logging_setup import get_logger
 from ..core.timezone import ensure_utc
 
 logger = get_logger(__name__)
+
+
+# Lazy imports for optional dependencies
+def _get_meteostat():
+    try:
+        from meteostat import Point, Daily, Stations
+        return Point, Daily, Stations
+    except ImportError:
+        return None, None, None
 
 
 def fetch_climate_data(
@@ -56,6 +64,11 @@ def fetch_climate_data(
                 f"{start_date.date()} to {end_date.date()}")
 
     try:
+        Point, Daily, _ = _get_meteostat()
+        if Point is None or Daily is None:
+            logger.warning("meteostat not installed - skipping Meteostat source")
+            return None
+
         # Create location point and fetch data
         location = Point(latitude, longitude)
         data = Daily(location, start_date, end_date)
@@ -140,7 +153,10 @@ def fetch_nearest_station_info(
         >>> print(f"Nearest station: {station['name']} ({station['distance_km']:.1f} km)")
     """
     try:
-        from meteostat import Stations
+        Point, _, Stations = _get_meteostat()
+        if Stations is None:
+            logger.warning("meteostat not installed - skipping station lookup")
+            return None
 
         location = Point(latitude, longitude)
         stations = Stations()
@@ -235,3 +251,98 @@ def merge_discharge_climate(
         logger.warning("Merged data is empty - check date ranges overlap")
 
     return merged
+
+
+# =============================================================================
+# Open-Meteo Historical (strong additional source for historical coverage)
+# =============================================================================
+
+def fetch_open_meteo_climate(
+    latitude: float,
+    longitude: float,
+    start_date: str | pd.Timestamp,
+    end_date: str | pd.Timestamp,
+) -> Optional[pd.DataFrame]:
+    """
+    Fetch historical daily climate data from Open-Meteo Archive API.
+
+    This is a lightweight, no-key, highly reliable source with excellent
+    historical depth (often back to 1940s). Excellent complement to Meteostat
+    for gages where station coverage is poor.
+
+    Returns data normalized to the same schema as other climate sources
+    (Temp_C, Precip_mm) for easy integration.
+
+    Args:
+        latitude: Decimal degrees
+        longitude: Decimal degrees
+        start_date: YYYY-MM-DD or Timestamp
+        end_date: YYYY-MM-DD or Timestamp
+
+    Returns:
+        DataFrame with UTC DatetimeIndex and Temp_C / Precip_mm, or None
+    """
+    try:
+        import requests
+        from datetime import datetime
+
+        # Normalize dates
+        if isinstance(start_date, pd.Timestamp):
+            start_date = start_date.strftime("%Y-%m-%d")
+        if isinstance(end_date, pd.Timestamp):
+            end_date = end_date.strftime("%Y-%m-%d")
+
+        logger.info(f"Fetching Open-Meteo historical: {latitude:.4f}, {longitude:.4f} "
+                    f"{start_date} to {end_date}")
+
+        url = "https://archive-api.open-meteo.com/v1/archive"
+        params = {
+            "latitude": latitude,
+            "longitude": longitude,
+            "start_date": start_date,
+            "end_date": end_date,
+            "daily": "temperature_2m_mean,precipitation_sum",
+            "timezone": "UTC",
+        }
+
+        resp = requests.get(url, params=params, timeout=30)
+        if resp.status_code != 200:
+            logger.warning(f"Open-Meteo returned {resp.status_code}")
+            return None
+
+        data = resp.json()
+        daily = data.get("daily", {})
+
+        if not daily or "time" not in daily:
+            logger.warning("Open-Meteo returned no daily data")
+            return None
+
+        df = pd.DataFrame({
+            "date": pd.to_datetime(daily["time"]),
+            "Temp_C": daily.get("temperature_2m_mean"),
+            "Precip_mm": daily.get("precipitation_sum"),
+        })
+
+        df = df.set_index("date")
+        df.index = df.index.tz_localize("UTC")
+
+        # Fill missing precip with 0 (common convention)
+        if "Precip_mm" in df.columns:
+            df["Precip_mm"] = df["Precip_mm"].fillna(0)
+
+        # Light fill for temperature
+        if "Temp_C" in df.columns:
+            df["Temp_C"] = df["Temp_C"].ffill().bfill()
+
+        # Drop completely empty rows
+        df = df.dropna(how="all")
+
+        if df.empty:
+            return None
+
+        logger.info(f"Open-Meteo historical fetched: {len(df)} days")
+        return df
+
+    except Exception as e:
+        logger.error(f"Open-Meteo historical fetch failed: {e}")
+        return None

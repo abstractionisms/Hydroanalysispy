@@ -397,18 +397,34 @@ def fetch_discharge_data(site_id: str, param_cd: str, start_str: str, end_str: s
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_climate_cached(lat: float, lon: float, start_str: str, end_str: str, site_id: str | None = None):
     """
-    Fetch climate data with per-gage source awareness.
+    Fetch climate data with per-gage source awareness and multiple providers.
 
-    Tries Meteostat first (station-based), then Daymet watershed/point as fallback.
-    Returns a dict so callers can make dynamic decisions per gage:
-        - data: the climate DataFrame (or None)
-        - source: 'meteostat', 'daymet', or 'none'
-        - quality: rough indicator ('good', 'partial', 'none')
+    Sourcing order (chosen for historical depth + reliability + low friction):
+    1. Open-Meteo Historical (excellent coverage, no key, very stable)
+    2. Meteostat (station-based)
+    3. Daymet (gridded, optional heavy dependency)
+
+    Returns structured metadata so the rest of the app can behave dynamically
+    per gage when historical climate data is poor or missing.
     """
     start_dt = datetime.strptime(start_str, '%Y-%m-%d')
     end_dt = datetime.strptime(end_str, '%Y-%m-%d')
 
-    # Primary: Meteostat (point / nearest station)
+    # === Provider 1: Open-Meteo Historical (preferred for historical depth) ===
+    try:
+        from hydrology.data.climate import fetch_open_meteo_climate
+        om = fetch_open_meteo_climate(lat, lon, start_str, end_str)
+        om_norm = normalize_climate_columns(om)
+        if om_norm is not None and not om_norm.empty:
+            return {
+                'data': om_norm,
+                'source': 'open-meteo',
+                'quality': 'good' if len(om_norm) > 30 else 'partial'
+            }
+    except Exception as e:
+        logger.info(f"Open-Meteo unavailable for {site_id or (lat,lon)}: {e}")
+
+    # === Provider 2: Meteostat ===
     station_climate = normalize_climate_columns(fetch_climate_data(
         lat, lon,
         pd.Timestamp(start_dt),
@@ -423,11 +439,10 @@ def fetch_climate_cached(lat: float, lon: float, start_str: str, end_str: str, s
             'quality': 'good' if len(station_climate) > 30 else 'partial'
         }
 
-    # Fallback: Daymet (gridded, more robust for some remote gages)
+    # === Provider 3: Daymet (optional) ===
     if site_id:
         try:
             from hydrology.data.hyriver import get_daymet_climate
-
             daymet = get_daymet_climate(site_id, start_str, end_str, variables=['prcp', 'tmin', 'tmax'])
             normalized = normalize_climate_columns(daymet)
             if normalized is not None and not normalized.empty:
