@@ -277,11 +277,11 @@ def show():
         return
 
     st.header("Reach Analysis")
-    st.caption("Start from one gage, discover nearby network gages, then compare a selected reach")
+    st.caption("Select an upstream/downstream reach, then run gain/loss and baseflow analysis.")
 
     states = ["All States"] + sorted(FIPS_TO_STATE.values())
 
-    with st.expander("1. Choose Gage and Find Network", expanded=True):
+    with st.expander("Select reach", expanded=True):
         top_col1, top_col2, top_col3, top_col4, top_col5 = st.columns([1.2, 2.2, 3, 1, 1.2])
         with top_col1:
             anchor_state = st.selectbox("State", states, key="reach_anchor_state")
@@ -342,7 +342,7 @@ def show():
     anchor_name = anchor_info.get("description", "Anchor gage") if anchor_info else "Anchor gage"
     candidate_records = _build_reach_candidate_options(anchor_id, anchor_name, related_sites)
     candidate_rows = _format_related_site_rows(anchor_id, related_sites)
-    with st.expander("2. Pick Candidate Gages", expanded=not bool(related_sites)):
+    with st.expander("Candidate gages", expanded=not bool(related_sites)):
         if related_sites:
             candidate_selection = st.dataframe(
                 pd.DataFrame(candidate_rows),
@@ -372,7 +372,7 @@ def show():
         else:
             st.info("Use Find Related Gages to discover likely upstream/downstream candidates for the selected anchor gage.")
 
-    with st.expander("3. Configure Reach and Outputs", expanded=True):
+    with st.expander("Selected reach", expanded=True):
         candidate_options = [candidate["label"] for candidate in candidate_records]
         site_by_label = {candidate["label"]: candidate["site_id"] for candidate in candidate_records}
         _ensure_widget_value_is_valid("reach_upstream_choice", candidate_options)
@@ -434,117 +434,109 @@ def show():
                 st.caption("Optional fallback for cfs/km when related gage distances do not define the selected reach.")
         reach_km = _resolve_reach_km(estimated_reach_km, manual_reach_km)
 
-    st.markdown("---")
-
     reach_plot_options = {get_display_name(p): p for p in REACH_PLOTS if p in AVAILABLE_PLOTS}
     default_plots = ['reach_comparison', 'reach_index', 'seasonal_gain_loss']
     default_display = [get_display_name(p) for p in default_plots if p in reach_plot_options.values()]
 
-    settings_col1, settings_col2 = st.columns([1, 1])
-    with settings_col1:
-        start_date, end_date = date_range_selector("reach", default_start=date(2000, 1, 1))
-    with settings_col2:
-        selected_display = st.multiselect(
-            "Plots",
-            list(reach_plot_options.keys()),
-            default=default_display,
-            key="reach_plot_select"
-        )
-    selected_plots = [reach_plot_options[d] for d in selected_display]
+    with st.expander("Run analysis", expanded=True):
+        settings_col1, settings_col2 = st.columns([1, 1])
+        with settings_col1:
+            start_date, end_date = date_range_selector("reach", default_start=date(2000, 1, 1))
+        with settings_col2:
+            selected_display = st.multiselect(
+                "Plots",
+                list(reach_plot_options.keys()),
+                default=default_display,
+                key="reach_plot_select"
+            )
+        selected_plots = [reach_plot_options[d] for d in selected_display]
 
-    with st.expander("Plot descriptions"):
-        for display_name, plot_key in reach_plot_options.items():
-            info = AVAILABLE_PLOTS.get(plot_key, {})
-            desc = info.get('description', '') if isinstance(info, dict) else ''
-            st.markdown(f"**{display_name}**: {desc}")
+        with st.expander("Plot descriptions"):
+            for display_name, plot_key in reach_plot_options.items():
+                info = AVAILABLE_PLOTS.get(plot_key, {})
+                desc = info.get('description', '') if isinstance(info, dict) else ''
+                st.markdown(f"**{display_name}**: {desc}")
 
-    st.markdown("---")
+        # Reach map - show network flowlines and upstream/downstream stations
+        if up_info and dn_info and up_info.get('latitude') and dn_info.get('latitude'):
+            with st.expander("Reach Map", expanded=False):
+                import folium
+                from streamlit_folium import st_folium
+                from hydrology.data.hyriver import get_flowlines, get_navigation_flowlines
 
-    # Reach map - show network flowlines and upstream/downstream stations
-    if up_info and dn_info and up_info.get('latitude') and dn_info.get('latitude'):
-        with st.expander("Reach Map", expanded=False):
-            import folium
-            from streamlit_folium import st_folium
-            from hydrology.data.hyriver import get_flowlines, get_navigation_flowlines
+                up_lat, up_lon = float(up_info['latitude']), float(up_info['longitude'])
+                dn_lat, dn_lon = float(dn_info['latitude']), float(dn_info['longitude'])
+                center_lat = (up_lat + dn_lat) / 2
+                center_lon = (up_lon + dn_lon) / 2
 
-            up_lat, up_lon = float(up_info['latitude']), float(up_info['longitude'])
-            dn_lat, dn_lon = float(dn_info['latitude']), float(dn_info['longitude'])
-            center_lat = (up_lat + dn_lat) / 2
-            center_lon = (up_lon + dn_lon) / 2
+                m = folium.Map(location=[center_lat, center_lon], zoom_start=10,
+                              tiles='CartoDB dark_matter')
 
-            m = folium.Map(location=[center_lat, center_lon], zoom_start=10,
-                          tiles='CartoDB dark_matter')
-
-            flowline_distance = _flowline_distance_km(reach_km, search_km)
-            try:
-                flowlines = get_flowlines(downstream_id, distance_km=flowline_distance)
-                selected_flowlines = None
-                if flowlines is not None and not flowlines.empty:
-                    folium.GeoJson(
-                        flowlines.to_json(),
-                        name="River network context",
-                        style_function=lambda feature: _flowline_style(selected=False),
-                        tooltip="NHDPlus river/tributary flowline",
-                    ).add_to(m)
-                    selected_flowlines = get_navigation_flowlines(
-                        downstream_id,
-                        navigation="upstreamMain",
-                        distance_km=flowline_distance,
-                    )
-                    if selected_flowlines is None or selected_flowlines.empty:
-                        selected_flowlines = flowlines
-                    folium.GeoJson(
-                        selected_flowlines.to_json(),
-                        name="Selected reach network",
-                        style_function=lambda feature: _flowline_style(selected=True),
-                        tooltip=f"Selected reach network: {upstream_id} -> {downstream_id}",
-                    ).add_to(m)
-                    m.fit_bounds(
-                        _map_bounds_for_reach(
-                            selected_flowlines,
-                            flowlines,
-                            up_lat,
-                            up_lon,
-                            dn_lat,
-                            dn_lon,
+                flowline_distance = _flowline_distance_km(reach_km, search_km)
+                try:
+                    flowlines = get_flowlines(downstream_id, distance_km=flowline_distance)
+                    selected_flowlines = None
+                    if flowlines is not None and not flowlines.empty:
+                        folium.GeoJson(
+                            flowlines.to_json(),
+                            name="River network context",
+                            style_function=lambda feature: _flowline_style(selected=False),
+                            tooltip="NHDPlus river/tributary flowline",
+                        ).add_to(m)
+                        selected_flowlines = get_navigation_flowlines(
+                            downstream_id,
+                            navigation="upstreamMain",
+                            distance_km=flowline_distance,
                         )
-                    )
-                else:
+                        if selected_flowlines is None or selected_flowlines.empty:
+                            selected_flowlines = flowlines
+                        folium.GeoJson(
+                            selected_flowlines.to_json(),
+                            name="Selected reach network",
+                            style_function=lambda feature: _flowline_style(selected=True),
+                            tooltip=f"Selected reach network: {upstream_id} -> {downstream_id}",
+                        ).add_to(m)
+                        m.fit_bounds(
+                            _map_bounds_for_reach(
+                                selected_flowlines,
+                                flowlines,
+                                up_lat,
+                                up_lon,
+                                dn_lat,
+                                dn_lon,
+                            )
+                        )
+                    else:
+                        m.fit_bounds(_map_bounds_for_reach(None, None, up_lat, up_lon, dn_lat, dn_lon))
+                        st.caption("River-network geometry was not available for this reach; showing gage locations only.")
+                except Exception as e:
+                    logger.warning(f"Could not add reach flowlines: {e}")
                     m.fit_bounds(_map_bounds_for_reach(None, None, up_lat, up_lon, dn_lat, dn_lon))
                     st.caption("River-network geometry was not available for this reach; showing gage locations only.")
-            except Exception as e:
-                logger.warning(f"Could not add reach flowlines: {e}")
-                m.fit_bounds(_map_bounds_for_reach(None, None, up_lat, up_lon, dn_lat, dn_lon))
-                st.caption("River-network geometry was not available for this reach; showing gage locations only.")
 
-            # Upstream marker (blue)
-            folium.CircleMarker(
-                [up_lat, up_lon], radius=10, color='#2196F3', fill=True,
-                fillColor='#2196F3', fillOpacity=0.8,
-                tooltip=f"Upstream: {up_info.get('description', upstream_id)}"
-            ).add_to(m)
+                folium.CircleMarker(
+                    [up_lat, up_lon], radius=10, color='#2196F3', fill=True,
+                    fillColor='#2196F3', fillOpacity=0.8,
+                    tooltip=f"Upstream: {up_info.get('description', upstream_id)}"
+                ).add_to(m)
 
-            # Downstream marker (orange)
-            folium.CircleMarker(
-                [dn_lat, dn_lon], radius=10, color='#FF9800', fill=True,
-                fillColor='#FF9800', fillOpacity=0.8,
-                tooltip=f"Downstream: {dn_info.get('description', downstream_id)}"
-            ).add_to(m)
+                folium.CircleMarker(
+                    [dn_lat, dn_lon], radius=10, color='#FF9800', fill=True,
+                    fillColor='#FF9800', fillOpacity=0.8,
+                    tooltip=f"Downstream: {dn_info.get('description', downstream_id)}"
+                ).add_to(m)
 
-            st_folium(m, width=None, height=300, returned_objects=[])
-            st.caption("Gold = selected reach network; blue = nearby river/tributary context. Blue marker = upstream gage; orange marker = downstream gage.")
+                st_folium(m, width=None, height=300, returned_objects=[])
+                st.caption("Gold = selected reach network; blue = nearby river/tributary context. Blue marker = upstream gage; orange marker = downstream gage.")
 
-    st.markdown("---")
-
-    # Layout and generate
-    col_layout, col_dpi, col_btn = st.columns([2, 1, 2])
-    with col_layout:
-        layout_choice = st.selectbox("Layout", ["Auto", "Vertical", "Grid 2x3"], key="reach_layout")
-    with col_dpi:
-        dpi = st.number_input("DPI", min_value=72, max_value=300, value=150, key="reach_dpi")
-    with col_btn:
-        st.markdown("<br>", unsafe_allow_html=True)
-        generate = st.button("Generate Reach Analysis", type="primary", width="stretch", key="gen_reach")
+        col_layout, col_dpi, col_btn = st.columns([2, 1, 2])
+        with col_layout:
+            layout_choice = st.selectbox("Layout", ["Auto", "Vertical", "Grid 2x3"], key="reach_layout")
+        with col_dpi:
+            dpi = st.number_input("DPI", min_value=72, max_value=300, value=150, key="reach_dpi")
+        with col_btn:
+            st.markdown("<br>", unsafe_allow_html=True)
+            generate = st.button("Generate Reach Analysis", type="primary", width="stretch", key="gen_reach")
 
     if generate:
         if not selected_plots:
