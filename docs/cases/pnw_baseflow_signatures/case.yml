@@ -1,0 +1,12 @@
+case: pnw_baseflow_signatures
+site_ids:
+  - "12422500"
+start_date: "2000-01-01"
+end_date: "2025-01-01"
+analyses:
+  - baseflow
+  - signatures
+validation:
+  - metric: baseflow_index_lh
+    lower: 0.20
+    upper: 0.95

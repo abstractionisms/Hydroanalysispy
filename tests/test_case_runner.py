@@ -55,3 +55,15 @@ def test_run_case_study_writes_baseflow_and_signature_outputs(tmp_path: Path):
 
     assert (case_dir / "outputs" / "baseflow_components.csv").exists()
     assert (case_dir / "outputs" / "signatures.csv").exists()
+
+
+def test_pnw_case_configs_are_parseable():
+    cases = [
+        Path("docs/cases/pnw_baseflow_signatures/case.yml"),
+        Path("docs/cases/spokane_groundwater_reach/case.yml"),
+    ]
+
+    for case_path in cases:
+        config = yaml.safe_load(case_path.read_text(encoding="utf-8"))
+        assert config["case"]
+        assert config["analyses"]

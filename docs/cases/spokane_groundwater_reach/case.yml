@@ -1,0 +1,11 @@
+case: spokane_groundwater_reach
+site_ids:
+  upstream: "12422500"
+  downstream: "12424000"
+start_date: "2015-07-01"
+end_date: "2015-09-30"
+reach_km: 20
+analyses:
+  - reach_gain_loss
+  - thermal_context
+validation: []
