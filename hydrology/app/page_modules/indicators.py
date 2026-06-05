@@ -21,6 +21,18 @@ from hydrology.data.usgs import fetch_daily_values, DEFAULT_PARAM_DISCHARGE
 from hydrology.analysis.indicators import (
     calculate_spi, calculate_sri, classify_drought,
     calculate_baseflow_index_timeseries, get_seasonal_anomaly)
+from hydrology.analysis.baseflow import compare_baseflow_methods
+
+
+def _summarize_baseflow_methods(flow: pd.Series) -> dict:
+    """Return dashboard-ready baseflow method comparison labels."""
+    comparison = compare_baseflow_methods(flow)
+    return {
+        "Lyne-Hollick BFI": f"{comparison['lyne_hollick_bfi']:.2f}",
+        "Eckhardt BFI": f"{comparison['eckhardt_bfi']:.2f}",
+        "Difference": f"{comparison['bfi_difference']:.2f}",
+        "Agreement": str(comparison["agreement"]).title(),
+    }
 
 
 def show():
@@ -270,6 +282,13 @@ def _render_bfi_tab(df_q, q_col, desc):
             st.metric("vs Mean", f"{delta:+.2f}",
                      delta="Above" if delta > 0 else "Below",
                      delta_color="normal" if delta > 0 else "inverse")
+
+    method_summary = _summarize_baseflow_methods(df_q[q_col])
+    st.caption("Method comparison for the selected period")
+    method_cols = st.columns(4)
+    for col, (label, value) in zip(method_cols, method_summary.items()):
+        with col:
+            st.metric(label, value, delta_color="off")
 
     # BFI time series
     fig = make_subplots(

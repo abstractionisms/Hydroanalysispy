@@ -47,3 +47,14 @@ def test_fetch_precip_data_uses_meteostat_precip_mm_fallback(monkeypatch):
             "include_precip": True,
         }
     ]
+import pandas as pd
+
+
+def test_summarize_baseflow_methods_returns_dashboard_fields():
+    from hydrology.app.page_modules.indicators import _summarize_baseflow_methods
+
+    flow = pd.Series([100, 110, 130, 120, 105, 95, 90, 100], index=pd.date_range("2024-01-01", periods=8))
+
+    summary = _summarize_baseflow_methods(flow)
+
+    assert {"Lyne-Hollick BFI", "Eckhardt BFI", "Difference", "Agreement"}.issubset(summary)
