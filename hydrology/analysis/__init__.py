@@ -18,6 +18,7 @@ from .reach_topology import (
     derive_adjacent_reaches,
     validate_reach_pair,
 )
+from .reach_groundwater import classify_reach_gain_loss, summarize_reach_gain_loss
 
 __all__ = [
     'calculate_annual_means',
@@ -61,4 +62,7 @@ __all__ = [
     'classify_pair_direction',
     'derive_adjacent_reaches',
     'validate_reach_pair',
+    # Reach groundwater
+    'classify_reach_gain_loss',
+    'summarize_reach_gain_loss',
 ]
