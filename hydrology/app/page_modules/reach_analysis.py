@@ -157,6 +157,50 @@ def _build_reach_candidate_options(origin_site_id, origin_name, related_sites):
     return candidates
 
 
+def _candidate_index_for_site(candidates, preferred_site_id, fallback_positions):
+    """Return the selector index for a preferred site or role fallback."""
+    if preferred_site_id:
+        preferred_site_id = str(preferred_site_id)
+        for idx, candidate in enumerate(candidates):
+            if str(candidate.get("site_id")) == preferred_site_id:
+                return idx
+    for idx, candidate in enumerate(candidates):
+        if candidate.get("position") in fallback_positions:
+            return idx
+    return 0
+
+
+def _candidate_label_for_site(candidates, site_id):
+    """Return the dropdown label for a candidate site ID."""
+    if site_id is None:
+        return None
+    site_id = str(site_id)
+    for candidate in candidates:
+        if str(candidate.get("site_id")) == site_id:
+            return candidate.get("label")
+    return None
+
+
+def _selected_candidate_site_id(candidate_rows, selection_state):
+    """Return the site ID represented by a selected candidate table row."""
+    try:
+        selected_rows = selection_state.get("selection", {}).get("rows", [])
+    except AttributeError:
+        selected_rows = getattr(getattr(selection_state, "selection", None), "rows", [])
+    if not selected_rows:
+        return None
+    row_index = selected_rows[0]
+    if row_index < 0 or row_index >= len(candidate_rows):
+        return None
+    return str(candidate_rows[row_index].get("Station"))
+
+
+def _ensure_widget_value_is_valid(key, options):
+    """Clear stale widget values when candidate options change."""
+    if key in st.session_state and st.session_state[key] not in options:
+        del st.session_state[key]
+
+
 def _get_discharge_series(df):
     """Return the primary discharge series from a fetched dataframe."""
     if "Discharge_cfs" in df.columns:
@@ -178,16 +222,16 @@ def show():
 
     states = ["All States"] + sorted(FIPS_TO_STATE.values())
 
-    st.subheader("1. Select Anchor Gauge")
-    col1, col2 = st.columns([2, 1])
-    with col1:
+    st.subheader("1. Choose Gauge and Find Network")
+    top_col1, top_col2, top_col3, top_col4, top_col5 = st.columns([1.2, 2.2, 3, 1, 1.2])
+    with top_col1:
+        anchor_state = st.selectbox("State", states, key="reach_anchor_state")
+    with top_col2:
         anchor_search = st.text_input(
-            "Find a river gauge",
-            placeholder="River name, station name, or USGS site ID...",
+            "Find river gauge",
+            placeholder="River, station, or USGS ID...",
             key="reach_anchor_search",
         )
-    with col2:
-        anchor_state = st.selectbox("State", states, key="reach_anchor_state")
 
     anchor_filtered = _filter_inventory(inventory_df, anchor_search, anchor_state)
     anchor_options = [
@@ -200,35 +244,29 @@ def show():
         st.warning("No gauges match the current search")
         return
 
-    anchor_sel = st.selectbox("Anchor gauge", anchor_options, key="reach_anchor")
+    with top_col3:
+        anchor_sel = st.selectbox("Anchor gauge", anchor_options, key="reach_anchor")
     anchor_id = extract_site_id(anchor_sel)
     anchor_info = get_cached_site_info(anchor_id)
-    if anchor_info:
-        st.caption(anchor_info.get("description", ""))
-
-    st.markdown("---")
-
-    # Guided station discovery
-    st.subheader("2. Discover River Network Gauges")
-    guide_col1, guide_col2, guide_col3 = st.columns([2, 1, 1])
-    with guide_col1:
-        include_tributaries = st.toggle(
-            "Include tributary gauges",
-            value=True,
-            key="reach_include_tributaries",
-        )
-    with guide_col2:
+    with top_col4:
         search_km = st.number_input(
-            "Search km",
+            "Km",
             min_value=10,
             max_value=300,
             value=75,
             step=5,
             key="reach_nldi_search_km",
         )
-    with guide_col3:
+    with top_col5:
+        include_tributaries = st.toggle(
+            "Tributaries",
+            value=True,
+            key="reach_include_tributaries",
+        )
         st.markdown("<br>", unsafe_allow_html=True)
         find_gauges = st.button("Find Related Gauges", width="stretch", key="reach_find_related")
+    if anchor_info:
+        st.caption(anchor_info.get("description", ""))
 
     related_key = f"reach_related_sites_{anchor_id}_{search_km}_{include_tributaries}"
     if find_gauges:
@@ -242,28 +280,61 @@ def show():
             )
 
     related_sites = st.session_state.get(related_key, [])
+    st.subheader("2. Pick Candidate Gauges")
+    anchor_name = anchor_info.get("description", "Anchor gauge") if anchor_info else "Anchor gauge"
+    candidate_records = _build_reach_candidate_options(anchor_id, anchor_name, related_sites)
+    candidate_rows = _format_related_site_rows(anchor_id, related_sites)
     if related_sites:
-        st.dataframe(
-            pd.DataFrame(_format_related_site_rows(anchor_id, related_sites)),
+        candidate_selection = st.dataframe(
+            pd.DataFrame(candidate_rows),
             width="stretch",
             hide_index=True,
+            on_select="rerun",
+            selection_mode="single-row",
+            key="reach_candidate_table",
         )
+        selected_candidate_id = _selected_candidate_site_id(candidate_rows, candidate_selection)
+        action_col1, action_col2, action_col3 = st.columns([1, 1, 3])
+        with action_col1:
+            if st.button("Use as Upstream", disabled=selected_candidate_id is None, width="stretch"):
+                st.session_state["reach_upstream_site_id"] = selected_candidate_id
+        with action_col2:
+            if st.button("Use as Downstream", disabled=selected_candidate_id is None, width="stretch"):
+                st.session_state["reach_downstream_site_id"] = selected_candidate_id
+        with action_col3:
+            if selected_candidate_id:
+                st.caption(f"Selected candidate: {selected_candidate_id}")
+            else:
+                st.caption("Select one candidate row, then assign it to upstream or downstream.")
     else:
         st.info("Use Find Related Gauges to discover likely upstream/downstream candidates for the selected anchor gauge.")
 
-    st.subheader("3. Configure Reach Analysis")
-    anchor_name = anchor_info.get("description", "Anchor gauge") if anchor_info else "Anchor gauge"
-    candidate_records = _build_reach_candidate_options(anchor_id, anchor_name, related_sites)
+    st.subheader("3. Configure Reach and Outputs")
     candidate_options = [candidate["label"] for candidate in candidate_records]
     site_by_label = {candidate["label"]: candidate["site_id"] for candidate in candidate_records}
-    default_upstream_idx = next(
-        (idx for idx, candidate in enumerate(candidate_records) if candidate["position"] in {"Upstream", "Tributary"}),
-        0,
+    site_by_id = {candidate["site_id"]: candidate for candidate in candidate_records}
+    if st.session_state.get("reach_upstream_site_id") not in site_by_id:
+        st.session_state.pop("reach_upstream_site_id", None)
+    if st.session_state.get("reach_downstream_site_id") not in site_by_id:
+        st.session_state.pop("reach_downstream_site_id", None)
+    default_upstream_idx = _candidate_index_for_site(
+        candidate_records,
+        st.session_state.get("reach_upstream_site_id"),
+        {"Upstream", "Tributary"},
     )
-    default_downstream_idx = next(
-        (idx for idx, candidate in enumerate(candidate_records) if candidate["position"] == "Downstream"),
-        next((idx for idx, candidate in enumerate(candidate_records) if candidate["position"] == "Anchor"), 0),
+    default_downstream_idx = _candidate_index_for_site(
+        candidate_records,
+        st.session_state.get("reach_downstream_site_id"),
+        {"Downstream", "Anchor"},
     )
+    _ensure_widget_value_is_valid("reach_upstream", candidate_options)
+    _ensure_widget_value_is_valid("reach_downstream", candidate_options)
+    upstream_assigned_label = _candidate_label_for_site(candidate_records, st.session_state.get("reach_upstream_site_id"))
+    downstream_assigned_label = _candidate_label_for_site(candidate_records, st.session_state.get("reach_downstream_site_id"))
+    if upstream_assigned_label:
+        st.session_state["reach_upstream"] = upstream_assigned_label
+    if downstream_assigned_label:
+        st.session_state["reach_downstream"] = downstream_assigned_label
 
     reach_col1, reach_col2 = st.columns(2)
     with reach_col1:
@@ -282,6 +353,8 @@ def show():
         )
     upstream_id = site_by_label[upstream_sel]
     downstream_id = site_by_label[downstream_sel]
+    st.session_state["reach_upstream_site_id"] = upstream_id
+    st.session_state["reach_downstream_site_id"] = downstream_id
     up_info = get_cached_site_info(upstream_id)
     dn_info = get_cached_site_info(downstream_id)
 

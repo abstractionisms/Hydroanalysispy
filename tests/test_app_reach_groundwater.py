@@ -3,9 +3,12 @@ import pandas as pd
 from hydrology.app.page_modules.reach_analysis import (
     _build_reach_summary_row,
     _build_reach_candidate_options,
+    _candidate_index_for_site,
+    _candidate_label_for_site,
     _estimate_reach_km,
     _format_reach_chain,
     _format_related_site_rows,
+    _selected_candidate_site_id,
 )
 
 
@@ -114,3 +117,43 @@ def test_build_reach_candidate_options_groups_both_directions():
     assert labels[2].startswith("Downstream | down")
     assert candidates[1]["site_id"] == "up"
     assert candidates[2]["site_id"] == "down"
+
+
+def test_candidate_index_for_site_prefers_selected_site():
+    candidates = [
+        {"site_id": "anchor", "position": "Anchor"},
+        {"site_id": "up", "position": "Upstream"},
+        {"site_id": "down", "position": "Downstream"},
+    ]
+
+    assert _candidate_index_for_site(candidates, "down", {"Upstream"}) == 2
+
+
+def test_candidate_label_for_site_returns_matching_dropdown_label():
+    candidates = [
+        {"site_id": "anchor", "label": "Anchor | anchor | 0.0 km | Anchor"},
+        {"site_id": "up", "label": "Upstream | up | 5.0 km | Upstream"},
+    ]
+
+    assert _candidate_label_for_site(candidates, "up") == "Upstream | up | 5.0 km | Upstream"
+
+
+def test_candidate_index_for_site_falls_back_to_role():
+    candidates = [
+        {"site_id": "anchor", "position": "Anchor"},
+        {"site_id": "up", "position": "Upstream"},
+        {"site_id": "down", "position": "Downstream"},
+    ]
+
+    assert _candidate_index_for_site(candidates, None, {"Upstream"}) == 1
+
+
+def test_selected_candidate_site_id_reads_single_selected_table_row():
+    candidate_rows = [
+        {"Station": "anchor"},
+        {"Station": "up"},
+        {"Station": "down"},
+    ]
+    selection_state = {"selection": {"rows": [2]}}
+
+    assert _selected_candidate_site_id(candidate_rows, selection_state) == "down"
