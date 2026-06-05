@@ -47,6 +47,14 @@ def _build_reach_summary_row(upstream_id, downstream_id, upstream_q, downstream_
     }
 
 
+def _format_reach_chain(site_ids):
+    """Format adjacent reaches in selected upstream-to-downstream order."""
+    return [
+        {"Order": idx, "Reach": f"{upstream} -> {downstream}"}
+        for idx, (upstream, downstream) in enumerate(zip(site_ids, site_ids[1:]), start=1)
+    ]
+
+
 def _get_discharge_series(df):
     """Return the primary discharge series from a fetched dataframe."""
     if "Discharge_cfs" in df.columns:
@@ -248,6 +256,8 @@ def show():
         upstream_q = _get_discharge_series(df_upstream)
         downstream_q = _get_discharge_series(df_downstream)
         reach_row = _build_reach_summary_row(upstream_id, downstream_id, upstream_q, downstream_q)
+        st.subheader("Reach Chain")
+        st.dataframe(pd.DataFrame(_format_reach_chain([upstream_id, downstream_id])), width="stretch", hide_index=True)
         st.subheader("Reach Gain/Loss Summary")
         st.dataframe(pd.DataFrame([reach_row]), width="stretch", hide_index=True)
         if reach_row["Confidence"] != "high":

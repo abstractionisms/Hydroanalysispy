@@ -1,6 +1,6 @@
 import pandas as pd
 
-from hydrology.app.page_modules.reach_analysis import _build_reach_summary_row
+from hydrology.app.page_modules.reach_analysis import _build_reach_summary_row, _format_reach_chain
 
 
 def test_build_reach_summary_row_formats_gain_loss_for_dashboard():
@@ -14,3 +14,12 @@ def test_build_reach_summary_row_formats_gain_loss_for_dashboard():
     assert row["Class"] == "losing"
     assert row["Median gain/loss"] == "-15 cfs"
     assert row["Confidence"] == "high"
+
+
+def test_format_reach_chain_shows_upstream_to_downstream_order():
+    rows = _format_reach_chain(["12419000", "12422500", "12424000"])
+
+    assert rows == [
+        {"Reach": "12419000 -> 12422500", "Order": 1},
+        {"Reach": "12422500 -> 12424000", "Order": 2},
+    ]
