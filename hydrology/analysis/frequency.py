@@ -228,6 +228,7 @@ def estimate_return_periods(
     periods: List[float] = None,
     distribution: str = 'best',
     confidence_level: float = 0.95,
+    random_seed: Optional[int] = None,
 ) -> pd.DataFrame:
     """
     Estimate return period flows with confidence intervals.
@@ -270,8 +271,9 @@ def estimate_return_periods(
     alpha = 1 - confidence_level
     bootstrap_quantiles = {rp: [] for rp in periods}
 
+    rng = np.random.default_rng(random_seed)
     for _ in range(n_bootstrap):
-        boot_sample = np.random.choice(peaks, size=n, replace=True)
+        boot_sample = rng.choice(peaks, size=n, replace=True)
         boot_fits = fit_flood_frequency(boot_sample, distributions=[best_name], return_periods=periods)
         if best_name in boot_fits:
             for rp in periods:
@@ -295,6 +297,44 @@ def estimate_return_periods(
             'lower_ci': lower,
             'upper_ci': upper,
             'distribution': best_fit.display_name,
+        })
+
+    return pd.DataFrame(rows)
+
+
+def flood_frequency_diagnostics(peaks: np.ndarray, distribution: str = "lp3") -> pd.DataFrame:
+    """
+    Build observed-vs-fitted table for flood-frequency diagnostic plots.
+
+    Args:
+        peaks: Annual peak discharge values
+        distribution: Distribution to fit for diagnostic quantiles
+
+    Returns:
+        DataFrame with observed flows, fitted flows, exceedance probability,
+        return period, and distribution name.
+    """
+    peaks = np.asarray(peaks, dtype=float)
+    peaks = peaks[np.isfinite(peaks) & (peaks > 0)]
+    if len(peaks) < 10:
+        return pd.DataFrame()
+
+    positions = get_plotting_positions(peaks)
+    periods = positions["return_period"].astype(float).tolist()
+    fits = fit_flood_frequency(peaks, distributions=[distribution], return_periods=periods)
+    if distribution not in fits:
+        return pd.DataFrame()
+
+    fit = fits[distribution]
+    rows = []
+    for _, row in positions.iterrows():
+        return_period = float(row["return_period"])
+        rows.append({
+            "observed_flow_cfs": float(row["flow_cfs"]),
+            "fitted_flow_cfs": float(fit.quantiles.get(return_period, np.nan)),
+            "exceedance_prob": float(row["exceedance_prob"]),
+            "return_period": return_period,
+            "distribution": fit.display_name,
         })
 
     return pd.DataFrame(rows)

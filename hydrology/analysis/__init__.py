@@ -4,7 +4,13 @@ from .trends import calculate_annual_means, analyze_trend
 from .stage_discharge import fit_powerlaw_rating_curve
 from .alerts import AlertMonitor, AlertThreshold, Alert, create_flood_alert, create_low_flow_alert
 from .multisite import MultiSiteAnalyzer, quick_correlation_check, CorrelationResult, LagAnalysisResult
-from .frequency import fit_flood_frequency, estimate_return_periods, low_flow_frequency, get_plotting_positions
+from .frequency import (
+    estimate_return_periods,
+    fit_flood_frequency,
+    flood_frequency_diagnostics,
+    get_plotting_positions,
+    low_flow_frequency,
+)
 from .indicators import calculate_spi, calculate_sri, classify_drought, calculate_baseflow_index_timeseries
 from .baseflow import BaseflowResult, compare_baseflow_methods, eckhardt_filter, lyne_hollick_filter
 from .signatures import compute_hydrologic_signatures
@@ -39,6 +45,7 @@ __all__ = [
     # Frequency analysis
     'fit_flood_frequency',
     'estimate_return_periods',
+    'flood_frequency_diagnostics',
     'low_flow_frequency',
     'get_plotting_positions',
     # Drought indicators
