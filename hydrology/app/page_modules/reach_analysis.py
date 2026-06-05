@@ -13,22 +13,15 @@ from hydrology.app.shared import (
     date_range_selector, render_export_buttons,
     _filter_inventory, FIPS_TO_STATE,
     logger)
-from hydrology.app.styles import render_site_header
 from hydrology.app.plot_config import REACH_PLOTS, get_display_name
 from hydrology.visualization.plots import AVAILABLE_PLOTS
 from hydrology.core import DEFAULT_DISCHARGE_CODE
-from hydrology.core.timezone import ensure_utc
-from hydrology.data.climate import fetch_climate_data
 from hydrology.app.shared import fetch_climate_cached
 from hydrology.visualization.interactive import baseflow_waterfall
 from hydrology.analysis.reach_groundwater import summarize_reach_gain_loss
+from hydrology.data.nldi import discover_related_sites
 
 import pandas as pd
-
-
-# Default Spokane River reach stations
-DEFAULT_UPSTREAM = "12419000"   # Post Falls
-DEFAULT_DOWNSTREAM = "12422500"  # Spokane at Spokane (Greene St)
 
 
 def _build_reach_summary_row(upstream_id, downstream_id, upstream_q, downstream_q, reach_km=None):
@@ -42,7 +35,7 @@ def _build_reach_summary_row(upstream_id, downstream_id, upstream_q, downstream_
         "Class": summary.get("classification", "insufficient_data"),
         "Median gain/loss": f"{median_gain:,.0f} cfs" if pd.notna(median_gain) else "N/A",
         "Low-flow gain/loss": f"{low_flow_gain:,.0f} cfs" if pd.notna(low_flow_gain) else "N/A",
-        "Gain/loss per km": f"{per_km:,.1f} cfs/km" if pd.notna(per_km) else "N/A",
+        "Gain/loss per km": f"{per_km:,.1f} cfs/km" if pd.notna(per_km) else "Add reach length",
         "Confidence": summary.get("confidence", "none"),
     }
 
@@ -53,6 +46,115 @@ def _format_reach_chain(site_ids):
         {"Order": idx, "Reach": f"{upstream} -> {downstream}"}
         for idx, (upstream, downstream) in enumerate(zip(site_ids, site_ids[1:]), start=1)
     ]
+
+
+def _signed_navigation_distance(site_id, related_sites, origin_site_id):
+    """Return signed distance from an NLDI anchor; upstream is negative."""
+    if site_id == origin_site_id:
+        return 0.0
+    for site in related_sites:
+        if str(site.get("site_id")) != str(site_id):
+            continue
+        distance = site.get("distance_km")
+        direction = str(site.get("direction", "")).lower()
+        if distance is None or direction not in {"upstream", "downstream"}:
+            return None
+        signed = float(distance)
+        return -signed if direction == "upstream" else signed
+    return None
+
+
+def _estimate_reach_km(upstream_id, downstream_id, related_sites, origin_site_id):
+    """Estimate reach length from navigation distances relative to one anchor."""
+    upstream_distance = _signed_navigation_distance(upstream_id, related_sites, origin_site_id)
+    downstream_distance = _signed_navigation_distance(downstream_id, related_sites, origin_site_id)
+    if upstream_distance is None or downstream_distance is None:
+        return None
+    reach_km = abs(downstream_distance - upstream_distance)
+    return round(reach_km, 2) if reach_km > 0 else None
+
+
+def _format_related_site_rows(origin_site_id, related_sites):
+    """Make NLDI candidate stations readable for the reach-selection UI."""
+    rows = [
+        {
+            "Station": str(origin_site_id),
+            "Position": "Anchor",
+            "Distance from anchor": "0.0 km",
+            "Name": "Selected anchor station",
+        }
+    ]
+    for site in related_sites:
+        direction = str(site.get("direction", "unknown")).lower()
+        navigation_mode = str(site.get("navigation_mode", "")).lower()
+        if "trib" in navigation_mode:
+            position = "Tributary"
+        elif direction == "upstream":
+            position = "Upstream"
+        elif direction == "downstream":
+            position = "Downstream"
+        else:
+            position = "Unknown"
+        distance = site.get("distance_km")
+        rows.append(
+            {
+                "Station": str(site.get("site_id", "")),
+                "Position": position,
+                "Distance from anchor": f"{float(distance):.1f} km" if distance is not None else "Unknown",
+                "Name": site.get("name", ""),
+            }
+        )
+    return rows
+
+
+def _candidate_position(site):
+    """Return the user-facing network position for a candidate site."""
+    direction = str(site.get("direction", "unknown")).lower()
+    navigation_mode = str(site.get("navigation_mode", "")).lower()
+    if "trib" in navigation_mode:
+        return "Tributary"
+    if direction == "upstream":
+        return "Upstream"
+    if direction == "downstream":
+        return "Downstream"
+    return "Anchor"
+
+
+def _build_reach_candidate_options(origin_site_id, origin_name, related_sites):
+    """Build labeled gauge options for reach selectors."""
+    candidates = [
+        {
+            "site_id": str(origin_site_id),
+            "label": f"Anchor | {origin_site_id} | 0.0 km | {origin_name}",
+            "position": "Anchor",
+            "distance_km": 0.0,
+        }
+    ]
+    for site in related_sites:
+        site_id = str(site.get("site_id", ""))
+        if not site_id:
+            continue
+        position = _candidate_position(site)
+        distance = site.get("distance_km")
+        distance_label = f"{float(distance):.1f} km" if distance is not None else "distance unknown"
+        name = site.get("name") or site.get("description") or ""
+        candidates.append(
+            {
+                "site_id": site_id,
+                "label": f"{position} | {site_id} | {distance_label} | {name}",
+                "position": position,
+                "distance_km": float(distance) if distance is not None else None,
+            }
+        )
+
+    position_order = {"Anchor": 0, "Upstream": 1, "Tributary": 2, "Downstream": 3}
+    candidates.sort(
+        key=lambda candidate: (
+            position_order.get(candidate["position"], 9),
+            candidate["distance_km"] if candidate["distance_km"] is not None else 9999.0,
+        )
+    )
+    return candidates
 
 
 def _get_discharge_series(df):
@@ -72,86 +174,159 @@ def show():
         return
 
     st.header("Reach Analysis")
-    st.caption("Compare upstream and downstream stations to analyze gains, losses, and aquifer contributions")
+    st.caption("Start from one gauge, discover nearby network gauges, then compare a selected reach")
 
-    # Each station gets its own independent search/filter
-    all_options = [f"{row['site_id']} - {str(row.get('description', ''))[:60]}"
-                   for _, row in inventory_df.iterrows()]
     states = ["All States"] + sorted(FIPS_TO_STATE.values())
 
-    col1, col2 = st.columns(2)
+    st.subheader("1. Select Anchor Gauge")
+    col1, col2 = st.columns([2, 1])
     with col1:
-        st.subheader("Upstream Station")
-        up_search = st.text_input("Search", placeholder="River name or site ID...",
-                                  key="reach_up_search", label_visibility="collapsed")
-        up_state = st.selectbox("State", states, key="reach_up_state", label_visibility="collapsed")
-        up_filtered = _filter_inventory(inventory_df, up_search, up_state)
-        up_options = [f"{row['site_id']} - {str(row.get('description', ''))[:60]}"
-                      for _, row in up_filtered.iterrows()]
-        if up_search or up_state != "All States":
-            st.caption(f"{len(up_options)} sites")
-        default_up_idx = 0
-        for i, opt in enumerate(up_options):
-            if opt.startswith(DEFAULT_UPSTREAM):
-                default_up_idx = i
-        if up_options:
-            upstream_sel = st.selectbox("Upstream", up_options, index=default_up_idx, key="reach_upstream")
-            upstream_id = extract_site_id(upstream_sel)
-            up_info = get_cached_site_info(upstream_id)
-            if up_info:
-                st.caption(f"{up_info.get('description', '')}")
-        else:
-            st.warning("No sites match")
-            return
-
+        anchor_search = st.text_input(
+            "Find a river gauge",
+            placeholder="River name, station name, or USGS site ID...",
+            key="reach_anchor_search",
+        )
     with col2:
-        st.subheader("Downstream Station")
-        dn_search = st.text_input("Search", placeholder="River name or site ID...",
-                                  key="reach_dn_search", label_visibility="collapsed")
-        dn_state = st.selectbox("State", states, key="reach_dn_state", label_visibility="collapsed")
-        dn_filtered = _filter_inventory(inventory_df, dn_search, dn_state)
-        dn_options = [f"{row['site_id']} - {str(row.get('description', ''))[:60]}"
-                      for _, row in dn_filtered.iterrows()]
-        if dn_search or dn_state != "All States":
-            st.caption(f"{len(dn_options)} sites")
-        default_dn_idx = 0
-        for i, opt in enumerate(dn_options):
-            if opt.startswith(DEFAULT_DOWNSTREAM):
-                default_dn_idx = i
-        if dn_options:
-            downstream_sel = st.selectbox("Downstream", dn_options, index=default_dn_idx, key="reach_downstream")
-            downstream_id = extract_site_id(downstream_sel)
-            dn_info = get_cached_site_info(downstream_id)
-            if dn_info:
-                st.caption(f"{dn_info.get('description', '')}")
+        anchor_state = st.selectbox("State", states, key="reach_anchor_state")
+
+    anchor_filtered = _filter_inventory(inventory_df, anchor_search, anchor_state)
+    anchor_options = [
+        f"{row['site_id']} - {str(row.get('description', ''))[:80]}"
+        for _, row in anchor_filtered.iterrows()
+    ]
+    if anchor_search or anchor_state != "All States":
+        st.caption(f"{len(anchor_options)} matching gauges")
+    if not anchor_options:
+        st.warning("No gauges match the current search")
+        return
+
+    anchor_sel = st.selectbox("Anchor gauge", anchor_options, key="reach_anchor")
+    anchor_id = extract_site_id(anchor_sel)
+    anchor_info = get_cached_site_info(anchor_id)
+    if anchor_info:
+        st.caption(anchor_info.get("description", ""))
+
+    st.markdown("---")
+
+    # Guided station discovery
+    st.subheader("2. Discover River Network Gauges")
+    guide_col1, guide_col2, guide_col3 = st.columns([2, 1, 1])
+    with guide_col1:
+        include_tributaries = st.toggle(
+            "Include tributary gauges",
+            value=True,
+            key="reach_include_tributaries",
+        )
+    with guide_col2:
+        search_km = st.number_input(
+            "Search km",
+            min_value=10,
+            max_value=300,
+            value=75,
+            step=5,
+            key="reach_nldi_search_km",
+        )
+    with guide_col3:
+        st.markdown("<br>", unsafe_allow_html=True)
+        find_gauges = st.button("Find Related Gauges", width="stretch", key="reach_find_related")
+
+    related_key = f"reach_related_sites_{anchor_id}_{search_km}_{include_tributaries}"
+    if find_gauges:
+        with st.spinner("Finding upstream and downstream gauges on the river network..."):
+            st.session_state[related_key] = discover_related_sites(
+                anchor_id,
+                direction="both",
+                distance_km=float(search_km),
+                include_tributaries=include_tributaries,
+                max_sites=25,
+            )
+
+    related_sites = st.session_state.get(related_key, [])
+    if related_sites:
+        st.dataframe(
+            pd.DataFrame(_format_related_site_rows(anchor_id, related_sites)),
+            width="stretch",
+            hide_index=True,
+        )
+    else:
+        st.info("Use Find Related Gauges to discover likely upstream/downstream candidates for the selected anchor gauge.")
+
+    st.subheader("3. Configure Reach Analysis")
+    anchor_name = anchor_info.get("description", "Anchor gauge") if anchor_info else "Anchor gauge"
+    candidate_records = _build_reach_candidate_options(anchor_id, anchor_name, related_sites)
+    candidate_options = [candidate["label"] for candidate in candidate_records]
+    site_by_label = {candidate["label"]: candidate["site_id"] for candidate in candidate_records}
+    default_upstream_idx = next(
+        (idx for idx, candidate in enumerate(candidate_records) if candidate["position"] in {"Upstream", "Tributary"}),
+        0,
+    )
+    default_downstream_idx = next(
+        (idx for idx, candidate in enumerate(candidate_records) if candidate["position"] == "Downstream"),
+        next((idx for idx, candidate in enumerate(candidate_records) if candidate["position"] == "Anchor"), 0),
+    )
+
+    reach_col1, reach_col2 = st.columns(2)
+    with reach_col1:
+        upstream_sel = st.selectbox(
+            "Upstream gauge",
+            candidate_options,
+            index=default_upstream_idx,
+            key="reach_upstream",
+        )
+    with reach_col2:
+        downstream_sel = st.selectbox(
+            "Downstream gauge",
+            candidate_options,
+            index=default_downstream_idx,
+            key="reach_downstream",
+        )
+    upstream_id = site_by_label[upstream_sel]
+    downstream_id = site_by_label[downstream_sel]
+    up_info = get_cached_site_info(upstream_id)
+    dn_info = get_cached_site_info(downstream_id)
+
+    estimated_reach_km = _estimate_reach_km(upstream_id, downstream_id, related_sites, anchor_id)
+    config_col1, config_col2, config_col3 = st.columns([1, 2, 2])
+    with config_col1:
+        manual_reach_km = st.number_input(
+            "Reach length km",
+            min_value=0.0,
+            max_value=1000.0,
+            value=float(estimated_reach_km or 0.0),
+            step=0.1,
+            help="Used only to normalize gain/loss per km. Leave 0 when the reach length is not known.",
+            key="reach_length_km",
+        )
+    with config_col2:
+        if estimated_reach_km:
+            st.metric("Estimated length", f"{estimated_reach_km:.1f} km")
         else:
-            st.warning("No sites match")
-            return
+            st.metric("Estimated length", "Unavailable")
+    with config_col3:
+        if upstream_id == downstream_id:
+            st.warning("Choose two different gauges for a reach.")
+        else:
+            st.metric("Selected reach", f"{upstream_id} -> {downstream_id}")
+    reach_km = manual_reach_km if manual_reach_km > 0 else estimated_reach_km
 
     st.markdown("---")
-
-    # Date range
-    st.subheader("Date Range")
-    start_date, end_date = date_range_selector("reach", default_start=date(2000, 1, 1))
-
-    st.markdown("---")
-
-    # Plot selection - default to showing key reach plots
-    st.subheader("Reach Analysis Plots")
 
     reach_plot_options = {get_display_name(p): p for p in REACH_PLOTS if p in AVAILABLE_PLOTS}
     default_plots = ['reach_comparison', 'reach_index', 'seasonal_gain_loss']
     default_display = [get_display_name(p) for p in default_plots if p in reach_plot_options.values()]
 
-    selected_display = st.multiselect(
-        "Select plots",
-        list(reach_plot_options.keys()),
-        default=default_display,
-        key="reach_plot_select"
-    )
+    settings_col1, settings_col2 = st.columns([1, 1])
+    with settings_col1:
+        start_date, end_date = date_range_selector("reach", default_start=date(2000, 1, 1))
+    with settings_col2:
+        selected_display = st.multiselect(
+            "Plots",
+            list(reach_plot_options.keys()),
+            default=default_display,
+            key="reach_plot_select"
+        )
     selected_plots = [reach_plot_options[d] for d in selected_display]
 
-    # Show descriptions
     with st.expander("Plot descriptions"):
         for display_name, plot_key in reach_plot_options.items():
             info = AVAILABLE_PLOTS.get(plot_key, {})
@@ -213,6 +388,9 @@ def show():
         if not selected_plots:
             st.warning("Select at least one plot")
             return
+        if upstream_id == downstream_id:
+            st.warning("Choose two different gauges before generating reach analysis.")
+            return
 
         start_str = start_date.strftime('%Y-%m-%d')
         end_str = end_date.strftime('%Y-%m-%d')
@@ -255,11 +433,15 @@ def show():
 
         upstream_q = _get_discharge_series(df_upstream)
         downstream_q = _get_discharge_series(df_downstream)
-        reach_row = _build_reach_summary_row(upstream_id, downstream_id, upstream_q, downstream_q)
+        reach_row = _build_reach_summary_row(upstream_id, downstream_id, upstream_q, downstream_q, reach_km=reach_km)
         st.subheader("Reach Chain")
         st.dataframe(pd.DataFrame(_format_reach_chain([upstream_id, downstream_id])), width="stretch", hide_index=True)
         st.subheader("Reach Gain/Loss Summary")
         st.dataframe(pd.DataFrame([reach_row]), width="stretch", hide_index=True)
+        if reach_km:
+            st.caption(f"Gain/loss per km uses reach length {reach_km:.1f} km.")
+        else:
+            st.caption("Gain/loss per km is hidden until a reach length is discovered or entered.")
         if reach_row["Confidence"] != "high":
             st.caption("Screening result. Review station order, tributaries, diversions, and data overlap before interpreting.")
 
