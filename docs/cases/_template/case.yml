@@ -1,0 +1,8 @@
+case: template
+site_ids: []
+start_date: "2000-01-01"
+end_date: "2025-01-01"
+analyses:
+  - baseflow
+  - signatures
+validation: []
