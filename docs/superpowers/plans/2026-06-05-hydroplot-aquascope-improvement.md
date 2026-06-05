@@ -136,6 +136,9 @@ Create:
 - `hydrology/analysis/reach_groundwater.py`  
   Reach-scale gain/loss, normalized contribution, low-flow contribution, classification, and confidence flags.
 
+- `hydrology/analysis/reach_topology.py`  
+  Small pure helpers for validating station-pair direction and pairing metadata from NLDI/navigation results. This keeps topology checks separate from gain/loss math.
+
 - `hydrology/analysis/temperature_context.py`  
   Lightweight riparian/thermal sensitivity context. This is not QUAL2K; it prepares defensible reach descriptors inspired by TTools/Shade/QUAL2K workflows. Keep this as a simple screening helper, not a large rules engine.
 
@@ -191,6 +194,7 @@ Test:
 - `tests/test_baseflow.py`
 - `tests/test_signatures.py`
 - `tests/test_changepoints.py`
+- `tests/test_reach_topology.py`
 - `tests/test_reach_groundwater.py`
 - `tests/test_temperature_context.py`
 - `tests/test_validation_cases.py`
@@ -727,7 +731,152 @@ git commit -m "feat: add changepoint and Sen slope trend outputs"
 
 ---
 
-## Task 5: Reach Groundwater Gain/Loss Analysis
+## Task 5: Reach Topology And Station-Pair Validation
+
+**Files:**
+- Create: `hydrology/analysis/reach_topology.py`
+- Modify: `hydrology/analysis/__init__.py`
+- Test: `tests/test_reach_topology.py`
+
+**Purpose:** prove HydroPlot can reason about upstream/downstream station pairs before applying gain/loss math. This task does not call NLDI directly; it validates metadata returned by existing NLDI helpers and dashboard selections. Network-backed NLDI discovery remains in `hydrology/data/nldi.py`.
+
+**Research basis:** agency reach workflows do not infer gaining/losing conditions from two arbitrary gauges. They require a defensible reach definition, station order, flow-period pairing, and caveats for tributaries/diversions/withdrawals. This task creates the lightweight software boundary for that discipline.
+
+- [ ] **Step 1: Write failing topology tests**
+
+Create `tests/test_reach_topology.py`:
+
+```python
+from hydrology.analysis.reach_topology import (
+    ReachPair,
+    classify_pair_direction,
+    validate_reach_pair,
+)
+
+
+def test_classify_pair_direction_accepts_downstream_metadata():
+    sites = [
+        {"site_id": "up", "direction": "upstream", "distance_km": 8.0},
+        {"site_id": "down", "direction": "downstream", "distance_km": 12.0},
+    ]
+
+    assert classify_pair_direction("up", "down", sites, origin_site_id="origin") == "ordered"
+
+
+def test_validate_reach_pair_flags_same_station():
+    pair = validate_reach_pair("12422500", "12422500", related_sites=[])
+
+    assert pair.status == "invalid"
+    assert "same station" in pair.notes[0]
+
+
+def test_validate_reach_pair_flags_unverified_direction():
+    pair = validate_reach_pair(
+        "12422500",
+        "12424000",
+        related_sites=[{"site_id": "12424000", "direction": "upstream"}],
+    )
+
+    assert isinstance(pair, ReachPair)
+    assert pair.status == "unverified"
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run:
+
+```powershell
+python -m pytest tests/test_reach_topology.py -q
+```
+
+Expected: FAIL because `reach_topology.py` does not exist.
+
+- [ ] **Step 3: Implement topology helpers**
+
+Create `hydrology/analysis/reach_topology.py`:
+
+```python
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Dict, Iterable, List
+
+
+@dataclass(frozen=True)
+class ReachPair:
+    upstream_site_id: str
+    downstream_site_id: str
+    status: str
+    notes: List[str]
+
+
+def classify_pair_direction(
+    upstream_site_id: str,
+    downstream_site_id: str,
+    related_sites: Iterable[Dict],
+    origin_site_id: str | None = None,
+) -> str:
+    by_id = {str(site.get("site_id")): site for site in related_sites}
+    upstream_meta = by_id.get(str(upstream_site_id))
+    downstream_meta = by_id.get(str(downstream_site_id))
+
+    if downstream_meta and downstream_meta.get("direction") == "downstream":
+        return "ordered"
+    if upstream_meta and upstream_meta.get("direction") == "upstream":
+        return "ordered"
+    if downstream_meta and downstream_meta.get("direction") == "upstream":
+        return "reversed_or_tributary"
+    if upstream_meta and upstream_meta.get("direction") == "downstream":
+        return "reversed_or_tributary"
+    return "unknown"
+
+
+def validate_reach_pair(
+    upstream_site_id: str,
+    downstream_site_id: str,
+    related_sites: Iterable[Dict],
+) -> ReachPair:
+    if upstream_site_id == downstream_site_id:
+        return ReachPair(upstream_site_id, downstream_site_id, "invalid", ["same station selected twice"])
+
+    direction = classify_pair_direction(upstream_site_id, downstream_site_id, related_sites)
+    if direction == "ordered":
+        return ReachPair(upstream_site_id, downstream_site_id, "verified", ["NLDI/navigation metadata supports station order"])
+    if direction == "reversed_or_tributary":
+        return ReachPair(upstream_site_id, downstream_site_id, "unverified", ["metadata suggests reversed order or tributary/diversion relationship"])
+    return ReachPair(upstream_site_id, downstream_site_id, "unverified", ["station order not verified by navigation metadata"])
+```
+
+- [ ] **Step 4: Export**
+
+Modify `hydrology/analysis/__init__.py`:
+
+```python
+from .reach_topology import ReachPair, classify_pair_direction, validate_reach_pair
+```
+
+- [ ] **Step 5: Run focused tests**
+
+Run:
+
+```powershell
+python -m pytest tests/test_reach_topology.py -q
+```
+
+Expected: PASS.
+
+- [ ] **Step 6: Commit**
+
+Run:
+
+```powershell
+git add hydrology/analysis/reach_topology.py hydrology/analysis/__init__.py tests/test_reach_topology.py
+git commit -m "feat: add reach station pair validation"
+```
+
+---
+
+## Task 6: Reach Groundwater Gain/Loss Analysis
 
 **Files:**
 - Create: `hydrology/analysis/reach_groundwater.py`
@@ -866,7 +1015,7 @@ git commit -m "feat: add reach groundwater gain loss summaries"
 
 ---
 
-## Task 6: Lightweight Riparian And Temperature Context
+## Task 7: Lightweight Riparian And Temperature Context
 
 **Files:**
 - Create: `hydrology/analysis/temperature_context.py`
@@ -999,7 +1148,7 @@ git commit -m "feat: add reach thermal sensitivity context"
 
 ---
 
-## Task 7: Flood Frequency Diagnostics And Deterministic CIs
+## Task 8: Flood Frequency Diagnostics And Deterministic CIs
 
 **Files:**
 - Modify: `hydrology/analysis/frequency.py`
@@ -1111,7 +1260,7 @@ git commit -m "feat: add flood frequency diagnostics"
 
 ---
 
-## Task 8: Shared Validation Helpers
+## Task 9: Shared Validation Helpers
 
 **Files:**
 - Create: `hydrology/analysis/validation.py`
@@ -1224,7 +1373,7 @@ git commit -m "feat: add validation helpers for case studies"
 
 ---
 
-## Task 9: HydroPlot Case Study Template And Runner
+## Task 10: HydroPlot Case Study Template And Runner
 
 **Files:**
 - Create: `docs/cases/_template/README.md`
@@ -1344,7 +1493,7 @@ git commit -m "docs: add HydroPlot validation case template"
 
 ---
 
-## Task 10: PNW Baseflow And Groundwater Validation Cases
+## Task 11: PNW Baseflow And Groundwater Validation Cases
 
 **Files:**
 - Create: `docs/cases/pnw_baseflow_signatures/README.md`
@@ -1493,7 +1642,7 @@ git commit -m "feat: add PNW validation case studies"
 
 ---
 
-## Task 11: Dashboard Integration For Indicators
+## Task 12: Dashboard Integration For Indicators
 
 **Files:**
 - Modify: `hydrology/app/page_modules/indicators.py`
@@ -1560,7 +1709,7 @@ git commit -m "feat: show baseflow method comparison in dashboard"
 
 ---
 
-## Task 12: Dashboard Integration For Reach Groundwater
+## Task 13: Dashboard Integration For Reach Groundwater
 
 **Files:**
 - Modify: `hydrology/app/page_modules/reach_analysis.py`
@@ -1625,7 +1774,7 @@ git commit -m "feat: add reach groundwater dashboard summary"
 
 ---
 
-## Task 13: Dashboard Integration For Frequency And Trend Diagnostics
+## Task 14: Dashboard Integration For Frequency And Trend Diagnostics
 
 **Files:**
 - Modify: `hydrology/app/page_modules/single_analysis.py`
@@ -1680,7 +1829,7 @@ git commit -m "feat: add frequency and changepoint diagnostics to dashboard"
 
 ---
 
-## Task 14: Full Verification And Local Dashboard Check
+## Task 15: Full Verification And Local Dashboard Check
 
 **Files:**
 - No code changes unless fixing issues.
@@ -1748,7 +1897,7 @@ Expected: only needed if verification found issues.
 
 ---
 
-## Task 15: Push And Open GitHub PR
+## Task 16: Push And Open GitHub PR
 
 **Files:**
 - No code changes.
