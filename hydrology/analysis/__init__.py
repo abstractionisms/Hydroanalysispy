@@ -9,6 +9,15 @@ from .indicators import calculate_spi, calculate_sri, classify_drought, calculat
 from .baseflow import BaseflowResult, compare_baseflow_methods, eckhardt_filter, lyne_hollick_filter
 from .signatures import compute_hydrologic_signatures
 from .changepoints import pettitt_test
+from .reach_topology import (
+    ReachChain,
+    ReachPair,
+    ReachStation,
+    build_reach_chain,
+    classify_pair_direction,
+    derive_adjacent_reaches,
+    validate_reach_pair,
+)
 
 __all__ = [
     'calculate_annual_means',
@@ -44,4 +53,12 @@ __all__ = [
     'compute_hydrologic_signatures',
     # Changepoints
     'pettitt_test',
+    # Reach topology
+    'ReachChain',
+    'ReachPair',
+    'ReachStation',
+    'build_reach_chain',
+    'classify_pair_direction',
+    'derive_adjacent_reaches',
+    'validate_reach_pair',
 ]
