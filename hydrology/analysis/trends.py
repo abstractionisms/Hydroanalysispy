@@ -58,7 +58,7 @@ def calculate_annual_means(
             return None
 
         # Resample to annual (year start) and calculate mean
-        annual = df[column].resample('AS').mean().dropna()
+        annual = df[column].resample('YS').mean().dropna()
 
         logger.info(f"Calculated annual means: {column} ({len(annual)} years)")
         return annual
