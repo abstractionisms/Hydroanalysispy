@@ -40,6 +40,47 @@ def _build_reach_summary_row(upstream_id, downstream_id, upstream_q, downstream_
     }
 
 
+def _build_reach_interpretation(reach_row, reach_km=None, length_source="missing"):
+    """Convert reach screening metrics into a concise dashboard interpretation."""
+    reach_class = str(reach_row.get("Class", "insufficient_data")).lower()
+    confidence = str(reach_row.get("Confidence", "none")).lower()
+    per_km = reach_row.get("Gain/loss per km", "Add reach length")
+
+    if reach_class == "gaining":
+        finding = "Gaining reach"
+        direction_text = "downstream flow is higher than upstream flow"
+    elif reach_class == "losing":
+        finding = "Losing reach"
+        direction_text = "downstream flow is lower than upstream flow"
+    elif reach_class == "neutral":
+        finding = "No clear gain/loss"
+        direction_text = "upstream and downstream flow are similar over the paired record"
+    else:
+        finding = "Not enough paired data"
+        direction_text = "paired daily flow overlap is not sufficient for a reach call"
+
+    if reach_km:
+        length_label = f"{reach_km:.1f} km, {length_source} inferred" if length_source == "network" else f"{reach_km:.1f} km, manual"
+        length_text = f"Normalized gain/loss is {per_km}."
+    else:
+        length_label = "Not inferred"
+        length_text = "cfs/km is unavailable until the network length is inferred or entered."
+
+    review = "Use as a screening result."
+    if confidence != "high":
+        review = "Screening result; check tributaries, diversions, withdrawals, and data overlap."
+
+    return {
+        "Finding": finding,
+        "Confidence": confidence,
+        "Median gain/loss": reach_row.get("Median gain/loss", "N/A"),
+        "Low-flow gain/loss": reach_row.get("Low-flow gain/loss", "N/A"),
+        "Reach length": length_label,
+        "Interpretation": f"{direction_text}; {length_text}",
+        "Review": review,
+    }
+
+
 def _format_reach_chain(site_ids):
     """Format adjacent reaches in selected upstream-to-downstream order."""
     return [
@@ -113,15 +154,17 @@ def _map_bounds_for_reach(
     downstream_lat,
     downstream_lon,
 ):
-    """Return folium bounds focused on the selected reach where possible."""
-    for flowlines in (selected_flowlines, context_flowlines):
-        if flowlines is None or getattr(flowlines, "empty", True):
-            continue
-        minx, miny, maxx, maxy = flowlines.total_bounds
-        return [[float(miny), float(minx)], [float(maxy), float(maxx)]]
+    """Return folium bounds focused on the selected gages."""
+    lat_min = min(float(upstream_lat), float(downstream_lat))
+    lat_max = max(float(upstream_lat), float(downstream_lat))
+    lon_min = min(float(upstream_lon), float(downstream_lon))
+    lon_max = max(float(upstream_lon), float(downstream_lon))
+
+    lat_pad = max((lat_max - lat_min) * 0.25, 0.01)
+    lon_pad = max((lon_max - lon_min) * 0.25, 0.01)
     return [
-        [min(float(upstream_lat), float(downstream_lat)), min(float(upstream_lon), float(downstream_lon))],
-        [max(float(upstream_lat), float(downstream_lat)), max(float(upstream_lon), float(downstream_lon))],
+        [round(lat_min - lat_pad, 6), round(lon_min - lon_pad, 6)],
+        [round(lat_max + lat_pad, 6), round(lon_max + lon_pad, 6)],
     ]
 
 
@@ -469,8 +512,12 @@ def show():
                 center_lat = (up_lat + dn_lat) / 2
                 center_lon = (up_lon + dn_lon) / 2
 
-                m = folium.Map(location=[center_lat, center_lon], zoom_start=10,
-                              tiles='CartoDB dark_matter')
+                m = folium.Map(location=[center_lat, center_lon], zoom_start=10, tiles=None)
+                folium.TileLayer(
+                    "CartoDB dark_matter",
+                    name="Base map",
+                    no_wrap=True,
+                ).add_to(m)
 
                 flowline_distance = _flowline_distance_km(reach_km, search_km)
                 try:
@@ -496,22 +543,10 @@ def show():
                             style_function=lambda feature: _flowline_style(selected=True),
                             tooltip=f"Selected reach network: {upstream_id} -> {downstream_id}",
                         ).add_to(m)
-                        m.fit_bounds(
-                            _map_bounds_for_reach(
-                                selected_flowlines,
-                                flowlines,
-                                up_lat,
-                                up_lon,
-                                dn_lat,
-                                dn_lon,
-                            )
-                        )
                     else:
-                        m.fit_bounds(_map_bounds_for_reach(None, None, up_lat, up_lon, dn_lat, dn_lon))
                         st.caption("River-network geometry was not available for this reach; showing gage locations only.")
                 except Exception as e:
                     logger.warning(f"Could not add reach flowlines: {e}")
-                    m.fit_bounds(_map_bounds_for_reach(None, None, up_lat, up_lon, dn_lat, dn_lon))
                     st.caption("River-network geometry was not available for this reach; showing gage locations only.")
 
                 folium.CircleMarker(
@@ -526,6 +561,7 @@ def show():
                     tooltip=f"Downstream: {dn_info.get('description', downstream_id)}"
                 ).add_to(m)
 
+                m.fit_bounds(_map_bounds_for_reach(None, None, up_lat, up_lon, dn_lat, dn_lon))
                 st_folium(m, width=None, height=300, returned_objects=[])
                 st.caption("Gold = selected reach network; blue = nearby river/tributary context. Blue marker = upstream gage; orange marker = downstream gage.")
 
@@ -588,16 +624,13 @@ def show():
         upstream_q = _get_discharge_series(df_upstream)
         downstream_q = _get_discharge_series(df_downstream)
         reach_row = _build_reach_summary_row(upstream_id, downstream_id, upstream_q, downstream_q, reach_km=reach_km)
-        st.subheader("Reach Chain")
-        st.dataframe(pd.DataFrame(_format_reach_chain([upstream_id, downstream_id])), width="stretch", hide_index=True)
-        st.subheader("Reach Gain/Loss Summary")
-        st.dataframe(pd.DataFrame([reach_row]), width="stretch", hide_index=True)
-        if reach_km:
-            st.caption(f"Gain/loss per km uses reach length {reach_km:.1f} km.")
-        else:
-            st.caption("Gain/loss per km is hidden until a reach length is discovered or entered.")
-        if reach_row["Confidence"] != "high":
-            st.caption("Screening result. Review station order, tributaries, diversions, and data overlap before interpreting.")
+        length_source = "network" if estimated_reach_km else "manual" if reach_km else "missing"
+        reach_interpretation = _build_reach_interpretation(reach_row, reach_km=reach_km, length_source=length_source)
+        st.subheader("Automated Reach Summary")
+        st.dataframe(pd.DataFrame([reach_interpretation]), width="stretch", hide_index=True)
+        with st.expander("Reach details", expanded=False):
+            st.dataframe(pd.DataFrame(_format_reach_chain([upstream_id, downstream_id])), width="stretch", hide_index=True)
+            st.dataframe(pd.DataFrame([reach_row]), width="stretch", hide_index=True)
 
         st.markdown("---")
 

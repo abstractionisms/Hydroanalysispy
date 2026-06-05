@@ -1,6 +1,7 @@
 import pandas as pd
 
 from hydrology.app.page_modules.reach_analysis import (
+    _build_reach_interpretation,
     _build_reach_summary_row,
     _build_reach_candidate_options,
     _candidate_index_for_site,
@@ -85,9 +86,9 @@ def test_flowline_style_highlights_selected_network():
     assert _flowline_style(selected=True)["weight"] > _flowline_style(selected=False)["weight"]
 
 
-def test_map_bounds_prefers_selected_flowlines_over_context():
+def test_map_bounds_focuses_on_selected_gage_markers_not_flowline_extent():
     class FakeFlowlines:
-        total_bounds = [0.0, 1.0, 2.0, 3.0]
+        total_bounds = [-125.0, 40.0, -110.0, 50.0]
         empty = False
 
     bounds = _map_bounds_for_reach(
@@ -99,20 +100,55 @@ def test_map_bounds_prefers_selected_flowlines_over_context():
         downstream_lon=21.0,
     )
 
-    assert bounds == [[1.0, 0.0], [3.0, 2.0]]
+    assert bounds == [[9.75, 19.75], [11.25, 21.25]]
 
 
-def test_map_bounds_falls_back_to_gage_markers():
+def test_map_bounds_pads_close_gage_markers():
     bounds = _map_bounds_for_reach(
         selected_flowlines=None,
         context_flowlines=None,
         upstream_lat=10.0,
         upstream_lon=20.0,
-        downstream_lat=11.0,
-        downstream_lon=21.0,
+        downstream_lat=10.001,
+        downstream_lon=20.001,
     )
 
-    assert bounds == [[10.0, 20.0], [11.0, 21.0]]
+    assert bounds == [[9.99, 19.99], [10.011, 20.011]]
+
+
+def test_build_reach_interpretation_summarizes_gaining_reach():
+    row = {
+        "Reach": "up -> down",
+        "Class": "gaining",
+        "Median gain/loss": "342 cfs",
+        "Low-flow gain/loss": "339 cfs",
+        "Gain/loss per km": "12.0 cfs/km",
+        "Confidence": "moderate",
+    }
+
+    summary = _build_reach_interpretation(row, reach_km=28.5, length_source="network")
+
+    assert summary["Finding"] == "Gaining reach"
+    assert "downstream flow is higher" in summary["Interpretation"]
+    assert summary["Reach length"] == "28.5 km, network inferred"
+    assert summary["Review"] == "Screening result; check tributaries, diversions, withdrawals, and data overlap."
+
+
+def test_build_reach_interpretation_explains_missing_length():
+    row = {
+        "Reach": "up -> down",
+        "Class": "insufficient_data",
+        "Median gain/loss": "N/A",
+        "Low-flow gain/loss": "N/A",
+        "Gain/loss per km": "Add reach length",
+        "Confidence": "none",
+    }
+
+    summary = _build_reach_interpretation(row, reach_km=None, length_source="missing")
+
+    assert summary["Finding"] == "Not enough paired data"
+    assert summary["Reach length"] == "Not inferred"
+    assert "cfs/km is unavailable" in summary["Interpretation"]
 
 
 def test_format_related_site_rows_makes_station_choices_legible():
