@@ -5,6 +5,7 @@ from hydrology.app.page_modules.reach_analysis import (
     _build_reach_candidate_options,
     _candidate_index_for_site,
     _candidate_label_for_site,
+    _default_candidate_label,
     _estimate_reach_km,
     _format_reach_chain,
     _format_related_site_rows,
@@ -62,20 +63,20 @@ def test_format_related_site_rows_makes_station_choices_legible():
         [
             {
                 "site_id": "up",
-                "name": "Upstream mainstem gauge",
+                "name": "Upstream mainstem gage",
                 "direction": "upstream",
                 "distance_km": 29.4,
             },
             {
                 "site_id": "trib",
-                "name": "Tributary gauge",
+                "name": "Tributary gage",
                 "direction": "upstream",
                 "navigation_mode": "upstream_trib",
                 "distance_km": 12.0,
             },
             {
                 "site_id": "down",
-                "name": "Downstream gauge",
+                "name": "Downstream gage",
                 "direction": "downstream",
                 "distance_km": 18.1,
             },
@@ -93,17 +94,17 @@ def test_format_related_site_rows_makes_station_choices_legible():
 def test_build_reach_candidate_options_groups_both_directions():
     candidates = _build_reach_candidate_options(
         "anchor",
-        "Anchor gauge",
+        "Anchor gage",
         [
             {
                 "site_id": "up",
-                "name": "Upstream gauge",
+                "name": "Upstream gage",
                 "direction": "upstream",
                 "distance_km": 5.2,
             },
             {
                 "site_id": "down",
-                "name": "Downstream gauge",
+                "name": "Downstream gage",
                 "direction": "downstream",
                 "distance_km": 7.8,
             },
@@ -136,6 +137,25 @@ def test_candidate_label_for_site_returns_matching_dropdown_label():
     ]
 
     assert _candidate_label_for_site(candidates, "up") == "Upstream | up | 5.0 km | Upstream"
+
+
+def test_default_candidate_label_uses_preferred_site_before_role_fallback():
+    candidates = [
+        {"site_id": "anchor", "label": "Anchor label", "position": "Anchor"},
+        {"site_id": "up", "label": "Upstream label", "position": "Upstream"},
+        {"site_id": "down", "label": "Downstream label", "position": "Downstream"},
+    ]
+
+    assert _default_candidate_label(candidates, "down", {"Upstream"}) == "Downstream label"
+
+
+def test_default_candidate_label_falls_back_to_role_label():
+    candidates = [
+        {"site_id": "anchor", "label": "Anchor label", "position": "Anchor"},
+        {"site_id": "up", "label": "Upstream label", "position": "Upstream"},
+    ]
+
+    assert _default_candidate_label(candidates, None, {"Upstream"}) == "Upstream label"
 
 
 def test_candidate_index_for_site_falls_back_to_role():

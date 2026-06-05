@@ -121,7 +121,7 @@ def _candidate_position(site):
 
 
 def _build_reach_candidate_options(origin_site_id, origin_name, related_sites):
-    """Build labeled gauge options for reach selectors."""
+    """Build labeled gage options for reach selectors."""
     candidates = [
         {
             "site_id": str(origin_site_id),
@@ -181,6 +181,14 @@ def _candidate_label_for_site(candidates, site_id):
     return None
 
 
+def _default_candidate_label(candidates, preferred_site_id, fallback_positions):
+    """Return the dropdown label for a preferred site or role fallback."""
+    preferred_label = _candidate_label_for_site(candidates, preferred_site_id)
+    if preferred_label:
+        return preferred_label
+    return candidates[_candidate_index_for_site(candidates, None, fallback_positions)]["label"]
+
+
 def _selected_candidate_site_id(candidate_rows, selection_state):
     """Return the site ID represented by a selected candidate table row."""
     try:
@@ -218,17 +226,17 @@ def show():
         return
 
     st.header("Reach Analysis")
-    st.caption("Start from one gauge, discover nearby network gauges, then compare a selected reach")
+    st.caption("Start from one gage, discover nearby network gages, then compare a selected reach")
 
     states = ["All States"] + sorted(FIPS_TO_STATE.values())
 
-    st.subheader("1. Choose Gauge and Find Network")
+    st.subheader("1. Choose Gage and Find Network")
     top_col1, top_col2, top_col3, top_col4, top_col5 = st.columns([1.2, 2.2, 3, 1, 1.2])
     with top_col1:
         anchor_state = st.selectbox("State", states, key="reach_anchor_state")
     with top_col2:
         anchor_search = st.text_input(
-            "Find river gauge",
+            "Find river gage",
             placeholder="River, station, or USGS ID...",
             key="reach_anchor_search",
         )
@@ -239,13 +247,13 @@ def show():
         for _, row in anchor_filtered.iterrows()
     ]
     if anchor_search or anchor_state != "All States":
-        st.caption(f"{len(anchor_options)} matching gauges")
+        st.caption(f"{len(anchor_options)} matching gages")
     if not anchor_options:
-        st.warning("No gauges match the current search")
+        st.warning("No gages match the current search")
         return
 
     with top_col3:
-        anchor_sel = st.selectbox("Anchor gauge", anchor_options, key="reach_anchor")
+        anchor_sel = st.selectbox("Anchor gage", anchor_options, key="reach_anchor")
     anchor_id = extract_site_id(anchor_sel)
     anchor_info = get_cached_site_info(anchor_id)
     with top_col4:
@@ -264,13 +272,13 @@ def show():
             key="reach_include_tributaries",
         )
         st.markdown("<br>", unsafe_allow_html=True)
-        find_gauges = st.button("Find Related Gauges", width="stretch", key="reach_find_related")
+        find_gauges = st.button("Find Related Gages", width="stretch", key="reach_find_related")
     if anchor_info:
         st.caption(anchor_info.get("description", ""))
 
     related_key = f"reach_related_sites_{anchor_id}_{search_km}_{include_tributaries}"
     if find_gauges:
-        with st.spinner("Finding upstream and downstream gauges on the river network..."):
+        with st.spinner("Finding upstream and downstream gages on the river network..."):
             st.session_state[related_key] = discover_related_sites(
                 anchor_id,
                 direction="both",
@@ -280,8 +288,8 @@ def show():
             )
 
     related_sites = st.session_state.get(related_key, [])
-    st.subheader("2. Pick Candidate Gauges")
-    anchor_name = anchor_info.get("description", "Anchor gauge") if anchor_info else "Anchor gauge"
+    st.subheader("2. Pick Candidate Gages")
+    anchor_name = anchor_info.get("description", "Anchor gage") if anchor_info else "Anchor gage"
     candidate_records = _build_reach_candidate_options(anchor_id, anchor_name, related_sites)
     candidate_rows = _format_related_site_rows(anchor_id, related_sites)
     if related_sites:
@@ -297,64 +305,51 @@ def show():
         action_col1, action_col2, action_col3 = st.columns([1, 1, 3])
         with action_col1:
             if st.button("Use as Upstream", disabled=selected_candidate_id is None, width="stretch"):
-                st.session_state["reach_upstream_site_id"] = selected_candidate_id
+                selected_label = _candidate_label_for_site(candidate_records, selected_candidate_id)
+                if selected_label:
+                    st.session_state["reach_upstream_choice"] = selected_label
         with action_col2:
             if st.button("Use as Downstream", disabled=selected_candidate_id is None, width="stretch"):
-                st.session_state["reach_downstream_site_id"] = selected_candidate_id
+                selected_label = _candidate_label_for_site(candidate_records, selected_candidate_id)
+                if selected_label:
+                    st.session_state["reach_downstream_choice"] = selected_label
         with action_col3:
             if selected_candidate_id:
                 st.caption(f"Selected candidate: {selected_candidate_id}")
             else:
                 st.caption("Select one candidate row, then assign it to upstream or downstream.")
     else:
-        st.info("Use Find Related Gauges to discover likely upstream/downstream candidates for the selected anchor gauge.")
+        st.info("Use Find Related Gages to discover likely upstream/downstream candidates for the selected anchor gage.")
 
     st.subheader("3. Configure Reach and Outputs")
     candidate_options = [candidate["label"] for candidate in candidate_records]
     site_by_label = {candidate["label"]: candidate["site_id"] for candidate in candidate_records}
-    site_by_id = {candidate["site_id"]: candidate for candidate in candidate_records}
-    if st.session_state.get("reach_upstream_site_id") not in site_by_id:
-        st.session_state.pop("reach_upstream_site_id", None)
-    if st.session_state.get("reach_downstream_site_id") not in site_by_id:
-        st.session_state.pop("reach_downstream_site_id", None)
-    default_upstream_idx = _candidate_index_for_site(
-        candidate_records,
-        st.session_state.get("reach_upstream_site_id"),
-        {"Upstream", "Tributary"},
-    )
-    default_downstream_idx = _candidate_index_for_site(
-        candidate_records,
-        st.session_state.get("reach_downstream_site_id"),
-        {"Downstream", "Anchor"},
-    )
-    _ensure_widget_value_is_valid("reach_upstream", candidate_options)
-    _ensure_widget_value_is_valid("reach_downstream", candidate_options)
-    upstream_assigned_label = _candidate_label_for_site(candidate_records, st.session_state.get("reach_upstream_site_id"))
-    downstream_assigned_label = _candidate_label_for_site(candidate_records, st.session_state.get("reach_downstream_site_id"))
-    if upstream_assigned_label:
-        st.session_state["reach_upstream"] = upstream_assigned_label
-    if downstream_assigned_label:
-        st.session_state["reach_downstream"] = downstream_assigned_label
+    _ensure_widget_value_is_valid("reach_upstream_choice", candidate_options)
+    _ensure_widget_value_is_valid("reach_downstream_choice", candidate_options)
+    if "reach_upstream_choice" not in st.session_state:
+        st.session_state["reach_upstream_choice"] = _default_candidate_label(candidate_records, None, {"Upstream", "Tributary"})
+    if "reach_downstream_choice" not in st.session_state:
+        st.session_state["reach_downstream_choice"] = _default_candidate_label(candidate_records, None, {"Downstream", "Anchor"})
+    default_upstream_idx = candidate_options.index(st.session_state["reach_upstream_choice"])
+    default_downstream_idx = candidate_options.index(st.session_state["reach_downstream_choice"])
 
     reach_col1, reach_col2 = st.columns(2)
     with reach_col1:
         upstream_sel = st.selectbox(
-            "Upstream gauge",
+            "Upstream gage",
             candidate_options,
             index=default_upstream_idx,
-            key="reach_upstream",
+            key="reach_upstream_choice",
         )
     with reach_col2:
         downstream_sel = st.selectbox(
-            "Downstream gauge",
+            "Downstream gage",
             candidate_options,
             index=default_downstream_idx,
-            key="reach_downstream",
+            key="reach_downstream_choice",
         )
     upstream_id = site_by_label[upstream_sel]
     downstream_id = site_by_label[downstream_sel]
-    st.session_state["reach_upstream_site_id"] = upstream_id
-    st.session_state["reach_downstream_site_id"] = downstream_id
     up_info = get_cached_site_info(upstream_id)
     dn_info = get_cached_site_info(downstream_id)
 
@@ -377,7 +372,7 @@ def show():
             st.metric("Estimated length", "Unavailable")
     with config_col3:
         if upstream_id == downstream_id:
-            st.warning("Choose two different gauges for a reach.")
+            st.warning("Choose two different gages for a reach.")
         else:
             st.metric("Selected reach", f"{upstream_id} -> {downstream_id}")
     reach_km = manual_reach_km if manual_reach_km > 0 else estimated_reach_km
@@ -462,7 +457,7 @@ def show():
             st.warning("Select at least one plot")
             return
         if upstream_id == downstream_id:
-            st.warning("Choose two different gauges before generating reach analysis.")
+            st.warning("Choose two different gages before generating reach analysis.")
             return
 
         start_str = start_date.strftime('%Y-%m-%d')
