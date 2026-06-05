@@ -6,6 +6,7 @@ from .alerts import AlertMonitor, AlertThreshold, Alert, create_flood_alert, cre
 from .multisite import MultiSiteAnalyzer, quick_correlation_check, CorrelationResult, LagAnalysisResult
 from .frequency import fit_flood_frequency, estimate_return_periods, low_flow_frequency, get_plotting_positions
 from .indicators import calculate_spi, calculate_sri, classify_drought, calculate_baseflow_index_timeseries
+from .baseflow import BaseflowResult, compare_baseflow_methods, eckhardt_filter, lyne_hollick_filter
 
 __all__ = [
     'calculate_annual_means',
@@ -32,4 +33,9 @@ __all__ = [
     'calculate_sri',
     'classify_drought',
     'calculate_baseflow_index_timeseries',
+    # Baseflow separation
+    'BaseflowResult',
+    'compare_baseflow_methods',
+    'eckhardt_filter',
+    'lyne_hollick_filter',
 ]

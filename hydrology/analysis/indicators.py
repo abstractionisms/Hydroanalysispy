@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats as sp_stats
 
+from .baseflow import lyne_hollick_filter
 from ..core.logging_setup import get_logger
 
 logger = get_logger(__name__)
@@ -296,22 +297,7 @@ def calculate_baseflow_index_timeseries(
         logger.warning("Insufficient data for BFI timeseries")
         return pd.DataFrame()
 
-    Q = daily_q.values.astype(float)
-
-    # Lyne-Hollick filter
-    Q_f = np.zeros_like(Q)
-    for t in range(1, len(Q)):
-        Q_f[t] = alpha * Q_f[t-1] + (1 + alpha) / 2 * (Q[t] - Q[t-1])
-        Q_f[t] = max(0, Q_f[t])
-
-    baseflow = np.clip(Q - Q_f, 0, Q)
-    quickflow = Q - baseflow
-
-    df = pd.DataFrame({
-        'total_flow': Q,
-        'baseflow': baseflow,
-        'quickflow': quickflow,
-    }, index=daily_q.index)
+    df = lyne_hollick_filter(daily_q, alpha=alpha, passes=1).components.copy()
 
     # Rolling BFI
     rolling_total = df['total_flow'].rolling(window=window_days, min_periods=window_days//2).sum()
