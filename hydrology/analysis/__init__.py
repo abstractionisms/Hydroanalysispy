@@ -19,6 +19,7 @@ from .reach_topology import (
     validate_reach_pair,
 )
 from .reach_groundwater import classify_reach_gain_loss, summarize_reach_gain_loss
+from .temperature_context import classify_thermal_sensitivity
 
 __all__ = [
     'calculate_annual_means',
@@ -65,4 +66,6 @@ __all__ = [
     # Reach groundwater
     'classify_reach_gain_loss',
     'summarize_reach_gain_loss',
+    # Temperature context
+    'classify_thermal_sensitivity',
 ]
