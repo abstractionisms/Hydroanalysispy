@@ -105,6 +105,26 @@ def _flowline_style(selected=False):
     }
 
 
+def _map_bounds_for_reach(
+    selected_flowlines,
+    context_flowlines,
+    upstream_lat,
+    upstream_lon,
+    downstream_lat,
+    downstream_lon,
+):
+    """Return folium bounds focused on the selected reach where possible."""
+    for flowlines in (selected_flowlines, context_flowlines):
+        if flowlines is None or getattr(flowlines, "empty", True):
+            continue
+        minx, miny, maxx, maxy = flowlines.total_bounds
+        return [[float(miny), float(minx)], [float(maxy), float(maxx)]]
+    return [
+        [min(float(upstream_lat), float(downstream_lat)), min(float(upstream_lon), float(downstream_lon))],
+        [max(float(upstream_lat), float(downstream_lat)), max(float(upstream_lon), float(downstream_lon))],
+    ]
+
+
 def _format_related_site_rows(origin_site_id, related_sites):
     """Make NLDI candidate stations readable for the reach-selection UI."""
     rows = [
@@ -458,6 +478,7 @@ def show():
             flowline_distance = _flowline_distance_km(reach_km, search_km)
             try:
                 flowlines = get_flowlines(downstream_id, distance_km=flowline_distance)
+                selected_flowlines = None
                 if flowlines is not None and not flowlines.empty:
                     folium.GeoJson(
                         flowlines.to_json(),
@@ -478,12 +499,22 @@ def show():
                         style_function=lambda feature: _flowline_style(selected=True),
                         tooltip=f"Selected reach network: {upstream_id} -> {downstream_id}",
                     ).add_to(m)
-                    bounds = flowlines.total_bounds
-                    m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+                    m.fit_bounds(
+                        _map_bounds_for_reach(
+                            selected_flowlines,
+                            flowlines,
+                            up_lat,
+                            up_lon,
+                            dn_lat,
+                            dn_lon,
+                        )
+                    )
                 else:
+                    m.fit_bounds(_map_bounds_for_reach(None, None, up_lat, up_lon, dn_lat, dn_lon))
                     st.caption("River-network geometry was not available for this reach; showing gage locations only.")
             except Exception as e:
                 logger.warning(f"Could not add reach flowlines: {e}")
+                m.fit_bounds(_map_bounds_for_reach(None, None, up_lat, up_lon, dn_lat, dn_lon))
                 st.caption("River-network geometry was not available for this reach; showing gage locations only.")
 
             # Upstream marker (blue)

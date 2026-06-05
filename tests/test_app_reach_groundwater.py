@@ -11,6 +11,7 @@ from hydrology.app.page_modules.reach_analysis import (
     _format_related_site_rows,
     _flowline_distance_km,
     _flowline_style,
+    _map_bounds_for_reach,
     _resolve_reach_km,
     _selected_candidate_site_id,
 )
@@ -82,6 +83,36 @@ def test_flowline_distance_falls_back_to_search_distance():
 
 def test_flowline_style_highlights_selected_network():
     assert _flowline_style(selected=True)["weight"] > _flowline_style(selected=False)["weight"]
+
+
+def test_map_bounds_prefers_selected_flowlines_over_context():
+    class FakeFlowlines:
+        total_bounds = [0.0, 1.0, 2.0, 3.0]
+        empty = False
+
+    bounds = _map_bounds_for_reach(
+        FakeFlowlines(),
+        context_flowlines=object(),
+        upstream_lat=10.0,
+        upstream_lon=20.0,
+        downstream_lat=11.0,
+        downstream_lon=21.0,
+    )
+
+    assert bounds == [[1.0, 0.0], [3.0, 2.0]]
+
+
+def test_map_bounds_falls_back_to_gage_markers():
+    bounds = _map_bounds_for_reach(
+        selected_flowlines=None,
+        context_flowlines=None,
+        upstream_lat=10.0,
+        upstream_lon=20.0,
+        downstream_lat=11.0,
+        downstream_lon=21.0,
+    )
+
+    assert bounds == [[10.0, 20.0], [11.0, 21.0]]
 
 
 def test_format_related_site_rows_makes_station_choices_legible():
