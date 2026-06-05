@@ -74,6 +74,21 @@ fix tests and dashboard and docs
 misc improvements
 ```
 
+## Reach UX Rules
+
+The reach workflow must not expose topology plumbing as a clunky expert-only process.
+
+- The primary user action should be: pick an anchor/site or choose a few gauges, then review an ordered river chain.
+- Show the chain visually and textually as `upstream -> downstream`, with adjacent reach cards/rows.
+- Use simple status language: `Verified mainstem`, `Needs review`, `Tributary/diversion possible`, `Not enough data`.
+- Put technical details such as NLDI mode, signed distance, COMID, and metadata source behind an expander.
+- Do not make users manually enter upstream/downstream order if HydroPlot can infer it from metadata.
+- If metadata cannot verify order, let users continue with a clear warning and mark outputs as screening-only.
+- For a multi-gauge chain, default results should be reach-by-reach rows, not a dense matrix.
+- Keep the initial view focused on the decision: which reaches are gaining, losing, neutral, or uncertain during the selected period.
+- Avoid page-load network scans. Topology discovery should happen from a clear button such as `Find Related Gauges` or `Build Reach Chain`.
+- Cache discovered topology and fetched flows for the selected site/date range using existing Streamlit cache patterns.
+
 ## Lean Verification Rules
 
 Do not add defensive checks everywhere. The code should stay readable and fast.
@@ -137,7 +152,7 @@ Create:
   Reach-scale gain/loss, normalized contribution, low-flow contribution, classification, and confidence flags.
 
 - `hydrology/analysis/reach_topology.py`  
-  Small pure helpers for validating station-pair direction and pairing metadata from NLDI/navigation results. This keeps topology checks separate from gain/loss math.
+  Small pure helpers for validating station-pair direction, building ordered station chains, and deriving adjacent reach segments from NLDI/navigation metadata. This keeps topology checks separate from gain/loss math.
 
 - `hydrology/analysis/temperature_context.py`  
   Lightweight riparian/thermal sensitivity context. This is not QUAL2K; it prepares defensible reach descriptors inspired by TTools/Shade/QUAL2K workflows. Keep this as a simple screening helper, not a large rules engine.
@@ -731,16 +746,16 @@ git commit -m "feat: add changepoint and Sen slope trend outputs"
 
 ---
 
-## Task 5: Reach Topology And Station-Pair Validation
+## Task 5: Reach Topology, Station Chains, And Pair Validation
 
 **Files:**
 - Create: `hydrology/analysis/reach_topology.py`
 - Modify: `hydrology/analysis/__init__.py`
 - Test: `tests/test_reach_topology.py`
 
-**Purpose:** prove HydroPlot can reason about upstream/downstream station pairs before applying gain/loss math. This task does not call NLDI directly; it validates metadata returned by existing NLDI helpers and dashboard selections. Network-backed NLDI discovery remains in `hydrology/data/nldi.py`.
+**Purpose:** prove HydroPlot can reason about upstream/downstream station pairs and ordered station chains before applying gain/loss math. This task does not call NLDI directly; it validates metadata returned by existing NLDI helpers and dashboard selections. Network-backed NLDI discovery remains in `hydrology/data/nldi.py`.
 
-**Research basis:** agency reach workflows do not infer gaining/losing conditions from two arbitrary gauges. They require a defensible reach definition, station order, flow-period pairing, and caveats for tributaries/diversions/withdrawals. This task creates the lightweight software boundary for that discipline.
+**Research basis:** agency reach workflows do not infer gaining/losing conditions from two arbitrary gauges. They require a defensible reach definition, station order, flow-period pairing, and caveats for tributaries/diversions/withdrawals. For a river continuum, the correct unit is an ordered chain of monitoring points and the adjacent segments between them. This task creates the lightweight software boundary for that discipline.
 
 - [ ] **Step 1: Write failing topology tests**
 
@@ -749,6 +764,8 @@ Create `tests/test_reach_topology.py`:
 ```python
 from hydrology.analysis.reach_topology import (
     ReachPair,
+    build_reach_chain,
+    derive_adjacent_reaches,
     classify_pair_direction,
     validate_reach_pair,
 )
@@ -779,6 +796,34 @@ def test_validate_reach_pair_flags_unverified_direction():
 
     assert isinstance(pair, ReachPair)
     assert pair.status == "unverified"
+
+
+def test_build_reach_chain_orders_sites_from_upstream_to_downstream():
+    selected = ["A", "B", "C"]
+    navigation_sites = [
+        {"site_id": "C", "direction": "downstream", "distance_km": 20.0},
+        {"site_id": "A", "direction": "upstream", "distance_km": 15.0},
+        {"site_id": "B", "direction": "upstream", "distance_km": 5.0},
+    ]
+
+    chain = build_reach_chain(selected, navigation_sites, origin_site_id="origin")
+
+    assert [station.site_id for station in chain.stations] == ["A", "B", "C"]
+    assert chain.status == "verified"
+
+
+def test_derive_adjacent_reaches_returns_continuum_pairs():
+    selected = ["A", "B", "C"]
+    navigation_sites = [
+        {"site_id": "A", "direction": "upstream", "distance_km": 15.0},
+        {"site_id": "B", "direction": "upstream", "distance_km": 5.0},
+        {"site_id": "C", "direction": "downstream", "distance_km": 20.0},
+    ]
+    chain = build_reach_chain(selected, navigation_sites, origin_site_id="origin")
+
+    reaches = derive_adjacent_reaches(chain)
+
+    assert [(reach.upstream_site_id, reach.downstream_site_id) for reach in reaches] == [("A", "B"), ("B", "C")]
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -800,6 +845,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Dict, Iterable, List
+
+
+@dataclass(frozen=True)
+class ReachStation:
+    site_id: str
+    direction: str
+    distance_km: float | None
+    order_key: float
+
+
+@dataclass(frozen=True)
+class ReachChain:
+    stations: List[ReachStation]
+    status: str
+    notes: List[str]
 
 
 @dataclass(frozen=True)
@@ -831,6 +891,59 @@ def classify_pair_direction(
     return "unknown"
 
 
+def build_reach_chain(
+    selected_site_ids: Iterable[str],
+    navigation_sites: Iterable[Dict],
+    origin_site_id: str | None = None,
+) -> ReachChain:
+    selected = [str(site_id) for site_id in selected_site_ids]
+    by_id = {str(site.get("site_id")): site for site in navigation_sites}
+    stations: List[ReachStation] = []
+    notes: List[str] = []
+
+    for site_id in selected:
+        if site_id == origin_site_id:
+            stations.append(ReachStation(site_id, "origin", 0.0, 0.0))
+            continue
+
+        meta = by_id.get(site_id)
+        if not meta:
+            notes.append(f"{site_id} not found in navigation metadata")
+            stations.append(ReachStation(site_id, "unknown", None, float("inf")))
+            continue
+
+        direction = str(meta.get("direction", "unknown"))
+        distance = meta.get("distance_km")
+        signed_distance = float(distance) if distance is not None else float("inf")
+        if direction == "upstream":
+            signed_distance *= -1
+        elif direction != "downstream":
+            signed_distance = float("inf")
+
+        stations.append(ReachStation(site_id, direction, distance, signed_distance))
+
+    stations.sort(key=lambda station: station.order_key)
+    status = "verified" if stations and all(station.direction in {"upstream", "origin", "downstream"} for station in stations) else "unverified"
+    if len(stations) < 2:
+        status = "invalid"
+        notes.append("at least two stations are required to define a reach chain")
+    return ReachChain(stations, status, notes)
+
+
+def derive_adjacent_reaches(chain: ReachChain) -> List[ReachPair]:
+    reaches: List[ReachPair] = []
+    for upstream, downstream in zip(chain.stations, chain.stations[1:]):
+        reaches.append(
+            ReachPair(
+                upstream.site_id,
+                downstream.site_id,
+                chain.status,
+                chain.notes.copy(),
+            )
+        )
+    return reaches
+
+
 def validate_reach_pair(
     upstream_site_id: str,
     downstream_site_id: str,
@@ -852,7 +965,7 @@ def validate_reach_pair(
 Modify `hydrology/analysis/__init__.py`:
 
 ```python
-from .reach_topology import ReachPair, classify_pair_direction, validate_reach_pair
+from .reach_topology import ReachChain, ReachPair, ReachStation, build_reach_chain, classify_pair_direction, derive_adjacent_reaches, validate_reach_pair
 ```
 
 - [ ] **Step 5: Run focused tests**
@@ -871,7 +984,7 @@ Run:
 
 ```powershell
 git add hydrology/analysis/reach_topology.py hydrology/analysis/__init__.py tests/test_reach_topology.py
-git commit -m "feat: add reach station pair validation"
+git commit -m "feat: add reach station chain validation"
 ```
 
 ---
@@ -1716,6 +1829,15 @@ git commit -m "feat: show baseflow method comparison in dashboard"
 - Test: `tests/test_app_shared_conditions.py` or create `tests/test_app_reach_groundwater.py`
 
 **Performance rule:** run gain/loss summaries on already-fetched paired daily series. Do not trigger extra USGS/NLDI calls solely to populate optional context.
+
+**UX rule:** this page should present an ordered station chain and adjacent reach summaries. Do not expose a topology-debug table by default. The default output should be readable as:
+
+```text
+12422500 -> 12424000    losing    -18 cfs median    low confidence
+12424000 -> 12424500    gaining   +11 cfs median    verified mainstem
+```
+
+Technical metadata belongs in an expander.
 
 - [ ] **Step 1: Write app import test**
 
