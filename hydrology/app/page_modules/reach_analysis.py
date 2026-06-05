@@ -21,6 +21,7 @@ from hydrology.core.timezone import ensure_utc
 from hydrology.data.climate import fetch_climate_data
 from hydrology.app.shared import fetch_climate_cached
 from hydrology.visualization.interactive import baseflow_waterfall
+from hydrology.analysis.reach_groundwater import summarize_reach_gain_loss
 
 import pandas as pd
 
@@ -28,6 +29,31 @@ import pandas as pd
 # Default Spokane River reach stations
 DEFAULT_UPSTREAM = "12419000"   # Post Falls
 DEFAULT_DOWNSTREAM = "12422500"  # Spokane at Spokane (Greene St)
+
+
+def _build_reach_summary_row(upstream_id, downstream_id, upstream_q, downstream_q, reach_km=None):
+    """Build one dashboard row for paired reach gain/loss."""
+    summary = summarize_reach_gain_loss(upstream_q, downstream_q, reach_km=reach_km)
+    median_gain = summary.get("median_gain_cfs")
+    low_flow_gain = summary.get("low_flow_median_gain_cfs")
+    per_km = summary.get("median_gain_cfs_per_km")
+    return {
+        "Reach": f"{upstream_id} -> {downstream_id}",
+        "Class": summary.get("classification", "insufficient_data"),
+        "Median gain/loss": f"{median_gain:,.0f} cfs" if pd.notna(median_gain) else "N/A",
+        "Low-flow gain/loss": f"{low_flow_gain:,.0f} cfs" if pd.notna(low_flow_gain) else "N/A",
+        "Gain/loss per km": f"{per_km:,.1f} cfs/km" if pd.notna(per_km) else "N/A",
+        "Confidence": summary.get("confidence", "none"),
+    }
+
+
+def _get_discharge_series(df):
+    """Return the primary discharge series from a fetched dataframe."""
+    if "Discharge_cfs" in df.columns:
+        return df["Discharge_cfs"]
+    if "value" in df.columns:
+        return df["value"]
+    return df.select_dtypes(include="number").iloc[:, 0]
 
 
 def show():
@@ -218,6 +244,14 @@ def show():
             st.metric("Upstream", f"{len(df_upstream):,} days", delta=up_desc, delta_color="off")
         with col2:
             st.metric("Downstream", f"{len(df_downstream):,} days", delta=dn_desc, delta_color="off")
+
+        upstream_q = _get_discharge_series(df_upstream)
+        downstream_q = _get_discharge_series(df_downstream)
+        reach_row = _build_reach_summary_row(upstream_id, downstream_id, upstream_q, downstream_q)
+        st.subheader("Reach Gain/Loss Summary")
+        st.dataframe(pd.DataFrame([reach_row]), width="stretch", hide_index=True)
+        if reach_row["Confidence"] != "high":
+            st.caption("Screening result. Review station order, tributaries, diversions, and data overlap before interpreting.")
 
         st.markdown("---")
 
