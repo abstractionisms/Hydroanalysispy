@@ -104,6 +104,20 @@ def _render_hydrologic_summary(data, has_stage: bool, climate_info):
                 st.caption(f"Climate-linked recommendations use {station}.")
 
 
+def _format_frequency_diagnostics(diagnostics: pd.DataFrame) -> pd.DataFrame:
+    """Format flood-frequency diagnostics for dashboard display."""
+    display = diagnostics[["observed_flow_cfs", "fitted_flow_cfs", "return_period"]].copy()
+    display = display.rename(columns={
+        "observed_flow_cfs": "Observed flow",
+        "fitted_flow_cfs": "Fitted flow",
+        "return_period": "Return period",
+    })
+    for col in ["Observed flow", "Fitted flow"]:
+        display[col] = display[col].apply(lambda value: f"{value:,.0f}" if pd.notna(value) else "N/A")
+    display["Return period"] = display["Return period"].apply(lambda value: f"{value:.1f} yr")
+    return display
+
+
 def show():
     """Render the Single Analysis page."""
     inventory_df = get_inventory()
@@ -284,7 +298,8 @@ def show():
         if st.button("Run Frequency Analysis", type="primary", key="gen_freq"):
             from hydrology.data.usgs import fetch_peak_streamflow
             from hydrology.analysis.frequency import (
-                fit_flood_frequency, estimate_return_periods, get_plotting_positions)
+                fit_flood_frequency, estimate_return_periods,
+                flood_frequency_diagnostics, get_plotting_positions)
             from hydrology.visualization.interactive import interactive_return_period
 
             with st.spinner("Fetching peak streamflow data..."):
@@ -324,6 +339,16 @@ def show():
                                         lambda x: f"{x:,.0f}" if pd.notna(x) else "N/A"
                                     )
                             st.dataframe(display_rp, width="stretch", hide_index=True)
+
+                        diagnostics = flood_frequency_diagnostics(peak_values, distribution="lp3")
+                        if not diagnostics.empty:
+                            st.subheader("LP3 Diagnostic Table")
+                            st.dataframe(
+                                _format_frequency_diagnostics(diagnostics).head(25),
+                                width="stretch",
+                                hide_index=True,
+                            )
+                            st.caption("Observed plotting positions compared with fitted LP3 quantiles.")
 
                         # Model comparison table
                         st.subheader("Distribution Comparison")
