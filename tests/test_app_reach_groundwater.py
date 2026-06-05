@@ -9,6 +9,9 @@ from hydrology.app.page_modules.reach_analysis import (
     _estimate_reach_km,
     _format_reach_chain,
     _format_related_site_rows,
+    _flowline_distance_km,
+    _flowline_style,
+    _resolve_reach_km,
     _selected_candidate_site_id,
 )
 
@@ -55,6 +58,30 @@ def test_estimate_reach_km_from_navigation_distance_difference():
     assert _estimate_reach_km("up", "origin", related_sites, "origin") == 12.0
     assert _estimate_reach_km("origin", "down", related_sites, "origin") == 8.0
     assert _estimate_reach_km("up", "down", related_sites, "origin") == 20.0
+
+
+def test_resolve_reach_km_prefers_estimated_network_length():
+    assert _resolve_reach_km(12.3, 20.0) == 12.3
+
+
+def test_resolve_reach_km_uses_manual_override_when_estimate_missing():
+    assert _resolve_reach_km(None, 20.0) == 20.0
+
+
+def test_resolve_reach_km_allows_missing_length():
+    assert _resolve_reach_km(None, 0.0) is None
+
+
+def test_flowline_distance_uses_reach_length_with_buffer():
+    assert _flowline_distance_km(12.0, 75.0) == 18.0
+
+
+def test_flowline_distance_falls_back_to_search_distance():
+    assert _flowline_distance_km(None, 75.0) == 75.0
+
+
+def test_flowline_style_highlights_selected_network():
+    assert _flowline_style(selected=True)["weight"] > _flowline_style(selected=False)["weight"]
 
 
 def test_format_related_site_rows_makes_station_choices_legible():

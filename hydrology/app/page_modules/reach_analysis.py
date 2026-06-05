@@ -74,6 +74,37 @@ def _estimate_reach_km(upstream_id, downstream_id, related_sites, origin_site_id
     return round(reach_km, 2) if reach_km > 0 else None
 
 
+def _resolve_reach_km(estimated_reach_km, manual_reach_km):
+    """Use inferred network length unless only a manual override is available."""
+    if estimated_reach_km and estimated_reach_km > 0:
+        return estimated_reach_km
+    if manual_reach_km and manual_reach_km > 0:
+        return manual_reach_km
+    return None
+
+
+def _flowline_distance_km(reach_km, search_km):
+    """Choose a bounded flowline lookup distance for reach mapping."""
+    if reach_km and reach_km > 0:
+        return min(max(round(reach_km * 1.5, 1), 10.0), 300.0)
+    return float(search_km)
+
+
+def _flowline_style(selected=False):
+    """Folium style for reach network flowlines."""
+    if selected:
+        return {
+            "color": "#ffd166",
+            "weight": 6,
+            "opacity": 0.95,
+        }
+    return {
+        "color": "#4fc3f7",
+        "weight": 2,
+        "opacity": 0.45,
+    }
+
+
 def _format_related_site_rows(origin_site_id, related_sites):
     """Make NLDI candidate stations readable for the reach-selection UI."""
     rows = [
@@ -354,28 +385,34 @@ def show():
     dn_info = get_cached_site_info(downstream_id)
 
     estimated_reach_km = _estimate_reach_km(upstream_id, downstream_id, related_sites, anchor_id)
-    config_col1, config_col2, config_col3 = st.columns([1, 2, 2])
+    config_col1, config_col2 = st.columns([1, 2])
     with config_col1:
-        manual_reach_km = st.number_input(
-            "Reach length km",
-            min_value=0.0,
-            max_value=1000.0,
-            value=float(estimated_reach_km or 0.0),
-            step=0.1,
-            help="Used only to normalize gain/loss per km. Leave 0 when the reach length is not known.",
-            key="reach_length_km",
-        )
-    with config_col2:
         if estimated_reach_km:
-            st.metric("Estimated length", f"{estimated_reach_km:.1f} km")
+            st.metric("Network length", f"{estimated_reach_km:.1f} km")
         else:
-            st.metric("Estimated length", "Unavailable")
-    with config_col3:
+            st.metric("Network length", "Not inferred")
+    with config_col2:
         if upstream_id == downstream_id:
             st.warning("Choose two different gages for a reach.")
         else:
             st.metric("Selected reach", f"{upstream_id} -> {downstream_id}")
-    reach_km = manual_reach_km if manual_reach_km > 0 else estimated_reach_km
+
+    manual_reach_km = 0.0
+    with st.expander("Advanced reach length override", expanded=False):
+        manual_reach_km = st.number_input(
+            "Manual reach length km",
+            min_value=0.0,
+            max_value=1000.0,
+            value=0.0,
+            step=0.1,
+            help="Optional. Used only when the network length cannot be inferred.",
+            key="reach_length_km",
+        )
+        if estimated_reach_km:
+            st.caption("Network-inferred length is used for cfs/km. Manual value is ignored while an inferred length is available.")
+        else:
+            st.caption("Optional fallback for cfs/km when related gage distances do not define the selected reach.")
+    reach_km = _resolve_reach_km(estimated_reach_km, manual_reach_km)
 
     st.markdown("---")
 
@@ -403,11 +440,12 @@ def show():
 
     st.markdown("---")
 
-    # Reach map - show upstream/downstream stations
+    # Reach map - show network flowlines and upstream/downstream stations
     if up_info and dn_info and up_info.get('latitude') and dn_info.get('latitude'):
         with st.expander("Reach Map", expanded=False):
             import folium
             from streamlit_folium import st_folium
+            from hydrology.data.hyriver import get_flowlines, get_navigation_flowlines
 
             up_lat, up_lon = float(up_info['latitude']), float(up_info['longitude'])
             dn_lat, dn_lon = float(dn_info['latitude']), float(dn_info['longitude'])
@@ -416,6 +454,37 @@ def show():
 
             m = folium.Map(location=[center_lat, center_lon], zoom_start=10,
                           tiles='CartoDB dark_matter')
+
+            flowline_distance = _flowline_distance_km(reach_km, search_km)
+            try:
+                flowlines = get_flowlines(downstream_id, distance_km=flowline_distance)
+                if flowlines is not None and not flowlines.empty:
+                    folium.GeoJson(
+                        flowlines.to_json(),
+                        name="River network context",
+                        style_function=lambda feature: _flowline_style(selected=False),
+                        tooltip="NHDPlus river/tributary flowline",
+                    ).add_to(m)
+                    selected_flowlines = get_navigation_flowlines(
+                        downstream_id,
+                        navigation="upstreamMain",
+                        distance_km=flowline_distance,
+                    )
+                    if selected_flowlines is None or selected_flowlines.empty:
+                        selected_flowlines = flowlines
+                    folium.GeoJson(
+                        selected_flowlines.to_json(),
+                        name="Selected reach network",
+                        style_function=lambda feature: _flowline_style(selected=True),
+                        tooltip=f"Selected reach network: {upstream_id} -> {downstream_id}",
+                    ).add_to(m)
+                    bounds = flowlines.total_bounds
+                    m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+                else:
+                    st.caption("River-network geometry was not available for this reach; showing gage locations only.")
+            except Exception as e:
+                logger.warning(f"Could not add reach flowlines: {e}")
+                st.caption("River-network geometry was not available for this reach; showing gage locations only.")
 
             # Upstream marker (blue)
             folium.CircleMarker(
@@ -431,14 +500,8 @@ def show():
                 tooltip=f"Downstream: {dn_info.get('description', downstream_id)}"
             ).add_to(m)
 
-            # River line connecting them
-            folium.PolyLine(
-                [[up_lat, up_lon], [dn_lat, dn_lon]],
-                color='#4FC3F7', weight=3, opacity=0.7, dash_array='10'
-            ).add_to(m)
-
             st_folium(m, width=None, height=300, returned_objects=[])
-            st.caption("Blue = upstream, Orange = downstream")
+            st.caption("Gold = selected reach network; blue = nearby river/tributary context. Blue marker = upstream gage; orange marker = downstream gage.")
 
     st.markdown("---")
 

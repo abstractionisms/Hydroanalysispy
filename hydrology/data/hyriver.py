@@ -33,6 +33,7 @@ logger = get_logger(__name__)
 _boundary_cache: Dict[str, Any] = {}
 _characteristics_cache: Dict[str, Dict] = {}
 _flowlines_cache: Dict[Tuple[str, float], Any] = {}
+_navigation_flowlines_cache: Dict[Tuple[str, str, float], Any] = {}
 _dams_cache: Dict[Tuple[str, float], Any] = {}
 
 
@@ -122,6 +123,54 @@ def get_flowlines(site_id: str, distance_km: float = 50) -> Optional[Any]:
         return None
     except Exception as e:
         logger.error(f"Error fetching flowlines for {site_id}: {e}")
+        return None
+
+
+def get_navigation_flowlines(
+    site_id: str,
+    navigation: str = "upstreamMain",
+    distance_km: float = 50,
+) -> Optional[Any]:
+    """
+    Get NHDPlus flowlines for a specific NLDI navigation mode.
+
+    Args:
+        site_id: USGS site identifier
+        navigation: NLDI navigation mode, such as upstreamMain or upstreamTributaries
+        distance_km: Navigation distance to retrieve
+
+    Returns:
+        geopandas GeoDataFrame with flowline geometries, or None
+    """
+    cache_key = (site_id, navigation, float(distance_km))
+    if cache_key in _navigation_flowlines_cache:
+        return _navigation_flowlines_cache[cache_key]
+
+    try:
+        from pynhd import NLDI
+
+        nldi = NLDI()
+        flowlines = nldi.navigate_byid(
+            fsource="nwissite",
+            fid=f"USGS-{site_id}",
+            navigation=navigation,
+            source="flowlines",
+            distance=distance_km,
+        )
+
+        if flowlines is not None and not flowlines.empty:
+            _navigation_flowlines_cache[cache_key] = flowlines
+            logger.info(f"Retrieved {len(flowlines)} {navigation} flowlines for {site_id}")
+            return flowlines
+
+        _navigation_flowlines_cache[cache_key] = None
+        return None
+
+    except ImportError:
+        logger.error("pynhd not installed")
+        return None
+    except Exception as e:
+        logger.error(f"Error fetching {navigation} flowlines for {site_id}: {e}")
         return None
 
 
