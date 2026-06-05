@@ -261,6 +261,8 @@ def mann_kendall_test(
             'tau': mk_result.tau,
             's': mk_result.s,
             'z': mk_result.z,
+            'sens_slope': getattr(mk_result, 'slope', np.nan),
+            'sens_intercept': getattr(mk_result, 'intercept', np.nan),
             'n_points': len(series_clean),
             'alpha': alpha
         }

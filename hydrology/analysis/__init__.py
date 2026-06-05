@@ -8,6 +8,7 @@ from .frequency import fit_flood_frequency, estimate_return_periods, low_flow_fr
 from .indicators import calculate_spi, calculate_sri, classify_drought, calculate_baseflow_index_timeseries
 from .baseflow import BaseflowResult, compare_baseflow_methods, eckhardt_filter, lyne_hollick_filter
 from .signatures import compute_hydrologic_signatures
+from .changepoints import pettitt_test
 
 __all__ = [
     'calculate_annual_means',
@@ -41,4 +42,6 @@ __all__ = [
     'lyne_hollick_filter',
     # Hydrologic signatures
     'compute_hydrologic_signatures',
+    # Changepoints
+    'pettitt_test',
 ]
