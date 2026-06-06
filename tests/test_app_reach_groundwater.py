@@ -8,11 +8,13 @@ from hydrology.app.page_modules.reach_analysis import (
     _candidate_label_for_site,
     _default_candidate_label,
     _estimate_reach_km,
+    _filter_related_sites_to_inventory,
     _format_reach_chain,
     _format_related_site_rows,
     _flowline_distance_km,
     _flowline_style,
     _map_bounds_for_reach,
+    _reach_map_component_key,
     _resolve_reach_km,
     _selected_candidate_site_id,
 )
@@ -212,6 +214,41 @@ def test_build_reach_candidate_options_groups_both_directions():
     assert labels[2].startswith("Downstream | down")
     assert candidates[1]["site_id"] == "up"
     assert candidates[2]["site_id"] == "down"
+
+
+def test_filter_related_sites_to_inventory_keeps_only_processable_gages():
+    inventory = pd.DataFrame(
+        {
+            "site_id": ["anchor", "usable"],
+            "description": ["Anchor gage", "Usable related gage"],
+        }
+    )
+    related_sites = [
+        {"site_id": "usable", "direction": "upstream", "distance_km": 4.0},
+        {"site_id": "outside", "direction": "downstream", "distance_km": 8.0},
+    ]
+
+    filtered, omitted = _filter_related_sites_to_inventory("anchor", related_sites, inventory)
+
+    assert [site["site_id"] for site in filtered] == ["usable"]
+    assert omitted == ["outside"]
+
+
+def test_filter_related_sites_to_inventory_keeps_anchor_even_if_not_related():
+    inventory = pd.DataFrame({"site_id": ["anchor"]})
+
+    filtered, omitted = _filter_related_sites_to_inventory("anchor", [], inventory)
+
+    assert filtered == []
+    assert omitted == []
+
+
+def test_reach_map_component_key_changes_with_selected_pair_and_bounds():
+    first = _reach_map_component_key("up", "down", [[10.0, 20.0], [11.0, 21.0]])
+    second = _reach_map_component_key("up", "other", [[10.0, 20.0], [11.0, 21.0]])
+
+    assert first != second
+    assert first.startswith("reach_map_up_down_")
 
 
 def test_candidate_index_for_site_prefers_selected_site():

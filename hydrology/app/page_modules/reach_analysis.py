@@ -168,6 +168,31 @@ def _map_bounds_for_reach(
     ]
 
 
+def _reach_map_component_key(upstream_id, downstream_id, bounds):
+    """Return a stable key that remounts the map when the selected reach changes."""
+    flat_bounds = "_".join(f"{coord:.4f}" for row in bounds for coord in row)
+    return f"reach_map_{upstream_id}_{downstream_id}_{flat_bounds}"
+
+
+def _filter_related_sites_to_inventory(origin_site_id, related_sites, inventory_df):
+    """Keep NLDI candidates that HydroPlot can resolve from its inventory."""
+    if inventory_df is None or inventory_df.empty or "site_id" not in inventory_df.columns:
+        return [], [str(site.get("site_id")) for site in related_sites if site.get("site_id")]
+
+    inventory_ids = set(inventory_df["site_id"].astype(str))
+    filtered = []
+    omitted = []
+    for site in related_sites:
+        site_id = str(site.get("site_id", ""))
+        if not site_id:
+            continue
+        if site_id == str(origin_site_id) or site_id in inventory_ids:
+            filtered.append(site)
+        else:
+            omitted.append(site_id)
+    return filtered, omitted
+
+
 def _format_related_site_rows(origin_site_id, related_sites):
     """Make NLDI candidate stations readable for the reach-selection UI."""
     rows = [
@@ -381,11 +406,20 @@ def show():
                 max_sites=25,
             )
 
-    related_sites = st.session_state.get(related_key, [])
+    discovered_related_sites = st.session_state.get(related_key, [])
+    related_sites, omitted_related_site_ids = _filter_related_sites_to_inventory(
+        anchor_id,
+        discovered_related_sites,
+        inventory_df,
+    )
     anchor_name = anchor_info.get("description", "Anchor gage") if anchor_info else "Anchor gage"
     candidate_records = _build_reach_candidate_options(anchor_id, anchor_name, related_sites)
     candidate_rows = _format_related_site_rows(anchor_id, related_sites)
-    with st.expander("Candidate gages", expanded=not bool(related_sites)):
+    with st.expander("Candidate gages", expanded=not bool(discovered_related_sites)):
+        if omitted_related_site_ids:
+            st.caption(
+                f"{len(omitted_related_site_ids)} NLDI gages were hidden because they are not in the HydroPlot inventory for this app."
+            )
         if related_sites:
             candidate_selection = st.dataframe(
                 pd.DataFrame(candidate_rows),
@@ -412,6 +446,8 @@ def show():
                     st.caption(f"Selected candidate: {selected_candidate_id}")
                 else:
                     st.caption("Select one candidate row, then assign it to upstream or downstream.")
+        elif discovered_related_sites:
+            st.warning("NLDI found related gages, but none are available in the HydroPlot inventory for this dashboard.")
         else:
             st.info("Use Find Related Gages to discover likely upstream/downstream candidates for the selected anchor gage.")
 
@@ -561,8 +597,15 @@ def show():
                     tooltip=f"Downstream: {dn_info.get('description', downstream_id)}"
                 ).add_to(m)
 
-                m.fit_bounds(_map_bounds_for_reach(None, None, up_lat, up_lon, dn_lat, dn_lon))
-                st_folium(m, width=None, height=300, returned_objects=[])
+                reach_bounds = _map_bounds_for_reach(None, None, up_lat, up_lon, dn_lat, dn_lon)
+                m.fit_bounds(reach_bounds)
+                st_folium(
+                    m,
+                    width=None,
+                    height=300,
+                    returned_objects=[],
+                    key=_reach_map_component_key(upstream_id, downstream_id, reach_bounds),
+                )
                 st.caption("Gold = selected reach network; blue = nearby river/tributary context. Blue marker = upstream gage; orange marker = downstream gage.")
 
         col_layout, col_dpi, col_btn = st.columns([2, 1, 2])
