@@ -14,6 +14,7 @@ from hydrology.app.page_modules.reach_analysis import (
     _format_related_site_rows,
     _flowline_distance_km,
     _flowline_style,
+    _leaflet_fit_bounds_script,
     _map_bounds_for_reach,
     _pair_key,
     _reach_map_component_key,
@@ -367,3 +368,12 @@ def test_resolve_selected_pair_key_falls_back_to_first_pair():
 
 def test_resolve_selected_pair_key_handles_no_pairs():
     assert _resolve_selected_pair_key([], {}) is None
+
+
+def test_leaflet_fit_bounds_script_targets_selected_bounds():
+    script = _leaflet_fit_bounds_script([[47.0, -118.0], [48.0, -117.0]])
+
+    assert "fitBounds" in script
+    assert "[[47.0, -118.0], [48.0, -117.0]]" in script
+    assert "paddingTopLeft" in script
+    assert "paddingBottomRight" in script

@@ -6,6 +6,7 @@ that exist in plots.py but were previously unreachable from the UI.
 import streamlit as st
 import matplotlib.pyplot as plt
 from datetime import date
+import json
 
 from hydrology.app.shared import (
     get_inventory, get_cached_site_info,
@@ -172,6 +173,23 @@ def _reach_map_component_key(upstream_id, downstream_id, bounds):
     """Return a stable key that remounts the map when the selected reach changes."""
     flat_bounds = "_".join(f"{coord:.4f}" for row in bounds for coord in row)
     return f"reach_map_{upstream_id}_{downstream_id}_{flat_bounds}"
+
+
+def _leaflet_fit_bounds_script(bounds):
+    """Return a Folium-compatible script that forces Leaflet to fit selected reach bounds."""
+    bounds_json = json.dumps(bounds)
+    return (
+        "<script>"
+        "setTimeout(function(){"
+        "for (const key in window) {"
+        "const value = window[key];"
+        "if (value && value.fitBounds && value.eachLayer) {"
+        f"value.fitBounds({bounds_json}, {{paddingTopLeft:[24,24], paddingBottomRight:[24,24], maxZoom:13}});"
+        "}"
+        "}"
+        "}, 250);"
+        "</script>"
+    )
 
 
 def _filter_related_sites_to_inventory(origin_site_id, related_sites, inventory_df):
@@ -620,6 +638,7 @@ def show():
         if up_info and dn_info and up_info.get('latitude') and dn_info.get('latitude'):
             with st.expander("Reach Map", expanded=False):
                 import folium
+                from folium import Element
                 from streamlit_folium import st_folium
                 from hydrology.data.hyriver import get_flowlines, get_navigation_flowlines
 
@@ -628,11 +647,18 @@ def show():
                 center_lat = (up_lat + dn_lat) / 2
                 center_lon = (up_lon + dn_lon) / 2
 
-                m = folium.Map(location=[center_lat, center_lon], zoom_start=10, tiles=None)
+                m = folium.Map(
+                    location=[center_lat, center_lon],
+                    zoom_start=11,
+                    tiles=None,
+                    max_bounds=True,
+                    control_scale=True,
+                )
                 folium.TileLayer(
                     "CartoDB dark_matter",
                     name="Base map",
                     no_wrap=True,
+                    detect_retina=True,
                 ).add_to(m)
 
                 flowline_distance = _flowline_distance_km(reach_km, search_km)
@@ -678,11 +704,12 @@ def show():
                 ).add_to(m)
 
                 reach_bounds = _map_bounds_for_reach(None, None, up_lat, up_lon, dn_lat, dn_lon)
-                m.fit_bounds(reach_bounds)
+                m.fit_bounds(reach_bounds, padding=(24, 24), max_zoom=13)
+                m.get_root().html.add_child(Element(_leaflet_fit_bounds_script(reach_bounds)))
                 st_folium(
                     m,
                     width=None,
-                    height=300,
+                    height=460,
                     returned_objects=[],
                     key=_reach_map_component_key(upstream_id, downstream_id, reach_bounds),
                 )
