@@ -185,10 +185,10 @@ def show():
                         help="Changes the hydrograph time scale without refetching the selected site data.")
     with col_nwm:
         show_nwm = st.checkbox(
-            "NWM forecast overlay",
+            "NWM recent analysis overlay",
             value=False,
             key="nwm_overlay",
-            help="Adds NOAA National Water Model streamflow where a matching forecast record is available.",
+            help="Adds recent NOAA National Water Model analysis/assimilation streamflow when a matching reach is available.",
         )
     with col_stage:
         show_stage = st.checkbox(
@@ -226,7 +226,7 @@ def show():
                     line=dict(color='#ff7f0e', width=2, dash='dot')))
                 st.caption(f"NWM: NSE={nwm_result.nash_sutcliffe:.2f}, RMSE={nwm_result.rmse:.0f} cfs")
             else:
-                st.caption("NWM data not available for this site/period")
+                st.caption("NWM recent analysis was not available for this site/period")
         except Exception as e:
             st.caption(f"NWM overlay unavailable: {str(e)[:60]}")
 
