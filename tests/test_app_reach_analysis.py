@@ -20,6 +20,8 @@ from hydrology.app.page_modules.reach_analysis import (
     _leaflet_fit_bounds_script,
     _map_bounds_for_reach,
     _pair_key,
+    _cycle_pair_key,
+    _pair_label_for_key,
     _reach_map_component_key,
     _resolve_selected_pair_key,
     _resolve_reach_km,
@@ -350,6 +352,28 @@ def test_build_recommended_reach_pairs_prefers_mainstem_pairs():
 
 def test_pair_key_is_stable_and_readable():
     assert _pair_key("12419000", "12422000") == "12419000__12422000"
+
+
+def test_pair_label_for_key_returns_matching_label():
+    pairs = [
+        {"key": "a__b", "label": "A to B"},
+        {"key": "b__c", "label": "B to C"},
+    ]
+
+    assert _pair_label_for_key(pairs, "b__c") == "B to C"
+
+
+def test_cycle_pair_key_steps_forward_and_wraps():
+    pairs = [{"key": "a"}, {"key": "b"}, {"key": "c"}]
+
+    assert _cycle_pair_key(pairs, "a", 1) == "b"
+    assert _cycle_pair_key(pairs, "c", 1) == "a"
+
+
+def test_cycle_pair_key_steps_backward_and_wraps():
+    pairs = [{"key": "a"}, {"key": "b"}, {"key": "c"}]
+
+    assert _cycle_pair_key(pairs, "a", -1) == "c"
 
 
 def test_resolve_selected_pair_key_keeps_valid_existing_selection():

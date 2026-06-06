@@ -361,6 +361,25 @@ def _pair_key(upstream_id, downstream_id):
     return f"{upstream_id}__{downstream_id}"
 
 
+def _pair_label_for_key(reach_pairs, pair_key):
+    """Return a pair label for a selected reach key."""
+    for pair in reach_pairs:
+        if pair.get("key") == pair_key:
+            return pair.get("label")
+    return None
+
+
+def _cycle_pair_key(reach_pairs, current_key, step):
+    """Return the previous or next reach pair key, wrapping around the list."""
+    if not reach_pairs:
+        return None
+    keys = [pair["key"] for pair in reach_pairs]
+    if current_key not in keys:
+        return keys[0]
+    current_index = keys.index(current_key)
+    return keys[(current_index + step) % len(keys)]
+
+
 def _resolve_selected_pair_key(reach_pairs, session_state):
     """Keep a selected reach pair if it remains valid; otherwise choose the first available pair."""
     if not reach_pairs:
@@ -711,16 +730,34 @@ def show():
             st.caption(f"{len(omitted_related_site_ids)} NLDI gages hidden outside HydroPlot inventory.")
         if reach_pairs:
             pair_labels = {pair["label"]: pair["key"] for pair in reach_pairs}
-            _ensure_widget_value_is_valid("reach_pair_radio", list(pair_labels.keys()))
-            selected_pair_label = next(
-                label for label, key in pair_labels.items()
-                if key == st.session_state.get("reach_selected_pair_key")
+            pair_label_options = list(pair_labels.keys())
+            _ensure_widget_value_is_valid("reach_pair_select", pair_label_options)
+            selected_key = st.session_state.get("reach_selected_pair_key")
+
+            prev_col, count_col, next_col = st.columns([1, 1.1, 1])
+            with prev_col:
+                if st.button("Previous", width="stretch", disabled=len(reach_pairs) <= 1, key="reach_pair_previous"):
+                    selected_key = _cycle_pair_key(reach_pairs, selected_key, -1)
+                    st.session_state["reach_selected_pair_key"] = selected_key
+                    st.session_state["reach_pair_select"] = _pair_label_for_key(reach_pairs, selected_key)
+            with count_col:
+                current_index = [pair["key"] for pair in reach_pairs].index(st.session_state["reach_selected_pair_key"]) + 1
+                st.caption(f"Reach {current_index} of {len(reach_pairs)}")
+            with next_col:
+                if st.button("Next", width="stretch", disabled=len(reach_pairs) <= 1, key="reach_pair_next"):
+                    selected_key = _cycle_pair_key(reach_pairs, selected_key, 1)
+                    st.session_state["reach_selected_pair_key"] = selected_key
+                    st.session_state["reach_pair_select"] = _pair_label_for_key(reach_pairs, selected_key)
+
+            selected_pair_label = (
+                st.session_state.get("reach_pair_select")
+                or _pair_label_for_key(reach_pairs, st.session_state.get("reach_selected_pair_key"))
             )
-            chosen_label = st.radio(
-                "Processable pairs",
-                list(pair_labels.keys()),
-                index=list(pair_labels.keys()).index(selected_pair_label),
-                key="reach_pair_radio",
+            chosen_label = st.selectbox(
+                "Selected candidate reach",
+                pair_label_options,
+                index=pair_label_options.index(selected_pair_label),
+                key="reach_pair_select",
             )
             st.session_state["reach_selected_pair_key"] = pair_labels[chosen_label]
             selected_pair = next(pair for pair in reach_pairs if pair["key"] == pair_labels[chosen_label])
