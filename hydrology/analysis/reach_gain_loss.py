@@ -1,4 +1,4 @@
-"""Reach-scale gain/loss summaries for paired streamflow stations."""
+"""Reach-scale gain/loss summaries for paired streamflow gages."""
 
 from __future__ import annotations
 

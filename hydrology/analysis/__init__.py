@@ -24,7 +24,7 @@ from .reach_topology import (
     derive_adjacent_reaches,
     validate_reach_pair,
 )
-from .reach_groundwater import classify_reach_gain_loss, summarize_reach_gain_loss
+from .reach_gain_loss import classify_reach_gain_loss, summarize_reach_gain_loss
 from .temperature_context import classify_thermal_sensitivity
 from .validation import ValidationResult, validate_range, validate_relative_error
 
@@ -71,7 +71,7 @@ __all__ = [
     'classify_pair_direction',
     'derive_adjacent_reaches',
     'validate_reach_pair',
-    # Reach groundwater
+    # Reach gain/loss screening
     'classify_reach_gain_loss',
     'summarize_reach_gain_loss',
     # Temperature context

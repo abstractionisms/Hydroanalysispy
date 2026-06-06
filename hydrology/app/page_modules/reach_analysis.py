@@ -18,7 +18,7 @@ from hydrology.visualization.plots import AVAILABLE_PLOTS
 from hydrology.core import DEFAULT_DISCHARGE_CODE
 from hydrology.app.shared import fetch_climate_cached
 from hydrology.visualization.interactive import baseflow_waterfall
-from hydrology.analysis.reach_groundwater import summarize_reach_gain_loss
+from hydrology.analysis.reach_gain_loss import summarize_reach_gain_loss
 from hydrology.data.nldi import discover_related_sites
 
 import pandas as pd
@@ -399,12 +399,12 @@ def show():
                 key="reach_include_tributaries",
             )
             st.markdown("<br>", unsafe_allow_html=True)
-            find_gauges = st.button("Find Related Gages", width="stretch", key="reach_find_related")
+            find_gages = st.button("Find Related Gages", width="stretch", key="reach_find_related")
         if anchor_info:
             st.caption(anchor_info.get("description", ""))
 
     related_key = f"reach_related_sites_{anchor_id}_{search_km}_{include_tributaries}"
-    if find_gauges:
+    if find_gages:
         with st.spinner("Finding upstream and downstream gages on the river network..."):
             st.session_state[related_key] = discover_related_sites(
                 anchor_id,

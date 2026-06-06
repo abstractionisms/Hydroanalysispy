@@ -265,7 +265,7 @@ def _render_bfi_tab(df_q, q_col, desc):
     st.subheader("Baseflow Index (BFI) Trend")
     st.caption(
         "Ratio of baseflow to total flow. Declining BFI may indicate "
-        "reduced groundwater contribution or aquifer depletion."
+        "reduced baseflow contribution; interpret as a groundwater proxy, not a direct aquifer measurement."
     )
 
     window = st.slider("Rolling window (days)", 30, 365, 90, step=30, key="bfi_window")
@@ -283,11 +283,11 @@ def _render_bfi_tab(df_q, q_col, desc):
     with col1:
         if current_bfi is not None:
             st.metric("Current BFI", f"{current_bfi:.2f}",
-                         help="Baseflow Index: fraction of flow from groundwater vs. surface runoff. 0-1, higher = more groundwater")
+                         help="Baseflow Index: fraction of flow separated as baseflow. 0-1, higher = more sustained/baseflow-dominated flow.")
     with col2:
         mean_bfi = bfi_df['bfi'].mean()
         st.metric("Mean BFI", f"{mean_bfi:.2f}",
-                         help="Long-term average Baseflow Index. Higher = greater groundwater contribution")
+                         help="Long-term average Baseflow Index. Higher = more sustained/baseflow-dominated flow.")
     with col3:
         if current_bfi is not None:
             delta = current_bfi - mean_bfi

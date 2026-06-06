@@ -5,7 +5,7 @@ Provides:
 - SPI (Standardized Precipitation Index): Gamma-fitted precipitation anomalies
 - SRI (Standardized Runoff Index): Gamma-fitted streamflow anomalies
 - Drought classification (D0-D4 severity per US Drought Monitor)
-- Rolling Baseflow Index (BFI) for groundwater contribution tracking
+- Rolling Baseflow Index (BFI) for baseflow-dominance screening
 
 These are standard indicators used in drought monitoring networks (NIDIS, USDM).
 The SRI is particularly relevant for the Spokane dry reach thesis.
@@ -276,13 +276,13 @@ def calculate_baseflow_index_timeseries(
     window_days: int = 90,
 ) -> pd.DataFrame:
     """
-    Calculate rolling Baseflow Index (BFI) for tracking groundwater contribution.
+    Calculate rolling Baseflow Index (BFI) for screening baseflow dominance.
 
     Uses the Lyne-Hollick recursive digital filter for baseflow separation,
     then computes BFI as the ratio of baseflow to total flow over a rolling window.
 
     Relevant to Spokane dry reach analysis: declining BFI indicates reduced
-    groundwater contribution (aquifer depletion or diversion effects).
+    sustained/baseflow-dominated flow (potentially from groundwater, storage, or regulation effects).
 
     Args:
         daily_q: Daily discharge series (datetime index, values in cfs)

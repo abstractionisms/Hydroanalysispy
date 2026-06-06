@@ -139,7 +139,7 @@ def test_run_case_study_fetches_daily_flow_from_site_config(tmp_path: Path, monk
 def test_pnw_case_configs_are_parseable():
     cases = [
         Path("docs/cases/pnw_baseflow_signatures/case.yml"),
-        Path("docs/cases/spokane_groundwater_reach/case.yml"),
+        Path("docs/cases/spokane_reach_gain_loss/case.yml"),
     ]
 
     for case_path in cases:

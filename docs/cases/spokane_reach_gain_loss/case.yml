@@ -1,4 +1,4 @@
-case: spokane_groundwater_reach
+case: spokane_reach_gain_loss
 site_ids:
   upstream: "12422500"
   downstream: "12424000"

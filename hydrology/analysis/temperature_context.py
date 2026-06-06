@@ -9,7 +9,7 @@ def classify_thermal_sensitivity(
     summer_flow_cfs: float | None,
     channel_width_m: float | None,
     canopy_cover_pct: float | None,
-    groundwater_gain_cfs: float | None,
+    reach_gain_cfs: float | None,
 ) -> Dict[str, object]:
     """Classify simple thermal-sensitivity drivers for a reach."""
     score = 0
@@ -27,10 +27,10 @@ def classify_thermal_sensitivity(
     elif canopy_cover_pct is not None and canopy_cover_pct >= 75:
         score -= 1
         drivers.append("high canopy cover")
-    if groundwater_gain_cfs is not None and groundwater_gain_cfs < -1:
+    if reach_gain_cfs is not None and reach_gain_cfs < -1:
         score += 1
         drivers.append("losing reach")
-    elif groundwater_gain_cfs is not None and groundwater_gain_cfs > 1:
+    elif reach_gain_cfs is not None and reach_gain_cfs > 1:
         score -= 1
         drivers.append("gaining reach")
 

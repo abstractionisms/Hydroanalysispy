@@ -1,6 +1,6 @@
 import pandas as pd
 
-from hydrology.analysis.reach_groundwater import classify_reach_gain_loss, summarize_reach_gain_loss
+from hydrology.analysis.reach_gain_loss import classify_reach_gain_loss, summarize_reach_gain_loss
 
 
 def test_summarize_reach_gain_loss_classifies_gaining_reach():
