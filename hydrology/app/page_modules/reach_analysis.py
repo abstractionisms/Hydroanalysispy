@@ -281,6 +281,17 @@ def _pair_key(upstream_id, downstream_id):
     return f"{upstream_id}__{downstream_id}"
 
 
+def _resolve_selected_pair_key(reach_pairs, session_state):
+    """Keep a selected reach pair if it remains valid; otherwise choose the first available pair."""
+    if not reach_pairs:
+        return None
+    valid_keys = {pair["key"] for pair in reach_pairs}
+    current = session_state.get("reach_selected_pair_key")
+    if current in valid_keys:
+        return current
+    return reach_pairs[0]["key"]
+
+
 def _build_recommended_reach_pairs(origin_site_id, candidates, max_pairs=8):
     """Build processable upstream/downstream reach pairs for the workspace."""
     origin_site_id = str(origin_site_id)

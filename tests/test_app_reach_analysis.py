@@ -17,6 +17,7 @@ from hydrology.app.page_modules.reach_analysis import (
     _map_bounds_for_reach,
     _pair_key,
     _reach_map_component_key,
+    _resolve_selected_pair_key,
     _resolve_reach_km,
     _selectbox_kwargs_for_state,
     _selected_candidate_site_id,
@@ -345,3 +346,24 @@ def test_build_recommended_reach_pairs_prefers_mainstem_pairs():
 
 def test_pair_key_is_stable_and_readable():
     assert _pair_key("12419000", "12422000") == "12419000__12422000"
+
+
+def test_resolve_selected_pair_key_keeps_valid_existing_selection():
+    pairs = [
+        {"key": "up__anchor", "upstream_id": "up", "downstream_id": "anchor"},
+        {"key": "anchor__down", "upstream_id": "anchor", "downstream_id": "down"},
+    ]
+    session_state = {"reach_selected_pair_key": "anchor__down"}
+
+    assert _resolve_selected_pair_key(pairs, session_state) == "anchor__down"
+
+
+def test_resolve_selected_pair_key_falls_back_to_first_pair():
+    pairs = [{"key": "up__anchor", "upstream_id": "up", "downstream_id": "anchor"}]
+    session_state = {"reach_selected_pair_key": "missing__pair"}
+
+    assert _resolve_selected_pair_key(pairs, session_state) == "up__anchor"
+
+
+def test_resolve_selected_pair_key_handles_no_pairs():
+    assert _resolve_selected_pair_key([], {}) is None
