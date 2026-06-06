@@ -477,7 +477,7 @@ def interactive_return_period(
         title: Plot title
 
     Returns:
-        Plotly Figure with log-scale return period axis
+        Plotly Figure with readable return period axis
     """
     fig = go.Figure()
 
@@ -492,7 +492,7 @@ def interactive_return_period(
 
     # Plot fitted distribution curves
     colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
-    rp_range = np.logspace(np.log10(1.01), np.log10(500), 200)
+    rp_range = np.linspace(1.01, 500, 300)
 
     for i, (name, fit) in enumerate(fitted.items()):
         quantiles = []
@@ -542,8 +542,14 @@ def interactive_return_period(
         title=title,
         xaxis_title="Return Period (years)",
         yaxis_title="Peak Discharge (cfs)",
-        xaxis_type="log",
         yaxis_type="log",
+        xaxis=dict(
+            type="linear",
+            range=[0, 105],
+            tickmode="array",
+            tickvals=[2, 5, 10, 25, 50, 100],
+            ticktext=["2", "5", "10", "25", "50", "100"],
+        ),
         height=500,
         hovermode='closest',
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
