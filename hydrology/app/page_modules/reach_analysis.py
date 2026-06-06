@@ -147,6 +147,54 @@ def _flowline_style(selected=False):
     }
 
 
+def _clip_flowlines_between_gages(flowlines, upstream_lat, upstream_lon, downstream_lat, downstream_lon):
+    """Clip a flowline layer to the portion between selected upstream/downstream gages."""
+    if flowlines is None or getattr(flowlines, "empty", True):
+        return None
+
+    try:
+        import geopandas as gpd
+        from shapely.geometry import Point
+        from shapely.ops import linemerge, substring, unary_union
+
+        original_crs = flowlines.crs
+        work = flowlines
+        upstream_point = Point(float(upstream_lon), float(upstream_lat))
+        downstream_point = Point(float(downstream_lon), float(downstream_lat))
+
+        if original_crs is not None and getattr(original_crs, "is_geographic", False):
+            work = flowlines.to_crs(epsg=3857)
+            points = gpd.GeoSeries([upstream_point, downstream_point], crs=original_crs).to_crs(epsg=3857)
+            upstream_point = points.iloc[0]
+            downstream_point = points.iloc[1]
+
+        unioned = unary_union(list(work.geometry))
+        merged = unioned if unioned.geom_type == "LineString" else linemerge(unioned)
+        if merged.is_empty:
+            return None
+
+        lines = list(merged.geoms) if merged.geom_type == "MultiLineString" else [merged]
+        line = min(lines, key=lambda geom: geom.distance(upstream_point) + geom.distance(downstream_point))
+        upstream_distance = line.project(upstream_point)
+        downstream_distance = line.project(downstream_point)
+        start_distance = min(upstream_distance, downstream_distance)
+        end_distance = max(upstream_distance, downstream_distance)
+        if end_distance <= start_distance:
+            return None
+
+        clipped = substring(line, start_distance, end_distance)
+        if clipped.is_empty:
+            return None
+
+        clipped_gdf = gpd.GeoDataFrame({"segment": ["selected reach"]}, geometry=[clipped], crs=work.crs)
+        if original_crs is not None and clipped_gdf.crs != original_crs:
+            clipped_gdf = clipped_gdf.to_crs(original_crs)
+        return clipped_gdf
+    except Exception as e:
+        logger.warning(f"Could not clip selected reach flowlines: {e}")
+        return None
+
+
 def _map_bounds_for_reach(
     selected_flowlines,
     context_flowlines,
@@ -294,6 +342,20 @@ def _build_reach_candidate_options(origin_site_id, origin_name, related_sites):
     return candidates
 
 
+def _candidate_display_name(candidate):
+    """Return the candidate station name without repeating selector metadata."""
+    if candidate.get("name"):
+        return str(candidate["name"])
+    label = str(candidate.get("label", ""))
+    parts = [part.strip() for part in label.split("|")]
+    return parts[-1] if len(parts) >= 4 else ""
+
+
+def _format_pair_distance(distance_km):
+    """Format pair distance for compact candidate labels."""
+    return f"{float(distance_km):.1f} km" if distance_km is not None else "distance unknown"
+
+
 def _pair_key(upstream_id, downstream_id):
     """Return a stable selected-reach key."""
     return f"{upstream_id}__{downstream_id}"
@@ -310,7 +372,7 @@ def _resolve_selected_pair_key(reach_pairs, session_state):
     return reach_pairs[0]["key"]
 
 
-def _build_recommended_reach_pairs(origin_site_id, candidates, max_pairs=8):
+def _build_recommended_reach_pairs(origin_site_id, candidates, max_pairs=12):
     """Build processable upstream/downstream reach pairs for the workspace."""
     origin_site_id = str(origin_site_id)
     by_position = {"Upstream": [], "Downstream": [], "Tributary": []}
@@ -331,31 +393,40 @@ def _build_recommended_reach_pairs(origin_site_id, candidates, max_pairs=8):
 
     pairs = []
     for upstream in by_position["Upstream"]:
+        distance_label = _format_pair_distance(upstream.get("distance_km"))
+        name = _candidate_display_name(upstream)
         pairs.append({
             "key": _pair_key(upstream["site_id"], origin_site_id),
             "upstream_id": str(upstream["site_id"]),
             "downstream_id": origin_site_id,
-            "label": f'{upstream["site_id"]} -> {origin_site_id}',
+            "label": f'Upstream: {upstream["site_id"]} -> {origin_site_id} | {distance_label} | {name}',
             "kind": "mainstem upstream",
             "distance_km": upstream.get("distance_km"),
+            "name": name,
         })
     for downstream in by_position["Downstream"]:
+        distance_label = _format_pair_distance(downstream.get("distance_km"))
+        name = _candidate_display_name(downstream)
         pairs.append({
             "key": _pair_key(origin_site_id, downstream["site_id"]),
             "upstream_id": origin_site_id,
             "downstream_id": str(downstream["site_id"]),
-            "label": f'{origin_site_id} -> {downstream["site_id"]}',
+            "label": f'Downstream: {origin_site_id} -> {downstream["site_id"]} | {distance_label} | {name}',
             "kind": "mainstem downstream",
             "distance_km": downstream.get("distance_km"),
+            "name": name,
         })
     for tributary in by_position["Tributary"]:
+        distance_label = _format_pair_distance(tributary.get("distance_km"))
+        name = _candidate_display_name(tributary)
         pairs.append({
             "key": _pair_key(tributary["site_id"], origin_site_id),
             "upstream_id": str(tributary["site_id"]),
             "downstream_id": origin_site_id,
-            "label": f'{tributary["site_id"]} -> {origin_site_id}',
+            "label": f'Tributary: {tributary["site_id"]} -> {origin_site_id} | {distance_label} | {name}',
             "kind": "tributary context",
             "distance_km": tributary.get("distance_km"),
+            "name": name,
         })
 
     seen = set()
@@ -485,6 +556,15 @@ def _render_reach_map(up_info, dn_info, upstream_id, downstream_id, reach_km, se
             )
             if selected_flowlines is None or selected_flowlines.empty:
                 selected_flowlines = flowlines
+            clipped_flowlines = _clip_flowlines_between_gages(
+                selected_flowlines,
+                upstream_lat=up_lat,
+                upstream_lon=up_lon,
+                downstream_lat=dn_lat,
+                downstream_lon=dn_lon,
+            )
+            if clipped_flowlines is not None and not clipped_flowlines.empty:
+                selected_flowlines = clipped_flowlines
             folium.GeoJson(
                 selected_flowlines.to_json(),
                 name="Selected reach network",
@@ -652,6 +732,18 @@ def show():
             manual_reach_km = float(st.session_state.get("reach_length_km", 0.0) or 0.0)
             reach_km = _resolve_reach_km(estimated_reach_km, manual_reach_km)
             st.caption(f"{selected_pair['kind']} | {selected_pair.get('distance_km') or 'distance unknown'} km from anchor")
+            st.dataframe(
+                pd.DataFrame([
+                    {
+                        "Reach": pair["label"],
+                        "Kind": pair["kind"],
+                    }
+                    for pair in reach_pairs
+                ]),
+                width="stretch",
+                hide_index=True,
+                height=min(360, 38 + 34 * len(reach_pairs)),
+            )
         elif discovered_related_sites:
             st.warning("NLDI found related gages, but none are available in the HydroPlot inventory.")
         else:

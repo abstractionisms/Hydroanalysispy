@@ -16,6 +16,7 @@ from hydrology.app.page_modules.reach_analysis import (
     _format_related_site_rows,
     _flowline_distance_km,
     _flowline_style,
+    _clip_flowlines_between_gages,
     _leaflet_fit_bounds_script,
     _map_bounds_for_reach,
     _pair_key,
@@ -379,6 +380,40 @@ def test_leaflet_fit_bounds_script_targets_selected_bounds():
     assert "[[47.0, -118.0], [48.0, -117.0]]" in script
     assert "paddingTopLeft" in script
     assert "paddingBottomRight" in script
+
+
+def test_clip_flowlines_between_gages_limits_highlight_to_selected_points():
+    import geopandas as gpd
+    from shapely.geometry import LineString
+
+    flowlines = gpd.GeoDataFrame(
+        {"name": ["mainstem"]},
+        geometry=[LineString([(0, 0), (10, 0)])],
+        crs="EPSG:3857",
+    )
+
+    clipped = _clip_flowlines_between_gages(
+        flowlines,
+        upstream_lat=0,
+        upstream_lon=3,
+        downstream_lat=0,
+        downstream_lon=7,
+    )
+
+    assert clipped is not None
+    assert round(clipped.geometry.iloc[0].length, 6) == 4
+    assert list(clipped.geometry.iloc[0].coords) == [(3.0, 0.0), (7.0, 0.0)]
+
+
+def test_build_recommended_reach_pairs_labels_include_context():
+    candidates = [
+        {"site_id": "anchor", "position": "Anchor", "distance_km": 0.0, "label": "Anchor | anchor | 0.0 km | Anchor gage"},
+        {"site_id": "up", "position": "Upstream", "distance_km": 5.25, "label": "Upstream | up | 5.2 km | Upper River near Town"},
+    ]
+
+    pairs = _build_recommended_reach_pairs("anchor", candidates)
+
+    assert pairs[0]["label"] == "Upstream: up -> anchor | 5.2 km | Upper River near Town"
 
 
 def test_reach_page_source_uses_gage_not_gauge():
