@@ -47,6 +47,59 @@ def test_fetch_precip_data_uses_meteostat_precip_mm_fallback(monkeypatch):
             "include_precip": True,
         }
     ]
+
+
+def test_fetch_precip_data_result_reports_daymet_source(monkeypatch):
+    def fake_daymet(site_id, start_date, end_date, variables):
+        return pd.DataFrame(
+            {"precip_mm": [2.0, 0.0, 1.5]},
+            index=pd.date_range("2024-01-01", periods=3, freq="D"),
+        )
+
+    monkeypatch.setattr("hydrology.data.hyriver.get_daymet_climate", fake_daymet)
+
+    result = indicators._fetch_precip_data_result(
+        "12422500",
+        "47.6593",
+        "-117.4491",
+        "2024-01-01",
+        "2024-01-03",
+    )
+
+    assert result["source"] == "Daymet"
+    assert result["n_days"] == 3
+    assert result["precip"].tolist() == [2.0, 0.0, 1.5]
+
+
+def test_fetch_precip_data_result_reports_unavailable_without_coordinates(monkeypatch):
+    def no_daymet(site_id, start_date, end_date, variables):
+        return None
+
+    monkeypatch.setattr("hydrology.data.hyriver.get_daymet_climate", no_daymet)
+
+    result = indicators._fetch_precip_data_result(
+        "12422500",
+        None,
+        None,
+        "2024-01-01",
+        "2024-01-03",
+    )
+
+    assert result["precip"] is None
+    assert result["source"] == "Unavailable"
+    assert "missing site coordinates" in result["message"]
+
+
+def test_spi_readiness_rows_summarize_source_and_record_length():
+    rows = indicators._spi_readiness_rows(
+        {"source": "Daymet", "n_days": 3650, "message": "Loaded precipitation from Daymet."}
+    )
+
+    assert rows == [
+        {"Item": "Precipitation source", "Value": "Daymet"},
+        {"Item": "Daily precipitation records", "Value": "3,650"},
+        {"Item": "Status", "Value": "Loaded precipitation from Daymet."},
+    ]
 import pandas as pd
 
 

@@ -117,24 +117,36 @@ def _render_drought_tab(df_q, q_col, site_id, desc, lat, lon, start_str, end_str
     # SPI if climate data available
     st.markdown("---")
     st.subheader("Standardized Precipitation Index (SPI)")
-    show_spi = st.checkbox("Calculate SPI (requires climate data)", value=False, key="show_spi")
+    st.caption("Fetches precipitation on demand, then calculates SPI from the selected date range.")
+    spi_key = f"spi_result_{site_id}_{start_str}_{end_str}"
+    calculate_spi_clicked = st.button("Calculate SPI from precipitation", key="calculate_spi", type="primary")
 
-    if show_spi:
+    if calculate_spi_clicked:
         with st.spinner("Fetching climate data..."):
-            precip_data = _fetch_precip_data(site_id, lat, lon, start_str, end_str)
+            precip_result = _fetch_precip_data_result(site_id, lat, lon, start_str, end_str)
 
+        precip_data = precip_result["precip"]
         if precip_data is not None and not precip_data.empty:
             spi_df = calculate_spi(precip_data, windows=[1, 3, 6, 12])
             if not spi_df.empty:
-                _render_index_interpretation(spi_df, "SPI", "precipitation")
-                fig_spi = _create_drought_timeseries(spi_df, title=f"{desc} - SPI")
-                st.plotly_chart(fig_spi, width="stretch", key="spi_chart")
+                st.session_state[spi_key] = {"fetch": precip_result, "spi": spi_df}
             else:
-                st.warning("Insufficient precipitation data for SPI. Try a longer period or a site with stronger climate coverage.")
+                st.session_state[spi_key] = {"fetch": precip_result, "spi": pd.DataFrame()}
         else:
-            st.warning(
-                "Could not fetch precipitation data. SPI uses Daymet first and then the nearest Meteostat station from the selected site coordinates."
-            )
+            st.session_state[spi_key] = {"fetch": precip_result, "spi": pd.DataFrame()}
+
+    spi_result = st.session_state.get(spi_key)
+    if spi_result:
+        st.dataframe(pd.DataFrame(_spi_readiness_rows(spi_result["fetch"])), width="stretch", hide_index=True)
+        spi_df = spi_result["spi"]
+        if not spi_df.empty:
+            _render_index_interpretation(spi_df, "SPI", "precipitation")
+            fig_spi = _create_drought_timeseries(spi_df, title=f"{desc} - SPI")
+            st.plotly_chart(fig_spi, width="stretch", key="spi_chart")
+        elif spi_result["fetch"]["precip"] is not None:
+            st.warning("Insufficient precipitation data for SPI. Try a longer period or a site with stronger precipitation coverage.")
+        else:
+            st.warning(spi_result["fetch"]["message"])
 
 
 def _render_drought_status_cards(sri_df: pd.DataFrame):
@@ -425,32 +437,69 @@ def _render_anomaly_tab(df_q, q_col, desc):
 
 def _fetch_precip_data(site_id, lat, lon, start_str, end_str):
     """Try Daymet first, fall back to Meteostat for precipitation."""
+    return _fetch_precip_data_result(site_id, lat, lon, start_str, end_str)["precip"]
+
+
+def _fetch_precip_data_result(site_id, lat, lon, start_str, end_str):
+    """Fetch precipitation and return source metadata for the dashboard."""
     try:
         from hydrology.data.hyriver import get_daymet_climate
         daymet = get_daymet_climate(site_id, start_str, end_str, variables=['prcp'])
         if daymet is not None and 'precip_mm' in daymet.columns:
-            return daymet['precip_mm']
+            precip = daymet['precip_mm'].dropna()
+            if not precip.empty:
+                return {
+                    "precip": precip,
+                    "source": "Daymet",
+                    "n_days": len(precip),
+                    "message": "Loaded precipitation from Daymet.",
+                }
     except ImportError:
         pass
     except Exception as e:
         logger.debug(f"Daymet failed, trying Meteostat: {e}")
 
     # Meteostat fallback
+    if not lat or not lon:
+        return {
+            "precip": None,
+            "source": "Unavailable",
+            "n_days": 0,
+            "message": "Could not fetch precipitation because the selected site is missing site coordinates.",
+        }
+
     try:
         from hydrology.data.climate import fetch_climate_data
-        if lat and lon:
-            climate = fetch_climate_data(
-                float(lat), float(lon),
-                pd.Timestamp(start_str), pd.Timestamp(end_str),
-                include_temp=False, include_precip=True)
-            if climate is not None:
-                if 'Precip_mm' in climate.columns:
-                    return climate['Precip_mm']
-                if 'precip_mm' in climate.columns:
-                    return climate['precip_mm']
-                if 'prcp' in climate.columns:
-                    return climate['prcp']
+        climate = fetch_climate_data(
+            float(lat), float(lon),
+            pd.Timestamp(start_str), pd.Timestamp(end_str),
+            include_temp=False, include_precip=True)
+        if climate is not None:
+            for precip_col in ('Precip_mm', 'precip_mm', 'prcp'):
+                if precip_col in climate.columns:
+                    precip = climate[precip_col].dropna()
+                    if not precip.empty:
+                        return {
+                            "precip": precip,
+                            "source": "Meteostat",
+                            "n_days": len(precip),
+                            "message": "Loaded precipitation from nearest Meteostat station.",
+                        }
     except Exception as e:
         logger.debug(f"Meteostat precip fetch failed: {e}")
 
-    return None
+    return {
+        "precip": None,
+        "source": "Unavailable",
+        "n_days": 0,
+        "message": "Could not fetch precipitation from Daymet or Meteostat for this site and date range.",
+    }
+
+
+def _spi_readiness_rows(fetch_result):
+    """Build compact source/status rows for SPI calculation."""
+    return [
+        {"Item": "Precipitation source", "Value": fetch_result.get("source", "Unavailable")},
+        {"Item": "Daily precipitation records", "Value": f"{int(fetch_result.get('n_days', 0)):,}"},
+        {"Item": "Status", "Value": fetch_result.get("message", "")},
+    ]
