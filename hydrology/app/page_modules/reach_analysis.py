@@ -328,6 +328,14 @@ def _ensure_widget_value_is_valid(key, options):
         del st.session_state[key]
 
 
+def _selectbox_kwargs_for_state(key, default_index, session_state):
+    """Avoid passing both explicit index and pre-set Streamlit widget state."""
+    kwargs = {"key": key}
+    if key not in session_state:
+        kwargs["index"] = default_index
+    return kwargs
+
+
 def _get_discharge_series(df):
     """Return the primary discharge series from a fetched dataframe."""
     if "Discharge_cfs" in df.columns:
@@ -468,15 +476,13 @@ def show():
             upstream_sel = st.selectbox(
                 "Upstream gage",
                 candidate_options,
-                index=default_upstream_idx,
-                key="reach_upstream_choice",
+                **_selectbox_kwargs_for_state("reach_upstream_choice", default_upstream_idx, st.session_state),
             )
         with reach_col2:
             downstream_sel = st.selectbox(
                 "Downstream gage",
                 candidate_options,
-                index=default_downstream_idx,
-                key="reach_downstream_choice",
+                **_selectbox_kwargs_for_state("reach_downstream_choice", default_downstream_idx, st.session_state),
             )
         upstream_id = site_by_label[upstream_sel]
         downstream_id = site_by_label[downstream_sel]

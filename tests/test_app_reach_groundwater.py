@@ -16,6 +16,7 @@ from hydrology.app.page_modules.reach_analysis import (
     _map_bounds_for_reach,
     _reach_map_component_key,
     _resolve_reach_km,
+    _selectbox_kwargs_for_state,
     _selected_candidate_site_id,
 )
 
@@ -249,6 +250,18 @@ def test_reach_map_component_key_changes_with_selected_pair_and_bounds():
 
     assert first != second
     assert first.startswith("reach_map_up_down_")
+
+
+def test_selectbox_kwargs_omit_index_when_session_state_has_widget_key():
+    kwargs = _selectbox_kwargs_for_state("reach_upstream_choice", 2, {"reach_upstream_choice": "label"})
+
+    assert kwargs == {"key": "reach_upstream_choice"}
+
+
+def test_selectbox_kwargs_include_index_for_initial_render():
+    kwargs = _selectbox_kwargs_for_state("reach_upstream_choice", 2, {})
+
+    assert kwargs == {"key": "reach_upstream_choice", "index": 2}
 
 
 def test_candidate_index_for_site_prefers_selected_site():
