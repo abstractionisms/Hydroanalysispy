@@ -276,6 +276,69 @@ def _build_reach_candidate_options(origin_site_id, origin_name, related_sites):
     return candidates
 
 
+def _pair_key(upstream_id, downstream_id):
+    """Return a stable selected-reach key."""
+    return f"{upstream_id}__{downstream_id}"
+
+
+def _build_recommended_reach_pairs(origin_site_id, candidates, max_pairs=8):
+    """Build processable upstream/downstream reach pairs for the workspace."""
+    origin_site_id = str(origin_site_id)
+    by_position = {"Upstream": [], "Downstream": [], "Tributary": []}
+    for candidate in candidates:
+        site_id = str(candidate.get("site_id", ""))
+        if not site_id or site_id == origin_site_id:
+            continue
+        position = candidate.get("position")
+        if position in by_position:
+            by_position[position].append(candidate)
+
+    def distance_value(candidate):
+        distance = candidate.get("distance_km")
+        return float(distance) if distance is not None else 9999.0
+
+    for values in by_position.values():
+        values.sort(key=distance_value)
+
+    pairs = []
+    for upstream in by_position["Upstream"]:
+        pairs.append({
+            "key": _pair_key(upstream["site_id"], origin_site_id),
+            "upstream_id": str(upstream["site_id"]),
+            "downstream_id": origin_site_id,
+            "label": f'{upstream["site_id"]} -> {origin_site_id}',
+            "kind": "mainstem upstream",
+            "distance_km": upstream.get("distance_km"),
+        })
+    for downstream in by_position["Downstream"]:
+        pairs.append({
+            "key": _pair_key(origin_site_id, downstream["site_id"]),
+            "upstream_id": origin_site_id,
+            "downstream_id": str(downstream["site_id"]),
+            "label": f'{origin_site_id} -> {downstream["site_id"]}',
+            "kind": "mainstem downstream",
+            "distance_km": downstream.get("distance_km"),
+        })
+    for tributary in by_position["Tributary"]:
+        pairs.append({
+            "key": _pair_key(tributary["site_id"], origin_site_id),
+            "upstream_id": str(tributary["site_id"]),
+            "downstream_id": origin_site_id,
+            "label": f'{tributary["site_id"]} -> {origin_site_id}',
+            "kind": "tributary context",
+            "distance_km": tributary.get("distance_km"),
+        })
+
+    seen = set()
+    unique_pairs = []
+    for pair in pairs:
+        if pair["key"] in seen:
+            continue
+        seen.add(pair["key"])
+        unique_pairs.append(pair)
+    return unique_pairs[:max_pairs]
+
+
 def _candidate_index_for_site(candidates, preferred_site_id, fallback_positions):
     """Return the selector index for a preferred site or role fallback."""
     if preferred_site_id:

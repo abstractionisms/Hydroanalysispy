@@ -2,6 +2,7 @@ import pandas as pd
 
 from hydrology.app.page_modules.reach_analysis import (
     _build_reach_interpretation,
+    _build_recommended_reach_pairs,
     _build_reach_summary_row,
     _build_reach_candidate_options,
     _candidate_index_for_site,
@@ -14,6 +15,7 @@ from hydrology.app.page_modules.reach_analysis import (
     _flowline_distance_km,
     _flowline_style,
     _map_bounds_for_reach,
+    _pair_key,
     _reach_map_component_key,
     _resolve_reach_km,
     _selectbox_kwargs_for_state,
@@ -321,3 +323,25 @@ def test_selected_candidate_site_id_reads_single_selected_table_row():
     selection_state = {"selection": {"rows": [2]}}
 
     assert _selected_candidate_site_id(candidate_rows, selection_state) == "down"
+
+
+def test_build_recommended_reach_pairs_prefers_mainstem_pairs():
+    candidates = [
+        {"site_id": "anchor", "position": "Anchor", "distance_km": 0.0, "label": "Anchor | anchor | 0.0 km | Anchor"},
+        {"site_id": "up", "position": "Upstream", "distance_km": 5.0, "label": "Upstream | up | 5.0 km | Upstream"},
+        {"site_id": "trib", "position": "Tributary", "distance_km": 3.0, "label": "Tributary | trib | 3.0 km | Tributary"},
+        {"site_id": "down", "position": "Downstream", "distance_km": 8.0, "label": "Downstream | down | 8.0 km | Downstream"},
+    ]
+
+    pairs = _build_recommended_reach_pairs("anchor", candidates, max_pairs=5)
+
+    assert pairs[0]["upstream_id"] == "up"
+    assert pairs[0]["downstream_id"] == "anchor"
+    assert pairs[1]["upstream_id"] == "anchor"
+    assert pairs[1]["downstream_id"] == "down"
+    assert all(pair["upstream_id"] != pair["downstream_id"] for pair in pairs)
+    assert any(pair["kind"] == "tributary context" for pair in pairs)
+
+
+def test_pair_key_is_stable_and_readable():
+    assert _pair_key("12419000", "12422000") == "12419000__12422000"
