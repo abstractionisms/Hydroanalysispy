@@ -1,4 +1,6 @@
 import pandas as pd
+import inspect
+import hydrology.app.page_modules.reach_analysis as reach_analysis_module
 
 from hydrology.app.page_modules.reach_analysis import (
     _build_reach_interpretation,
@@ -377,3 +379,16 @@ def test_leaflet_fit_bounds_script_targets_selected_bounds():
     assert "[[47.0, -118.0], [48.0, -117.0]]" in script
     assert "paddingTopLeft" in script
     assert "paddingBottomRight" in script
+
+
+def test_reach_page_source_uses_gage_not_gauge():
+    source = inspect.getsource(reach_analysis_module.show)
+
+    assert "gauge" not in source.lower()
+    assert "gage" in source.lower()
+
+
+def test_reach_page_source_does_not_bury_map_in_expander():
+    source = inspect.getsource(reach_analysis_module.show)
+
+    assert 'st.expander("Reach Map"' not in source

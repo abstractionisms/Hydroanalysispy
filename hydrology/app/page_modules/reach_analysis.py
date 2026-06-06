@@ -437,6 +437,91 @@ def _get_discharge_series(df):
     return df.select_dtypes(include="number").iloc[:, 0]
 
 
+def _render_reach_map(up_info, dn_info, upstream_id, downstream_id, reach_km, search_km):
+    """Render selected reach flowlines and gage markers in the current Streamlit container."""
+    if not (up_info and dn_info and up_info.get('latitude') and dn_info.get('latitude')):
+        st.info("Selected gage coordinates are unavailable for mapping.")
+        return
+
+    import folium
+    from folium import Element
+    from streamlit_folium import st_folium
+    from hydrology.data.hyriver import get_flowlines, get_navigation_flowlines
+
+    up_lat, up_lon = float(up_info['latitude']), float(up_info['longitude'])
+    dn_lat, dn_lon = float(dn_info['latitude']), float(dn_info['longitude'])
+    center_lat = (up_lat + dn_lat) / 2
+    center_lon = (up_lon + dn_lon) / 2
+
+    m = folium.Map(
+        location=[center_lat, center_lon],
+        zoom_start=11,
+        tiles=None,
+        max_bounds=True,
+        control_scale=True,
+    )
+    folium.TileLayer(
+        "CartoDB dark_matter",
+        name="Base map",
+        no_wrap=True,
+        detect_retina=True,
+    ).add_to(m)
+
+    flowline_distance = _flowline_distance_km(reach_km, search_km)
+    try:
+        flowlines = get_flowlines(downstream_id, distance_km=flowline_distance)
+        selected_flowlines = None
+        if flowlines is not None and not flowlines.empty:
+            folium.GeoJson(
+                flowlines.to_json(),
+                name="River network context",
+                style_function=lambda feature: _flowline_style(selected=False),
+                tooltip="NHDPlus river/tributary flowline",
+            ).add_to(m)
+            selected_flowlines = get_navigation_flowlines(
+                downstream_id,
+                navigation="upstreamMain",
+                distance_km=flowline_distance,
+            )
+            if selected_flowlines is None or selected_flowlines.empty:
+                selected_flowlines = flowlines
+            folium.GeoJson(
+                selected_flowlines.to_json(),
+                name="Selected reach network",
+                style_function=lambda feature: _flowline_style(selected=True),
+                tooltip=f"Selected reach network: {upstream_id} -> {downstream_id}",
+            ).add_to(m)
+        else:
+            st.caption("River-network geometry was not available for this reach; showing gage locations only.")
+    except Exception as e:
+        logger.warning(f"Could not add reach flowlines: {e}")
+        st.caption("River-network geometry was not available for this reach; showing gage locations only.")
+
+    folium.CircleMarker(
+        [up_lat, up_lon], radius=10, color='#2196F3', fill=True,
+        fillColor='#2196F3', fillOpacity=0.8,
+        tooltip=f"Upstream: {up_info.get('description', upstream_id)}"
+    ).add_to(m)
+
+    folium.CircleMarker(
+        [dn_lat, dn_lon], radius=10, color='#FF9800', fill=True,
+        fillColor='#FF9800', fillOpacity=0.8,
+        tooltip=f"Downstream: {dn_info.get('description', downstream_id)}"
+    ).add_to(m)
+
+    reach_bounds = _map_bounds_for_reach(None, None, up_lat, up_lon, dn_lat, dn_lon)
+    m.fit_bounds(reach_bounds, padding=(24, 24), max_zoom=13)
+    m.get_root().html.add_child(Element(_leaflet_fit_bounds_script(reach_bounds)))
+    st_folium(
+        m,
+        width=None,
+        height=520,
+        returned_objects=[],
+        key=_reach_map_component_key(upstream_id, downstream_id, reach_bounds),
+    )
+    st.caption("Gold = selected reach network; blue = nearby river/tributary context. Blue marker = upstream gage; orange marker = downstream gage.")
+
+
 def show():
     """Render the Reach Analysis page."""
     inventory_df = get_inventory()
@@ -449,51 +534,49 @@ def show():
 
     states = ["All States"] + sorted(FIPS_TO_STATE.values())
 
-    with st.expander("Select reach", expanded=True):
-        top_col1, top_col2, top_col3, top_col4, top_col5 = st.columns([1.2, 2.2, 3, 1, 1.2])
-        with top_col1:
-            anchor_state = st.selectbox("State", states, key="reach_anchor_state")
-        with top_col2:
-            anchor_search = st.text_input(
-                "Find river gage",
-                placeholder="River, station, or USGS ID...",
-                key="reach_anchor_search",
-            )
+    search_col1, search_col2, search_col3, search_col4, search_col5 = st.columns([1.05, 1.9, 3.0, 0.85, 1.15])
+    with search_col1:
+        anchor_state = st.selectbox("State", states, key="reach_anchor_state")
+    with search_col2:
+        anchor_search = st.text_input(
+            "Find gage",
+            placeholder="River, station, or USGS ID...",
+            key="reach_anchor_search",
+        )
 
-        anchor_filtered = _filter_inventory(inventory_df, anchor_search, anchor_state)
-        anchor_options = [
-            f"{row['site_id']} - {str(row.get('description', ''))[:80]}"
-            for _, row in anchor_filtered.iterrows()
-        ]
-        if anchor_search or anchor_state != "All States":
-            st.caption(f"{len(anchor_options)} matching gages")
-        if not anchor_options:
-            st.warning("No gages match the current search")
-            return
+    anchor_filtered = _filter_inventory(inventory_df, anchor_search, anchor_state)
+    anchor_options = [
+        f"{row['site_id']} - {str(row.get('description', ''))[:80]}"
+        for _, row in anchor_filtered.iterrows()
+    ]
+    if not anchor_options:
+        st.warning("No gages match the current search")
+        return
 
-        with top_col3:
-            anchor_sel = st.selectbox("Anchor gage", anchor_options, key="reach_anchor")
-        anchor_id = extract_site_id(anchor_sel)
-        anchor_info = get_cached_site_info(anchor_id)
-        with top_col4:
-            search_km = st.number_input(
-                "Km",
-                min_value=10,
-                max_value=300,
-                value=75,
-                step=5,
-                key="reach_nldi_search_km",
-            )
-        with top_col5:
-            include_tributaries = st.toggle(
-                "Tributaries",
-                value=True,
-                key="reach_include_tributaries",
-            )
-            st.markdown("<br>", unsafe_allow_html=True)
-            find_gages = st.button("Find Related Gages", width="stretch", key="reach_find_related")
-        if anchor_info:
-            st.caption(anchor_info.get("description", ""))
+    with search_col3:
+        anchor_sel = st.selectbox("Anchor gage", anchor_options, key="reach_anchor")
+    anchor_id = extract_site_id(anchor_sel)
+    anchor_info = get_cached_site_info(anchor_id)
+    with search_col4:
+        search_km = st.number_input(
+            "Km",
+            min_value=10,
+            max_value=300,
+            value=75,
+            step=5,
+            key="reach_nldi_search_km",
+        )
+    with search_col5:
+        include_tributaries = st.toggle(
+            "Tributaries",
+            value=True,
+            key="reach_include_tributaries",
+        )
+        find_gages = st.button("Find Reaches", width="stretch", key="reach_find_related")
+    if anchor_search or anchor_state != "All States":
+        st.caption(f"{len(anchor_options)} matching gages")
+    if anchor_info:
+        st.caption(anchor_info.get("description", ""))
 
     related_key = f"reach_related_sites_{anchor_id}_{search_km}_{include_tributaries}"
     if find_gages:
@@ -515,108 +598,92 @@ def show():
     anchor_name = anchor_info.get("description", "Anchor gage") if anchor_info else "Anchor gage"
     candidate_records = _build_reach_candidate_options(anchor_id, anchor_name, related_sites)
     candidate_rows = _format_related_site_rows(anchor_id, related_sites)
-    with st.expander("Candidate gages", expanded=not bool(discovered_related_sites)):
-        if omitted_related_site_ids:
-            st.caption(
-                f"{len(omitted_related_site_ids)} NLDI gages were hidden because they are not in the HydroPlot inventory for this app."
-            )
-        if related_sites:
-            candidate_selection = st.dataframe(
-                pd.DataFrame(candidate_rows),
-                width="stretch",
-                hide_index=True,
-                on_select="rerun",
-                selection_mode="single-row",
-                key="reach_candidate_table",
-            )
-            selected_candidate_id = _selected_candidate_site_id(candidate_rows, candidate_selection)
-            action_col1, action_col2, action_col3 = st.columns([1, 1, 3])
-            with action_col1:
-                if st.button("Use as Upstream", disabled=selected_candidate_id is None, width="stretch"):
-                    selected_label = _candidate_label_for_site(candidate_records, selected_candidate_id)
-                    if selected_label:
-                        st.session_state["reach_upstream_choice"] = selected_label
-            with action_col2:
-                if st.button("Use as Downstream", disabled=selected_candidate_id is None, width="stretch"):
-                    selected_label = _candidate_label_for_site(candidate_records, selected_candidate_id)
-                    if selected_label:
-                        st.session_state["reach_downstream_choice"] = selected_label
-            with action_col3:
-                if selected_candidate_id:
-                    st.caption(f"Selected candidate: {selected_candidate_id}")
-                else:
-                    st.caption("Select one candidate row, then assign it to upstream or downstream.")
-        elif discovered_related_sites:
-            st.warning("NLDI found related gages, but none are available in the HydroPlot inventory for this dashboard.")
-        else:
-            st.info("Use Find Related Gages to discover likely upstream/downstream candidates for the selected anchor gage.")
+    reach_pairs = _build_recommended_reach_pairs(anchor_id, candidate_records)
+    selected_pair_key = _resolve_selected_pair_key(reach_pairs, st.session_state)
+    if selected_pair_key:
+        st.session_state["reach_selected_pair_key"] = selected_pair_key
+    selected_pair = next((pair for pair in reach_pairs if pair["key"] == selected_pair_key), None)
 
-    with st.expander("Selected reach", expanded=True):
-        candidate_options = [candidate["label"] for candidate in candidate_records]
-        site_by_label = {candidate["label"]: candidate["site_id"] for candidate in candidate_records}
-        _ensure_widget_value_is_valid("reach_upstream_choice", candidate_options)
-        _ensure_widget_value_is_valid("reach_downstream_choice", candidate_options)
-        if "reach_upstream_choice" not in st.session_state:
-            st.session_state["reach_upstream_choice"] = _default_candidate_label(candidate_records, None, {"Upstream", "Tributary"})
-        if "reach_downstream_choice" not in st.session_state:
-            st.session_state["reach_downstream_choice"] = _default_candidate_label(candidate_records, None, {"Downstream", "Anchor"})
-        default_upstream_idx = candidate_options.index(st.session_state["reach_upstream_choice"])
-        default_downstream_idx = candidate_options.index(st.session_state["reach_downstream_choice"])
-
-        reach_col1, reach_col2 = st.columns(2)
-        with reach_col1:
-            upstream_sel = st.selectbox(
-                "Upstream gage",
-                candidate_options,
-                **_selectbox_kwargs_for_state("reach_upstream_choice", default_upstream_idx, st.session_state),
-            )
-        with reach_col2:
-            downstream_sel = st.selectbox(
-                "Downstream gage",
-                candidate_options,
-                **_selectbox_kwargs_for_state("reach_downstream_choice", default_downstream_idx, st.session_state),
-            )
-        upstream_id = site_by_label[upstream_sel]
-        downstream_id = site_by_label[downstream_sel]
-        up_info = get_cached_site_info(upstream_id)
-        dn_info = get_cached_site_info(downstream_id)
-
-        estimated_reach_km = _estimate_reach_km(upstream_id, downstream_id, related_sites, anchor_id)
-        config_col1, config_col2 = st.columns([1, 2])
-        with config_col1:
-            if estimated_reach_km:
-                st.metric("Network length", f"{estimated_reach_km:.1f} km")
-            else:
-                st.metric("Network length", "Not inferred")
-        with config_col2:
-            if upstream_id == downstream_id:
-                st.warning("Choose two different gages for a reach.")
-            else:
-                st.metric("Selected reach", f"{upstream_id} -> {downstream_id}")
-
-        manual_reach_km = 0.0
-        with st.expander("Advanced reach length override", expanded=False):
-            manual_reach_km = st.number_input(
-                "Manual reach length km",
-                min_value=0.0,
-                max_value=1000.0,
-                value=0.0,
-                step=0.1,
-                help="Optional. Used only when the network length cannot be inferred.",
-                key="reach_length_km",
-            )
-            if estimated_reach_km:
-                st.caption("Network-inferred length is used for cfs/km. Manual value is ignored while an inferred length is available.")
-            else:
-                st.caption("Optional fallback for cfs/km when related gage distances do not define the selected reach.")
-        reach_km = _resolve_reach_km(estimated_reach_km, manual_reach_km)
+    if selected_pair:
+        upstream_id = selected_pair["upstream_id"]
+        downstream_id = selected_pair["downstream_id"]
+    else:
+        upstream_id = anchor_id
+        downstream_id = anchor_id
+    up_info = get_cached_site_info(upstream_id)
+    dn_info = get_cached_site_info(downstream_id)
+    estimated_reach_km = _estimate_reach_km(upstream_id, downstream_id, related_sites, anchor_id)
+    manual_reach_km = float(st.session_state.get("reach_length_km", 0.0) or 0.0)
+    reach_km = _resolve_reach_km(estimated_reach_km, manual_reach_km)
 
     reach_plot_options = {get_display_name(p): p for p in REACH_PLOTS if p in AVAILABLE_PLOTS}
     default_plots = ['reach_comparison', 'reach_index', 'seasonal_gain_loss']
     default_display = [get_display_name(p) for p in default_plots if p in reach_plot_options.values()]
 
-    with st.expander("Run analysis", expanded=True):
-        settings_col1, settings_col2 = st.columns([1, 1])
+    selected_display = default_display
+    layout_choice = "Auto"
+    dpi = 150
+
+    candidate_col, map_col, summary_col = st.columns([1.05, 2.15, 1.0])
+    with candidate_col:
+        st.subheader("Candidate Reaches")
+        if omitted_related_site_ids:
+            st.caption(f"{len(omitted_related_site_ids)} NLDI gages hidden outside HydroPlot inventory.")
+        if reach_pairs:
+            pair_labels = {pair["label"]: pair["key"] for pair in reach_pairs}
+            _ensure_widget_value_is_valid("reach_pair_radio", list(pair_labels.keys()))
+            selected_pair_label = next(
+                label for label, key in pair_labels.items()
+                if key == st.session_state.get("reach_selected_pair_key")
+            )
+            chosen_label = st.radio(
+                "Processable pairs",
+                list(pair_labels.keys()),
+                index=list(pair_labels.keys()).index(selected_pair_label),
+                key="reach_pair_radio",
+            )
+            st.session_state["reach_selected_pair_key"] = pair_labels[chosen_label]
+            selected_pair = next(pair for pair in reach_pairs if pair["key"] == pair_labels[chosen_label])
+            upstream_id = selected_pair["upstream_id"]
+            downstream_id = selected_pair["downstream_id"]
+            up_info = get_cached_site_info(upstream_id)
+            dn_info = get_cached_site_info(downstream_id)
+            estimated_reach_km = _estimate_reach_km(upstream_id, downstream_id, related_sites, anchor_id)
+            manual_reach_km = float(st.session_state.get("reach_length_km", 0.0) or 0.0)
+            reach_km = _resolve_reach_km(estimated_reach_km, manual_reach_km)
+            st.caption(f"{selected_pair['kind']} | {selected_pair.get('distance_km') or 'distance unknown'} km from anchor")
+        elif discovered_related_sites:
+            st.warning("NLDI found related gages, but none are available in the HydroPlot inventory.")
+        else:
+            st.info("Click Find Reaches to discover processable upstream/downstream candidates.")
+
+    with map_col:
+        st.subheader("Reach Map")
+        _render_reach_map(up_info, dn_info, upstream_id, downstream_id, reach_km, search_km)
+
+    with summary_col:
+        st.subheader("Selected Reach")
+        if upstream_id == downstream_id:
+            st.warning("Choose two different gages for a reach.")
+        else:
+            st.metric("Reach", f"{upstream_id} -> {downstream_id}")
+        if estimated_reach_km:
+            st.metric("Network length", f"{estimated_reach_km:.1f} km")
+        elif manual_reach_km:
+            st.metric("Network length", f"{manual_reach_km:.1f} km manual")
+        else:
+            st.metric("Network length", "Not inferred")
+        st.metric("Candidate gages", len(candidate_records))
+        generate = st.button(
+            "Run Analysis",
+            type="primary",
+            width="stretch",
+            key="gen_reach",
+            disabled=upstream_id == downstream_id,
+        )
+
+    with st.expander("Analysis settings", expanded=False):
+        settings_col1, settings_col2, settings_col3 = st.columns([1.2, 1.7, 0.7])
         with settings_col1:
             start_date, end_date = date_range_selector("reach", default_start=date(2000, 1, 1))
         with settings_col2:
@@ -626,103 +693,42 @@ def show():
                 default=default_display,
                 key="reach_plot_select"
             )
-        selected_plots = [reach_plot_options[d] for d in selected_display]
-
-        with st.expander("Plot descriptions"):
+        with settings_col3:
+            layout_choice = st.selectbox("Layout", ["Auto", "Vertical", "Grid 2x3"], key="reach_layout")
+            dpi = st.number_input("DPI", min_value=72, max_value=300, value=150, key="reach_dpi")
+        with st.expander("Plot descriptions", expanded=False):
             for display_name, plot_key in reach_plot_options.items():
                 info = AVAILABLE_PLOTS.get(plot_key, {})
                 desc = info.get('description', '') if isinstance(info, dict) else ''
                 st.markdown(f"**{display_name}**: {desc}")
+    selected_plots = [reach_plot_options[d] for d in selected_display]
 
-        # Reach map - show network flowlines and upstream/downstream stations
-        if up_info and dn_info and up_info.get('latitude') and dn_info.get('latitude'):
-            with st.expander("Reach Map", expanded=False):
-                import folium
-                from folium import Element
-                from streamlit_folium import st_folium
-                from hydrology.data.hyriver import get_flowlines, get_navigation_flowlines
+    with st.expander("Candidate gage details", expanded=False):
+        if omitted_related_site_ids:
+            st.caption(
+                f"{len(omitted_related_site_ids)} NLDI gages were hidden because they are not in the HydroPlot inventory for this app."
+            )
+        if related_sites:
+            st.dataframe(pd.DataFrame(candidate_rows), width="stretch", hide_index=True)
+        elif discovered_related_sites:
+            st.warning("NLDI found related gages, but none are available in the HydroPlot inventory for this dashboard.")
+        else:
+            st.info("Use Find Reaches to discover likely upstream/downstream candidates for the selected anchor gage.")
 
-                up_lat, up_lon = float(up_info['latitude']), float(up_info['longitude'])
-                dn_lat, dn_lon = float(dn_info['latitude']), float(dn_info['longitude'])
-                center_lat = (up_lat + dn_lat) / 2
-                center_lon = (up_lon + dn_lon) / 2
-
-                m = folium.Map(
-                    location=[center_lat, center_lon],
-                    zoom_start=11,
-                    tiles=None,
-                    max_bounds=True,
-                    control_scale=True,
-                )
-                folium.TileLayer(
-                    "CartoDB dark_matter",
-                    name="Base map",
-                    no_wrap=True,
-                    detect_retina=True,
-                ).add_to(m)
-
-                flowline_distance = _flowline_distance_km(reach_km, search_km)
-                try:
-                    flowlines = get_flowlines(downstream_id, distance_km=flowline_distance)
-                    selected_flowlines = None
-                    if flowlines is not None and not flowlines.empty:
-                        folium.GeoJson(
-                            flowlines.to_json(),
-                            name="River network context",
-                            style_function=lambda feature: _flowline_style(selected=False),
-                            tooltip="NHDPlus river/tributary flowline",
-                        ).add_to(m)
-                        selected_flowlines = get_navigation_flowlines(
-                            downstream_id,
-                            navigation="upstreamMain",
-                            distance_km=flowline_distance,
-                        )
-                        if selected_flowlines is None or selected_flowlines.empty:
-                            selected_flowlines = flowlines
-                        folium.GeoJson(
-                            selected_flowlines.to_json(),
-                            name="Selected reach network",
-                            style_function=lambda feature: _flowline_style(selected=True),
-                            tooltip=f"Selected reach network: {upstream_id} -> {downstream_id}",
-                        ).add_to(m)
-                    else:
-                        st.caption("River-network geometry was not available for this reach; showing gage locations only.")
-                except Exception as e:
-                    logger.warning(f"Could not add reach flowlines: {e}")
-                    st.caption("River-network geometry was not available for this reach; showing gage locations only.")
-
-                folium.CircleMarker(
-                    [up_lat, up_lon], radius=10, color='#2196F3', fill=True,
-                    fillColor='#2196F3', fillOpacity=0.8,
-                    tooltip=f"Upstream: {up_info.get('description', upstream_id)}"
-                ).add_to(m)
-
-                folium.CircleMarker(
-                    [dn_lat, dn_lon], radius=10, color='#FF9800', fill=True,
-                    fillColor='#FF9800', fillOpacity=0.8,
-                    tooltip=f"Downstream: {dn_info.get('description', downstream_id)}"
-                ).add_to(m)
-
-                reach_bounds = _map_bounds_for_reach(None, None, up_lat, up_lon, dn_lat, dn_lon)
-                m.fit_bounds(reach_bounds, padding=(24, 24), max_zoom=13)
-                m.get_root().html.add_child(Element(_leaflet_fit_bounds_script(reach_bounds)))
-                st_folium(
-                    m,
-                    width=None,
-                    height=460,
-                    returned_objects=[],
-                    key=_reach_map_component_key(upstream_id, downstream_id, reach_bounds),
-                )
-                st.caption("Gold = selected reach network; blue = nearby river/tributary context. Blue marker = upstream gage; orange marker = downstream gage.")
-
-        col_layout, col_dpi, col_btn = st.columns([2, 1, 2])
-        with col_layout:
-            layout_choice = st.selectbox("Layout", ["Auto", "Vertical", "Grid 2x3"], key="reach_layout")
-        with col_dpi:
-            dpi = st.number_input("DPI", min_value=72, max_value=300, value=150, key="reach_dpi")
-        with col_btn:
-            st.markdown("<br>", unsafe_allow_html=True)
-            generate = st.button("Generate Reach Analysis", type="primary", width="stretch", key="gen_reach")
+    with st.expander("Advanced reach length override", expanded=False):
+        manual_reach_km = st.number_input(
+            "Manual reach length km",
+            min_value=0.0,
+            max_value=1000.0,
+            value=manual_reach_km,
+            step=0.1,
+            help="Optional. Used only when the network length cannot be inferred.",
+            key="reach_length_km",
+        )
+        if estimated_reach_km:
+            st.caption("Network-inferred length is used for cfs/km. Manual value is ignored while an inferred length is available.")
+        else:
+            st.caption("Optional fallback for cfs/km when related gage distances do not define the selected reach.")
 
     if generate:
         if not selected_plots:
