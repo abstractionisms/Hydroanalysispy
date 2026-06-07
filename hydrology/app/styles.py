@@ -611,37 +611,6 @@ def render_main_nav():
     """, unsafe_allow_html=True)
 
 
-def render_workflow_strip():
-    """Render visible navigation intent without replacing Streamlit navigation."""
-    render_action_cards([
-        {
-            "title": "Stations",
-            "href": "overview",
-            "body": "Find gages, inspect map layers, live flow context, and record coverage.",
-        },
-        {
-            "title": "Site Analysis",
-            "href": "single-analysis",
-            "body": "Run guided or fully custom plot sets for one selected gage.",
-        },
-        {
-            "title": "Compare Sites",
-            "href": "comparisons",
-            "body": "Compare periods, compare gages, and inspect multi-site relationships.",
-        },
-        {
-            "title": "Reach Analysis",
-            "href": "reach-analysis",
-            "body": "Evaluate paired gages, gain/loss patterns, and reach behavior.",
-        },
-        {
-            "title": "Watershed",
-            "href": "watershed",
-            "body": "Inspect basin boundaries, dams, land cover, and HUC inventory context.",
-        },
-    ])
-
-
 def render_workspace_panel(title: str, body: str, chips: list[dict] | None = None):
     """Render a reusable workspace panel."""
     chip_html = ""
