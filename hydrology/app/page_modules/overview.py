@@ -24,6 +24,7 @@ from hydrology.app.styles import (
     render_status_chips
 )
 from hydrology.app.interpretation import summarize_flow_context
+from hydrology.app.page_modules.alerts import render_site_current_check
 from hydrology.data.usgs import (
     fetch_daily_values, fetch_instantaneous_values,
     DEFAULT_PARAM_DISCHARGE, DEFAULT_PARAM_STAGE
@@ -142,6 +143,10 @@ def show():
         st.caption("Fast context from the last 10 years of daily discharge.")
         render_insight_board(summarize_flow_context(df_hist))
 
+    with st.expander("Current Conditions Check", expanded=False):
+        st.caption("Run threshold checks for the selected gage without leaving Stations.")
+        render_site_current_check(site_id, site_info, key_prefix=f"overview_current_{site_id}")
+
     _render_quick_stats(df_hist)
 
 
@@ -162,11 +167,6 @@ def _render_site_workspace(site_id: str, site_info: dict, condition: dict | None
                 "title": "Compare Sites",
                 "href": f"comparisons?site={site_id}",
                 "body": "Check overlap against nearby or selected gages.",
-            },
-            {
-                "title": "Current Check",
-                "href": f"alerts?site={site_id}",
-                "body": "Run manual threshold checks for this gage.",
             },
         ])
 

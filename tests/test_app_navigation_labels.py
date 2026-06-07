@@ -62,3 +62,11 @@ def test_site_analysis_owns_indicators_without_autoloading():
     assert "Drought & Baseflow Indicators" in text
     assert "Load Indicators" in text
     assert "render_site_indicators" in text
+
+
+def test_stations_owns_current_conditions_check():
+    text = (ROOT / "hydrology/app/page_modules/overview.py").read_text(encoding="utf-8")
+
+    assert "Current Conditions Check" in text
+    assert "render_site_current_check" in text
+    assert "alerts?site=" not in text
