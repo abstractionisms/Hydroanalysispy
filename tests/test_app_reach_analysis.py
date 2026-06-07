@@ -429,6 +429,34 @@ def test_clip_flowlines_between_gages_limits_highlight_to_selected_points():
     assert list(clipped.geometry.iloc[0].coords) == [(3.0, 0.0), (7.0, 0.0)]
 
 
+def test_clip_flowlines_between_gages_traces_connected_mainline_segments():
+    import geopandas as gpd
+    from shapely.geometry import LineString
+
+    flowlines = gpd.GeoDataFrame(
+        {"name": ["lower", "middle", "upper"]},
+        geometry=[
+            LineString([(0, 0), (4, 0)]),
+            LineString([(4, 0), (4, 3)]),
+            LineString([(4, 3), (8, 3)]),
+        ],
+        crs="EPSG:3857",
+    )
+
+    clipped = _clip_flowlines_between_gages(
+        flowlines,
+        upstream_lat=3,
+        upstream_lon=7,
+        downstream_lat=0,
+        downstream_lon=1,
+    )
+
+    assert clipped is not None
+    coords = list(clipped.geometry.iloc[0].coords)
+    assert coords == [(7.0, 3.0), (4.0, 3.0), (4.0, 0.0), (1.0, 0.0)]
+    assert round(clipped.geometry.iloc[0].length, 6) == 9.0
+
+
 def test_build_recommended_reach_pairs_labels_include_context():
     candidates = [
         {"site_id": "anchor", "position": "Anchor", "distance_km": 0.0, "label": "Anchor | anchor | 0.0 km | Anchor gage"},
@@ -451,3 +479,11 @@ def test_reach_page_source_does_not_bury_map_in_expander():
     source = inspect.getsource(reach_analysis_module.show)
 
     assert 'st.expander("Reach Map"' not in source
+
+
+def test_reach_map_uses_full_flowline_context_for_selected_path():
+    source = inspect.getsource(reach_analysis_module._render_reach_map)
+
+    assert "get_navigation_flowlines" not in source
+    assert "_clip_flowlines_between_gages(\n                flowlines," in source
+    assert "context only" in source

@@ -155,7 +155,6 @@ def _clip_flowlines_between_gages(flowlines, upstream_lat, upstream_lon, downstr
     try:
         import geopandas as gpd
         from shapely.geometry import Point
-        from shapely.ops import linemerge, substring, unary_union
 
         original_crs = flowlines.crs
         work = flowlines
@@ -168,31 +167,140 @@ def _clip_flowlines_between_gages(flowlines, upstream_lat, upstream_lon, downstr
             upstream_point = points.iloc[0]
             downstream_point = points.iloc[1]
 
-        unioned = unary_union(list(work.geometry))
-        merged = unioned if unioned.geom_type == "LineString" else linemerge(unioned)
-        if merged.is_empty:
+        path = _trace_flowline_path_between_points(work.geometry, upstream_point, downstream_point)
+        if path is None or path.is_empty:
             return None
 
-        lines = list(merged.geoms) if merged.geom_type == "MultiLineString" else [merged]
-        line = min(lines, key=lambda geom: geom.distance(upstream_point) + geom.distance(downstream_point))
-        upstream_distance = line.project(upstream_point)
-        downstream_distance = line.project(downstream_point)
-        start_distance = min(upstream_distance, downstream_distance)
-        end_distance = max(upstream_distance, downstream_distance)
-        if end_distance <= start_distance:
-            return None
-
-        clipped = substring(line, start_distance, end_distance)
-        if clipped.is_empty:
-            return None
-
-        clipped_gdf = gpd.GeoDataFrame({"segment": ["selected reach"]}, geometry=[clipped], crs=work.crs)
+        clipped_gdf = gpd.GeoDataFrame({"segment": ["selected reach"]}, geometry=[path], crs=work.crs)
         if original_crs is not None and clipped_gdf.crs != original_crs:
             clipped_gdf = clipped_gdf.to_crs(original_crs)
         return clipped_gdf
     except Exception as e:
         logger.warning(f"Could not clip selected reach flowlines: {e}")
         return None
+
+
+def _iter_lines(geometries):
+    """Yield LineString parts from a geometry collection."""
+    for geom in geometries:
+        if geom is None or geom.is_empty:
+            continue
+        if geom.geom_type == "LineString":
+            yield geom
+        elif geom.geom_type == "MultiLineString":
+            yield from geom.geoms
+
+
+def _coord_key(coord, precision=6):
+    """Round map coordinates so shared NHD segment endpoints connect."""
+    return (round(float(coord[0]), precision), round(float(coord[1]), precision))
+
+
+def _nearest_segment_projection(lines, point):
+    """Return the nearest segment plus the projected point on that segment."""
+    from shapely.geometry import LineString
+
+    best = None
+    for line_index, line in enumerate(lines):
+        coords = list(line.coords)
+        for segment_index, (start, end) in enumerate(zip(coords, coords[1:])):
+            segment = LineString([start, end])
+            if segment.length == 0:
+                continue
+            distance_on_segment = segment.project(point)
+            projected = segment.interpolate(distance_on_segment)
+            distance_to_point = projected.distance(point)
+            candidate = (distance_to_point, line_index, segment_index, projected)
+            if best is None or candidate[0] < best[0]:
+                best = candidate
+    return best
+
+
+def _add_graph_edge(graph, left_key, right_key, left_coord, right_coord):
+    """Add an undirected weighted edge to a coordinate graph."""
+    from math import hypot
+
+    if left_key == right_key:
+        return
+    weight = hypot(right_coord[0] - left_coord[0], right_coord[1] - left_coord[1])
+    graph.setdefault(left_key, {})[right_key] = weight
+    graph.setdefault(right_key, {})[left_key] = weight
+
+
+def _shortest_coord_path(graph, start_key, end_key):
+    """Dijkstra path through the flowline coordinate graph."""
+    import heapq
+
+    queue = [(0.0, start_key, [start_key])]
+    visited = set()
+    while queue:
+        distance, node, path = heapq.heappop(queue)
+        if node == end_key:
+            return path
+        if node in visited:
+            continue
+        visited.add(node)
+        for neighbor, weight in graph.get(node, {}).items():
+            if neighbor not in visited:
+                heapq.heappush(queue, (distance + weight, neighbor, path + [neighbor]))
+    return None
+
+
+def _trace_flowline_path_between_points(geometries, upstream_point, downstream_point):
+    """Trace the connected NHD path between two projected gage points."""
+    from shapely.geometry import LineString, Point
+
+    lines = list(_iter_lines(geometries))
+    if not lines:
+        return None
+
+    upstream_projection = _nearest_segment_projection(lines, upstream_point)
+    downstream_projection = _nearest_segment_projection(lines, downstream_point)
+    if upstream_projection is None or downstream_projection is None:
+        return None
+
+    projection_by_segment = {}
+    _, up_line_idx, up_segment_idx, up_projected = upstream_projection
+    _, dn_line_idx, dn_segment_idx, dn_projected = downstream_projection
+    projection_by_segment.setdefault((up_line_idx, up_segment_idx), []).append(("upstream", up_projected))
+    projection_by_segment.setdefault((dn_line_idx, dn_segment_idx), []).append(("downstream", dn_projected))
+
+    graph = {}
+    coordinates = {}
+    start_key = None
+    end_key = None
+
+    for line_index, line in enumerate(lines):
+        coords = list(line.coords)
+        for segment_index, (segment_start, segment_end) in enumerate(zip(coords, coords[1:])):
+            segment = LineString([segment_start, segment_end])
+            split_points = [(0.0, None, Point(segment_start))]
+            for label, projected in projection_by_segment.get((line_index, segment_index), []):
+                split_points.append((segment.project(projected), label, projected))
+            split_points.append((segment.length, None, Point(segment_end)))
+            split_points = sorted(split_points, key=lambda item: item[0])
+
+            keyed_points = []
+            for _, label, point in split_points:
+                key = _coord_key(point.coords[0])
+                coordinates[key] = point.coords[0]
+                if label == "upstream":
+                    start_key = key
+                elif label == "downstream":
+                    end_key = key
+                keyed_points.append((key, point.coords[0]))
+
+            for (left_key, left_coord), (right_key, right_coord) in zip(keyed_points, keyed_points[1:]):
+                _add_graph_edge(graph, left_key, right_key, left_coord, right_coord)
+
+    if start_key is None or end_key is None:
+        return None
+
+    path_keys = _shortest_coord_path(graph, start_key, end_key)
+    if not path_keys or len(path_keys) < 2:
+        return None
+
+    return LineString([coordinates[key] for key in path_keys])
 
 
 def _map_bounds_for_reach(
@@ -536,7 +644,7 @@ def _render_reach_map(up_info, dn_info, upstream_id, downstream_id, reach_km, se
     import folium
     from folium import Element
     from streamlit_folium import st_folium
-    from hydrology.data.hyriver import get_flowlines, get_navigation_flowlines
+    from hydrology.data.hyriver import get_flowlines
 
     up_lat, up_lon = float(up_info['latitude']), float(up_info['longitude'])
     dn_lat, dn_lon = float(dn_info['latitude']), float(dn_info['longitude'])
@@ -560,7 +668,6 @@ def _render_reach_map(up_info, dn_info, upstream_id, downstream_id, reach_km, se
     flowline_distance = _flowline_distance_km(reach_km, search_km)
     try:
         flowlines = get_flowlines(downstream_id, distance_km=flowline_distance)
-        selected_flowlines = None
         if flowlines is not None and not flowlines.empty:
             folium.GeoJson(
                 flowlines.to_json(),
@@ -568,28 +675,22 @@ def _render_reach_map(up_info, dn_info, upstream_id, downstream_id, reach_km, se
                 style_function=lambda feature: _flowline_style(selected=False),
                 tooltip="NHDPlus river/tributary flowline",
             ).add_to(m)
-            selected_flowlines = get_navigation_flowlines(
-                downstream_id,
-                navigation="upstreamMain",
-                distance_km=flowline_distance,
-            )
-            if selected_flowlines is None or selected_flowlines.empty:
-                selected_flowlines = flowlines
             clipped_flowlines = _clip_flowlines_between_gages(
-                selected_flowlines,
+                flowlines,
                 upstream_lat=up_lat,
                 upstream_lon=up_lon,
                 downstream_lat=dn_lat,
                 downstream_lon=dn_lon,
             )
             if clipped_flowlines is not None and not clipped_flowlines.empty:
-                selected_flowlines = clipped_flowlines
-            folium.GeoJson(
-                selected_flowlines.to_json(),
-                name="Selected reach network",
-                style_function=lambda feature: _flowline_style(selected=True),
-                tooltip=f"Selected reach network: {upstream_id} -> {downstream_id}",
-            ).add_to(m)
+                folium.GeoJson(
+                    clipped_flowlines.to_json(),
+                    name="Selected reach network",
+                    style_function=lambda feature: _flowline_style(selected=True),
+                    tooltip=f"Selected reach network: {upstream_id} -> {downstream_id}",
+                ).add_to(m)
+            else:
+                st.caption("Could not trace a connected NHD path between the selected gage points; showing river-network context only.")
         else:
             st.caption("River-network geometry was not available for this reach; showing gage locations only.")
     except Exception as e:
