@@ -270,10 +270,11 @@ def show():
 
     with st.expander("Drought & Baseflow Indicators", expanded=False):
         st.caption("SRI, precipitation SPI, baseflow proxy, and seasonal anomaly for the selected gage.")
-        indicator_key = f"load_site_indicators_{site_id}"
-        if st.button("Load Indicators", type="primary", key=indicator_key):
-            st.session_state[indicator_key] = True
-        if st.session_state.get(indicator_key):
+        indicator_loaded_key = f"site_indicators_loaded_{site_id}"
+        indicator_button_key = f"load_site_indicators_{site_id}"
+        if st.button("Load Indicators", type="primary", key=indicator_button_key):
+            st.session_state[indicator_loaded_key] = True
+        if st.session_state.get(indicator_loaded_key):
             render_site_indicators(site_id, site_info)
 
     # Advanced visualizations (opt-in)

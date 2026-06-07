@@ -62,6 +62,9 @@ def test_site_analysis_owns_indicators_without_autoloading():
     assert "Drought & Baseflow Indicators" in text
     assert "Load Indicators" in text
     assert "render_site_indicators" in text
+    assert "indicator_loaded_key" in text
+    assert "indicator_button_key" in text
+    assert "st.session_state[indicator_button_key]" not in text
 
 
 def test_stations_owns_current_conditions_check():
