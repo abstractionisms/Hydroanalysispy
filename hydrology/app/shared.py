@@ -379,33 +379,65 @@ def fetch_discharge_data(site_id: str, param_cd: str, start_str: str, end_str: s
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def fetch_climate_cached(lat: float, lon: float, start_str: str, end_str: str, site_id: str | None = None):
-    """Fetch climate data - cached."""
+def fetch_climate_cached_result(
+    lat: float,
+    lon: float,
+    start_str: str,
+    end_str: str,
+    site_id: str | None = None,
+    include_temp: bool = True,
+    include_precip: bool = True,
+):
+    """Fetch normalized climate data with source metadata."""
     start_dt = datetime.strptime(start_str, '%Y-%m-%d')
     end_dt = datetime.strptime(end_str, '%Y-%m-%d')
+
+    if site_id:
+        variables = []
+        if include_precip:
+            variables.append('prcp')
+        if include_temp:
+            variables.extend(['tmin', 'tmax'])
+
+        try:
+            from hydrology.data.hyriver import get_daymet_climate
+
+            daymet = get_daymet_climate(site_id, start_str, end_str, variables=variables or None)
+            normalized = normalize_climate_columns(daymet)
+            if normalized is not None and not normalized.empty:
+                return {
+                    "data": normalized,
+                    "source": "Daymet",
+                    "message": "Loaded gridded Daymet climate data for the selected gage.",
+                }
+        except Exception as e:
+            logger.info(f"Daymet climate unavailable for {site_id}: {e}")
 
     station_climate = normalize_climate_columns(fetch_climate_data(
         lat, lon,
         pd.Timestamp(start_dt),
         pd.Timestamp(end_dt),
-        include_temp=True,
-        include_precip=True
+        include_temp=include_temp,
+        include_precip=include_precip
     ))
     if station_climate is not None and not station_climate.empty:
-        return station_climate
+        return {
+            "data": station_climate,
+            "source": "Meteostat",
+            "message": "Loaded climate data from the nearest Meteostat station.",
+        }
 
-    if site_id:
-        try:
-            from hydrology.data.hyriver import get_daymet_climate
+    return {
+        "data": None,
+        "source": "Unavailable",
+        "message": "Could not load climate data from Daymet or Meteostat for this site and date range.",
+    }
 
-            daymet = get_daymet_climate(site_id, start_str, end_str, variables=['prcp', 'tmin', 'tmax'])
-            normalized = normalize_climate_columns(daymet)
-            if normalized is not None and not normalized.empty:
-                return normalized
-        except Exception as e:
-            logger.info(f"Daymet climate unavailable for {site_id}: {e}")
 
-    return None
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_climate_cached(lat: float, lon: float, start_str: str, end_str: str, site_id: str | None = None):
+    """Fetch normalized climate data - cached."""
+    return fetch_climate_cached_result(lat, lon, start_str, end_str, site_id)["data"]
 
 
 def normalize_climate_columns(df: pd.DataFrame | None) -> pd.DataFrame | None:

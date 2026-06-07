@@ -12,7 +12,7 @@ import plotly.graph_objects as go
 
 from hydrology.app.shared import (
     get_inventory, get_cached_site_info, get_weather_station_info,
-    extract_site_id, display_site_info, site_picker,
+    extract_site_id, display_site_info, site_picker, fetch_climate_cached_result,
     logger)
 from hydrology.data.usgs import (
     fetch_daily_values, fetch_instantaneous_values,
@@ -233,14 +233,20 @@ def render_site_current_check(site_id: str, site_info: dict, key_prefix: str = "
                     lat = site_info.get('latitude')
                     lon = site_info.get('longitude')
                     if lat and lon:
-                        from hydrology.data.climate import fetch_climate_data
                         precip_start = (end_date - timedelta(days=7)).strftime('%Y-%m-%d')
                         precip_end = end_date.strftime('%Y-%m-%d')
 
-                        climate_df = fetch_climate_data(float(lat), float(lon), precip_start, precip_end)
+                        climate_result = fetch_climate_cached_result(
+                            float(lat), float(lon),
+                            precip_start, precip_end,
+                            site_id=site_id,
+                            include_temp=False,
+                            include_precip=True,
+                        )
+                        climate_df = climate_result.get("data")
 
-                        if climate_df is not None and 'prcp' in climate_df.columns:
-                            total_precip_mm = climate_df['prcp'].sum()
+                        if climate_df is not None and 'Precip_mm' in climate_df.columns:
+                            total_precip_mm = climate_df['Precip_mm'].sum()
                             total_precip_in = total_precip_mm / 25.4
 
                             if total_precip_in > 2:
@@ -254,7 +260,7 @@ def render_site_current_check(site_id: str, site_info: dict, key_prefix: str = "
 
                             st.metric("7-Day Precipitation", f"{total_precip_in:.2f} in",
                                      delta=precip_status, delta_color="off",
-                         help="Total precipitation in the last 7 days from nearest weather station")
+                         help=f"Total precipitation in the last 7 days from {climate_result.get('source', 'the climate source')}")
                         else:
                             st.metric("7-Day Precipitation", "N/A",
                          help="Total precipitation in the last 7 days from nearest weather station")

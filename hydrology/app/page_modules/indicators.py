@@ -14,7 +14,7 @@ from plotly.subplots import make_subplots
 
 from hydrology.app.shared import (
     get_inventory, get_cached_site_info,
-    site_picker, logger)
+    site_picker, fetch_climate_cached_result, logger)
 from hydrology.app.interpretation import InsightCard, describe_standardized_index
 from hydrology.app.styles import render_insight_board
 from hydrology.data.usgs import fetch_daily_values, DEFAULT_PARAM_DISCHARGE
@@ -447,24 +447,6 @@ def _fetch_precip_data(site_id, lat, lon, start_str, end_str):
 
 def _fetch_precip_data_result(site_id, lat, lon, start_str, end_str):
     """Fetch precipitation and return source metadata for the dashboard."""
-    try:
-        from hydrology.data.hyriver import get_daymet_climate
-        daymet = get_daymet_climate(site_id, start_str, end_str, variables=['prcp'])
-        if daymet is not None and 'precip_mm' in daymet.columns:
-            precip = daymet['precip_mm'].dropna()
-            if not precip.empty:
-                return {
-                    "precip": precip,
-                    "source": "Daymet",
-                    "n_days": len(precip),
-                    "message": "Loaded precipitation from Daymet.",
-                }
-    except ImportError:
-        pass
-    except Exception as e:
-        logger.debug(f"Daymet failed, trying Meteostat: {e}")
-
-    # Meteostat fallback
     if not lat or not lon:
         return {
             "precip": None,
@@ -474,24 +456,23 @@ def _fetch_precip_data_result(site_id, lat, lon, start_str, end_str):
         }
 
     try:
-        from hydrology.data.climate import fetch_climate_data
-        climate = fetch_climate_data(
+        result = fetch_climate_cached_result(
             float(lat), float(lon),
-            pd.Timestamp(start_str), pd.Timestamp(end_str),
+            start_str, end_str,
+            site_id=site_id,
             include_temp=False, include_precip=True)
-        if climate is not None:
-            for precip_col in ('Precip_mm', 'precip_mm', 'prcp'):
-                if precip_col in climate.columns:
-                    precip = climate[precip_col].dropna()
-                    if not precip.empty:
-                        return {
-                            "precip": precip,
-                            "source": "Meteostat",
-                            "n_days": len(precip),
-                            "message": "Loaded precipitation from nearest Meteostat station.",
-                        }
+        climate = result.get("data")
+        if climate is not None and "Precip_mm" in climate.columns:
+            precip = climate["Precip_mm"].dropna()
+            if not precip.empty:
+                return {
+                    "precip": precip,
+                    "source": result.get("source", "Climate"),
+                    "n_days": len(precip),
+                    "message": result.get("message", "Loaded precipitation data."),
+                }
     except Exception as e:
-        logger.debug(f"Meteostat precip fetch failed: {e}")
+        logger.debug(f"Precipitation fetch failed: {e}")
 
     return {
         "precip": None,
