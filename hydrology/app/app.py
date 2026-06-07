@@ -14,19 +14,19 @@ import streamlit as st
 
 st.set_page_config(page_title="Hydrology Analysis", page_icon="\U0001f4a7", layout="wide")
 
-from hydrology.app.styles import apply_custom_css, render_footer, render_dashboard_hero, render_workflow_strip
+from hydrology.app.styles import apply_custom_css, render_footer, render_dashboard_hero, render_main_nav
 from hydrology.app.shared import get_inventory
 from hydrology.visualization.plots import AVAILABLE_PLOTS
 
 # Page imports
-from hydrology.app.page_modules import overview, single_analysis, comparisons, reach_analysis, alerts, advanced, indicators
+from hydrology.app.page_modules import overview, single_analysis, comparisons, reach_analysis, watershed
 
 apply_custom_css()
 render_dashboard_hero(
     "HydroPlot analysis dashboard",
-    "Explore stations, analyze site behavior, compare records, and monitor climate-linked flow signals from one workspace.",
+    "Find gages, analyze one site, compare records, evaluate reaches, and inspect basin context from one workspace.",
 )
-render_workflow_strip()
+render_main_nav()
 
 # Background cache warmup — pre-fetch data so first user doesn't wait
 if "warmup_started" not in st.session_state:
@@ -56,21 +56,15 @@ if "warmup_started" not in st.session_state:
     threading.Thread(target=_warmup, daemon=True).start()
 
 # Define pages with grouping
-_single_analysis_page = st.Page(single_analysis.show, title="Single Analysis", icon="📈", url_path="single-analysis")
+_single_analysis_page = st.Page(single_analysis.show, title="Site Analysis", icon="📈", url_path="single-analysis")
 
 pages = {
-    "Dashboard": [
-        st.Page(overview.show, title="Overview", icon="\U0001f4ca", default=True, url_path="overview"),
+    "Workflows": [
+        st.Page(overview.show, title="Stations", icon="\U0001f4ca", default=True, url_path="overview"),
         _single_analysis_page,
-    ],
-    "Compare": [
-        st.Page(comparisons.show, title="Comparisons", icon="\U0001f504", url_path="comparisons"),
+        st.Page(comparisons.show, title="Compare Sites", icon="\U0001f504", url_path="comparisons"),
         st.Page(reach_analysis.show, title="Reach Analysis", icon="\U0001f30a", url_path="reach-analysis"),
-    ],
-    "Monitor": [
-        st.Page(alerts.show, title="Alerts", icon="\U0001f6a8", url_path="alerts"),
-        st.Page(indicators.show, title="Indicators", icon="\U0001f321\ufe0f", url_path="indicators"),
-        st.Page(advanced.show, title="Advanced", icon="\U0001f52c", url_path="advanced"),
+        st.Page(watershed.show, title="Watershed", icon="\U0001f5fa\ufe0f", url_path="watershed"),
     ],
 }
 

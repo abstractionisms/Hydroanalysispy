@@ -605,10 +605,8 @@ def render_main_nav():
         <a href="overview" target="_self">Stations</a>
         <a href="single-analysis" target="_self">Site Analysis</a>
         <a href="comparisons" target="_self">Compare Sites</a>
-        <a href="reach-analysis" target="_self">Reach Tools</a>
-        <a href="alerts" target="_self">Current Check</a>
-        <a href="indicators" target="_self">Climate Indicators</a>
-        <a href="advanced" target="_self">More Tools</a>
+        <a href="reach-analysis" target="_self">Reach Analysis</a>
+        <a href="watershed" target="_self">Watershed</a>
     </nav>
     """, unsafe_allow_html=True)
 
@@ -629,27 +627,17 @@ def render_workflow_strip():
         {
             "title": "Compare Sites",
             "href": "comparisons",
-            "body": "Check overlap and contrast records before heavier multi-site work.",
+            "body": "Compare periods, compare gages, and inspect multi-site relationships.",
         },
         {
-            "title": "Reach Tools",
+            "title": "Reach Analysis",
             "href": "reach-analysis",
             "body": "Evaluate paired gages, gain/loss patterns, and reach behavior.",
         },
         {
-            "title": "Current Check",
-            "href": "alerts",
-            "body": "Run manual threshold checks against latest available readings.",
-        },
-        {
-            "title": "Climate Indicators",
-            "href": "indicators",
-            "body": "Review drought, SPI, precipitation, and climate-linked signals.",
-        },
-        {
-            "title": "More Tools",
-            "href": "advanced",
-            "body": "Open specialized analysis utilities without cluttering core workflows.",
+            "title": "Watershed",
+            "href": "watershed",
+            "body": "Inspect basin boundaries, dams, land cover, and HUC inventory context.",
         },
     ])
 
