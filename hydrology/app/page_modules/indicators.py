@@ -53,6 +53,11 @@ def show():
         st.error(f"Site {site_id} not found")
         return
 
+    render_site_indicators(site_id, site_info)
+
+
+def render_site_indicators(site_id, site_info):
+    """Render standardized runoff, precipitation, baseflow, and seasonal indicators for one site."""
     desc = site_info.get('description', site_id)
     lat = site_info.get('latitude')
     lon = site_info.get('longitude')

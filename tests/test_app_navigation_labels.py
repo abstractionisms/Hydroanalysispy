@@ -54,3 +54,11 @@ def test_compare_page_owns_multisite_relationships():
 
     assert "Site Relationships" in text
     assert "_multisite_analysis" in text
+
+
+def test_site_analysis_owns_indicators_without_autoloading():
+    text = (ROOT / "hydrology/app/page_modules/single_analysis.py").read_text(encoding="utf-8")
+
+    assert "Drought & Baseflow Indicators" in text
+    assert "Load Indicators" in text
+    assert "render_site_indicators" in text

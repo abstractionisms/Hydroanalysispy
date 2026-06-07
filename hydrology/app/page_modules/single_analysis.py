@@ -20,6 +20,7 @@ from hydrology.app.styles import (
 )
 from hydrology.app.interpretation import summarize_flow_context, summarize_recommendations
 from hydrology.app.plot_config import SINGLE_SITE_PLOTS, resolve_generated_plots
+from hydrology.app.page_modules.indicators import render_site_indicators
 from hydrology.visualization import create_multi_plot, PlotLayout
 from hydrology.visualization.interactive import (
     interactive_hydrograph, interactive_fdc,
@@ -266,6 +267,14 @@ def show():
 
     # CSV download
     render_data_download(data['df_q'], filename_prefix=site_id)
+
+    with st.expander("Drought & Baseflow Indicators", expanded=False):
+        st.caption("SRI, precipitation SPI, baseflow proxy, and seasonal anomaly for the selected gage.")
+        indicator_key = f"load_site_indicators_{site_id}"
+        if st.button("Load Indicators", type="primary", key=indicator_key):
+            st.session_state[indicator_key] = True
+        if st.session_state.get(indicator_key):
+            render_site_indicators(site_id, site_info)
 
     # Advanced visualizations (opt-in)
     st.markdown("---")
