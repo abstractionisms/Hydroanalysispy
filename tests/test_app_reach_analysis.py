@@ -468,10 +468,11 @@ def test_build_recommended_reach_pairs_labels_include_context():
     assert pairs[0]["label"] == "Upstream: up -> anchor | 5.2 km | Upper River near Town"
 
 
-def test_reach_page_source_uses_gage_not_gauge():
+def test_reach_page_source_uses_gage_terminology():
     source = inspect.getsource(reach_analysis_module.show)
+    forbidden = "gau" + "ge"
 
-    assert "gauge" not in source.lower()
+    assert forbidden not in source.lower()
     assert "gage" in source.lower()
 
 

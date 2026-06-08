@@ -18,7 +18,7 @@ Use the Map-Centered Workspace layout:
 
 ## Non-Negotiable UX Requirements
 
-- Use `gage`, not `gauge`, in visible text.
+- Use `gage`, not `gage`, in visible text.
 - Do not make the user type reach length for normal cases. Infer network length from NLDI navigation distances when available. Manual length stays advanced-only and only applies when inference fails.
 - Do not show unprocessable candidate gages in the primary picker. NLDI sites outside the HydroPlot inventory can be counted or exposed in details, but they should not be default choices.
 - Do not bury the reach map inside a collapsed expander. The map is the main workspace.

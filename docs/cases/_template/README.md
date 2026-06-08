@@ -13,7 +13,7 @@ created: YYYY-MM-DD
 
 ## Scenario
 
-Describe the PNW hydrology question, the reach or gauge, and why it matters.
+Describe the PNW hydrology question, the reach or gage, and why it matters.
 
 ## What This Proves About HydroPlot
 

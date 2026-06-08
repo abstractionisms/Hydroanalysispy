@@ -3,7 +3,7 @@ Spokane County Flood Risk Explorer - Interactive Historical Dashboard
 
 A companion to the ArcGIS Experience Builder app that provides
 historical streamflow analysis with time controls for Spokane County
-USGS gauges.
+USGS gages.
 
 Run with: streamlit run spokane_flood_explorer.py
 """
@@ -42,9 +42,9 @@ st.set_page_config(
 )
 
 # =============================================================================
-# SPOKANE COUNTY GAUGES
+# SPOKANE COUNTY GAGES
 # =============================================================================
-SPOKANE_GAUGES = {
+SPOKANE_GAGES = {
     "12422500": {
         "name": "Spokane River at Spokane",
         "lat": 47.6588,
@@ -136,7 +136,7 @@ st.markdown("""
     .status-normal { color: #00e676; }
     .status-action { color: #ffab40; }
     .status-flood { color: #ff5252; }
-    .gauge-header {
+    .gage-header {
         background: linear-gradient(90deg, #1a1a2e, #16213e);
         border-left: 4px solid #00d4ff;
         padding: 10px 15px;
@@ -207,7 +207,7 @@ PLOTLY_LAYOUT = dict(
 )
 
 
-def create_hydrograph(data: pd.DataFrame, gauge_info: dict, site_id: str) -> go.Figure:
+def create_hydrograph(data: pd.DataFrame, gage_info: dict, site_id: str) -> go.Figure:
     """Create an interactive hydrograph with flood thresholds."""
     fig = go.Figure()
 
@@ -217,17 +217,17 @@ def create_hydrograph(data: pd.DataFrame, gauge_info: dict, site_id: str) -> go.
         y=data["discharge_cfs"],
         mode="lines",
         name="Discharge",
-        line=dict(color=gauge_info["color"], width=1.5),
+        line=dict(color=gage_info["color"], width=1.5),
         fill="tozeroy",
-        fillcolor=f"rgba({int(gauge_info['color'][1:3], 16)}, "
-                  f"{int(gauge_info['color'][3:5], 16)}, "
-                  f"{int(gauge_info['color'][5:7], 16)}, 0.15)",
+        fillcolor=f"rgba({int(gage_info['color'][1:3], 16)}, "
+                  f"{int(gage_info['color'][3:5], 16)}, "
+                  f"{int(gage_info['color'][5:7], 16)}, 0.15)",
         hovertemplate="<b>%{x|%b %d, %Y}</b><br>Discharge: %{y:,.0f} cfs<extra></extra>",
     ))
 
     # Flood stage line
     fig.add_hline(
-        y=gauge_info["flood_stage_cfs"],
+        y=gage_info["flood_stage_cfs"],
         line_dash="dash",
         line_color="#ff5252",
         annotation_text="Flood Stage",
@@ -237,7 +237,7 @@ def create_hydrograph(data: pd.DataFrame, gauge_info: dict, site_id: str) -> go.
 
     # Action stage line
     fig.add_hline(
-        y=gauge_info["action_stage_cfs"],
+        y=gage_info["action_stage_cfs"],
         line_dash="dot",
         line_color="#ffab40",
         annotation_text="Action Stage",
@@ -248,8 +248,8 @@ def create_hydrograph(data: pd.DataFrame, gauge_info: dict, site_id: str) -> go.
     fig.update_layout(
         **PLOTLY_LAYOUT,
         title=dict(
-            text=f"<b>{gauge_info['name']}</b> — USGS {site_id}",
-            font=dict(size=16, color=gauge_info["color"]),
+            text=f"<b>{gage_info['name']}</b> — USGS {site_id}",
+            font=dict(size=16, color=gage_info["color"]),
         ),
         yaxis_title="Discharge (cfs)",
         xaxis_title="",
@@ -262,7 +262,7 @@ def create_hydrograph(data: pd.DataFrame, gauge_info: dict, site_id: str) -> go.
 
 
 def create_comparison_chart(all_data: dict) -> go.Figure:
-    """Create a multi-gauge comparison chart."""
+    """Create a multi-gage comparison chart."""
     fig = go.Figure()
 
     for site_id, (df, info) in all_data.items():
@@ -295,7 +295,7 @@ def create_comparison_chart(all_data: dict) -> go.Figure:
 
     fig.update_layout(
         **PLOTLY_LAYOUT,
-        title=dict(text="<b>Multi-Gauge Comparison</b> — % of Flood Stage", font=dict(size=16)),
+        title=dict(text="<b>Multi-Gage Comparison</b> — % of Flood Stage", font=dict(size=16)),
         yaxis_title="% of Flood Stage",
         height=450,
         xaxis_rangeslider_visible=True,
@@ -305,7 +305,7 @@ def create_comparison_chart(all_data: dict) -> go.Figure:
     return fig
 
 
-def create_annual_peak_chart(peaks: pd.DataFrame, gauge_info: dict, site_id: str) -> go.Figure:
+def create_annual_peak_chart(peaks: pd.DataFrame, gage_info: dict, site_id: str) -> go.Figure:
     """Create an annual peak flood chart."""
     if peaks.empty or "peak_discharge_cfs" not in peaks.columns:
         return None
@@ -318,12 +318,12 @@ def create_annual_peak_chart(peaks: pd.DataFrame, gauge_info: dict, site_id: str
     colors = []
     for _, row in peaks_sorted.iterrows():
         q = row["peak_discharge_cfs"]
-        if q >= gauge_info["flood_stage_cfs"]:
+        if q >= gage_info["flood_stage_cfs"]:
             colors.append("#ff5252")
-        elif q >= gauge_info["action_stage_cfs"]:
+        elif q >= gage_info["action_stage_cfs"]:
             colors.append("#ffab40")
         else:
-            colors.append(gauge_info["color"])
+            colors.append(gage_info["color"])
 
     fig.add_trace(go.Bar(
         x=peaks_sorted["peak_date"],
@@ -336,7 +336,7 @@ def create_annual_peak_chart(peaks: pd.DataFrame, gauge_info: dict, site_id: str
     ))
 
     fig.add_hline(
-        y=gauge_info["flood_stage_cfs"],
+        y=gage_info["flood_stage_cfs"],
         line_dash="dash",
         line_color="#ff5252",
         annotation_text="Flood Stage",
@@ -346,8 +346,8 @@ def create_annual_peak_chart(peaks: pd.DataFrame, gauge_info: dict, site_id: str
     fig.update_layout(
         **PLOTLY_LAYOUT,
         title=dict(
-            text=f"<b>Annual Peak Floods</b> — {gauge_info['name']}",
-            font=dict(size=16, color=gauge_info["color"]),
+            text=f"<b>Annual Peak Floods</b> — {gage_info['name']}",
+            font=dict(size=16, color=gage_info["color"]),
         ),
         yaxis_title="Peak Discharge (cfs)",
         height=350,
@@ -363,16 +363,16 @@ with st.sidebar:
     st.markdown("## 🌊 Spokane Flood Explorer")
     st.markdown("---")
 
-    # Gauge selection
-    st.markdown("### Select Gauges")
-    selected_gauges = {}
-    for site_id, info in SPOKANE_GAUGES.items():
+    # Gage selection
+    st.markdown("### Select Gages")
+    selected_gages = {}
+    for site_id, info in SPOKANE_GAGES.items():
         if st.checkbox(
             f"{info['name']}",
             value=(site_id in ["12422500", "12424000"]),
             key=f"chk_{site_id}"
         ):
-            selected_gauges[site_id] = info
+            selected_gages[site_id] = info
 
     st.markdown("---")
 
@@ -410,8 +410,8 @@ with st.sidebar:
 
     # View mode
     view_mode = st.radio("View Mode", [
-        "Individual Gauges",
-        "Multi-Gauge Comparison",
+        "Individual Gages",
+        "Multi-Gage Comparison",
         "Flood History",
     ], index=0)
 
@@ -436,26 +436,26 @@ st.markdown(
 )
 st.markdown(
     '<p style="text-align:center; color:#8892b0; margin-bottom: 30px;">'
-    'Historical streamflow analysis for Spokane County USGS gauges  •  '
+    'Historical streamflow analysis for Spokane County USGS gages  •  '
     f'Showing {start_date.strftime("%b %Y")} — {end_date.strftime("%b %Y")}'
     '</p>',
     unsafe_allow_html=True
 )
 
-if not selected_gauges:
-    st.warning("Select at least one gauge from the sidebar to get started.")
+if not selected_gages:
+    st.warning("Select at least one gage from the sidebar to get started.")
     st.stop()
 
-# Fetch data for all selected gauges
-all_gauge_data = {}
-for site_id, info in selected_gauges.items():
+# Fetch data for all selected gages
+all_gage_data = {}
+for site_id, info in selected_gages.items():
     df = load_discharge(site_id, start_date.isoformat(), end_date.isoformat())
-    all_gauge_data[site_id] = (df, info)
+    all_gage_data[site_id] = (df, info)
 
 # =============================================================================
-# GAUGE MAP
+# GAGE MAP
 # =============================================================================
-st.markdown("### 📍 Gauge Locations")
+st.markdown("### 📍 Gage Locations")
 
 m = folium.Map(
     location=[47.66, -117.35],
@@ -463,8 +463,8 @@ m = folium.Map(
     tiles="CartoDB dark_matter",
 )
 
-for site_id, info in selected_gauges.items():
-    df, _ = all_gauge_data.get(site_id, (None, None))
+for site_id, info in selected_gages.items():
+    df, _ = all_gage_data.get(site_id, (None, None))
     latest = "N/A"
     if df is not None and not df.empty:
         latest = f"{df['discharge_cfs'].iloc[-1]:,.0f} cfs"
@@ -491,8 +491,8 @@ st_folium(m, width=None, height=300, returned_objects=[])
 # =============================================================================
 # METRIC CARDS
 # =============================================================================
-cols = st.columns(len(selected_gauges))
-for i, (site_id, (df, info)) in enumerate(all_gauge_data.items()):
+cols = st.columns(len(selected_gages))
+for i, (site_id, (df, info)) in enumerate(all_gage_data.items()):
     with cols[i]:
         if df is not None and not df.empty:
             latest = df["discharge_cfs"].iloc[-1]
@@ -521,8 +521,8 @@ st.markdown("---")
 # =============================================================================
 # CHARTS
 # =============================================================================
-if view_mode == "Individual Gauges":
-    for site_id, (df, info) in all_gauge_data.items():
+if view_mode == "Individual Gages":
+    for site_id, (df, info) in all_gage_data.items():
         if df is not None and not df.empty:
             fig = create_hydrograph(df, info, site_id)
             st.plotly_chart(fig, use_container_width=True)
@@ -546,12 +546,12 @@ if view_mode == "Individual Gauges":
         else:
             st.warning(f"No data available for {info['name']} (USGS {site_id})")
 
-elif view_mode == "Multi-Gauge Comparison":
-    fig = create_comparison_chart(all_gauge_data)
+elif view_mode == "Multi-Gage Comparison":
+    fig = create_comparison_chart(all_gage_data)
     st.plotly_chart(fig, use_container_width=True)
 
     st.markdown(
-        "*Each gauge is normalized to its flood stage threshold so you can "
+        "*Each gage is normalized to its flood stage threshold so you can "
         "compare relative flood risk across different rivers.*"
     )
 
@@ -562,7 +562,7 @@ elif view_mode == "Flood History":
         "the single highest instantaneous discharge each water year."
     )
 
-    for site_id, info in selected_gauges.items():
+    for site_id, info in selected_gages.items():
         peaks = load_peaks(site_id)
 
         if peaks is not None and not peaks.empty:

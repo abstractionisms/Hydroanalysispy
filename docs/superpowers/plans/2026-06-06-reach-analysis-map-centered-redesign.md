@@ -373,10 +373,10 @@ git commit -m "fix: force reach map to selected gage bounds"
 Add tests:
 
 ```python
-def test_reach_page_source_uses_gage_not_gauge():
+def test_reach_page_source_uses_gage_not_gage():
     source = __import__("inspect").getsource(__import__("hydrology.app.page_modules.reach_analysis", fromlist=["show"]))
 
-    assert "gauge" not in source.lower()
+    assert "gage" not in source.lower()
     assert "gage" in source.lower()
 
 
@@ -391,7 +391,7 @@ def test_reach_page_source_does_not_bury_map_in_expander():
 Run:
 
 ```bash
-python -m pytest tests/test_app_reach_analysis.py::test_reach_page_source_uses_gage_not_gauge tests/test_app_reach_analysis.py::test_reach_page_source_does_not_bury_map_in_expander -q
+python -m pytest tests/test_app_reach_analysis.py::test_reach_page_source_uses_gage_not_gage tests/test_app_reach_analysis.py::test_reach_page_source_does_not_bury_map_in_expander -q
 ```
 
 Expected: second test fails until the map is moved out of the expander.

@@ -78,15 +78,15 @@ misc improvements
 
 The reach workflow must not expose topology plumbing as a clunky expert-only process.
 
-- The primary user action should be: pick an anchor/site or choose a few gauges, then review an ordered river chain.
+- The primary user action should be: pick an anchor/site or choose a few gages, then review an ordered river chain.
 - Show the chain visually and textually as `upstream -> downstream`, with adjacent reach cards/rows.
 - Use simple status language: `Verified mainstem`, `Needs review`, `Tributary/diversion possible`, `Not enough data`.
 - Put technical details such as NLDI mode, signed distance, COMID, and metadata source behind an expander.
 - Do not make users manually enter upstream/downstream order if HydroPlot can infer it from metadata.
 - If metadata cannot verify order, let users continue with a clear warning and mark outputs as screening-only.
-- For a multi-gauge chain, default results should be reach-by-reach rows, not a dense matrix.
+- For a multi-gage chain, default results should be reach-by-reach rows, not a dense matrix.
 - Keep the initial view focused on the decision: which reaches are gaining, losing, neutral, or uncertain during the selected period.
-- Avoid page-load network scans. Topology discovery should happen from a clear button such as `Find Related Gauges` or `Build Reach Chain`.
+- Avoid page-load network scans. Topology discovery should happen from a clear button such as `Find Related Gages` or `Build Reach Chain`.
 - Cache discovered topology and fetched flows for the selected site/date range using existing Streamlit cache patterns.
 
 ## Lean Verification Rules
@@ -755,7 +755,7 @@ git commit -m "feat: add changepoint and Sen slope trend outputs"
 
 **Purpose:** prove HydroPlot can reason about upstream/downstream station pairs and ordered station chains before applying gain/loss math. This task does not call NLDI directly; it validates metadata returned by existing NLDI helpers and dashboard selections. Network-backed NLDI discovery remains in `hydrology/data/nldi.py`.
 
-**Research basis:** agency reach workflows do not infer gaining/losing conditions from two arbitrary gauges. They require a defensible reach definition, station order, flow-period pairing, and caveats for tributaries/diversions/withdrawals. For a river continuum, the correct unit is an ordered chain of monitoring points and the adjacent segments between them. This task creates the lightweight software boundary for that discipline.
+**Research basis:** agency reach workflows do not infer gaining/losing conditions from two arbitrary gages. They require a defensible reach definition, station order, flow-period pairing, and caveats for tributaries/diversions/withdrawals. For a river continuum, the correct unit is an ordered chain of monitoring points and the adjacent segments between them. This task creates the lightweight software boundary for that discipline.
 
 - [ ] **Step 1: Write failing topology tests**
 
@@ -1514,7 +1514,7 @@ created: YYYY-MM-DD
 
 ## Scenario
 
-Describe the PNW hydrology question, the reach or gauge, and why it matters.
+Describe the PNW hydrology question, the reach or gage, and why it matters.
 
 ## What This Proves About HydroPlot
 
@@ -2094,7 +2094,7 @@ This does not add AquaScope as a dependency and does not claim to implement QUAL
 This plan intentionally does not:
 
 - Add AquaScope as a dependency.
-- Expand HydroPlot to every national gauge.
+- Expand HydroPlot to every national gage.
 - Implement full QUAL2K/QUAL2Kw.
 - Implement TTools GIS transect extraction.
 - Claim calibrated groundwater modeling.

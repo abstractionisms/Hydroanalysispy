@@ -8,7 +8,7 @@ from typing import Dict, Iterable, List
 
 @dataclass(frozen=True)
 class ReachStation:
-    """A gauge positioned relative to a reach-chain origin."""
+    """A gage positioned relative to a reach-chain origin."""
 
     site_id: str
     direction: str
@@ -18,7 +18,7 @@ class ReachStation:
 
 @dataclass(frozen=True)
 class ReachChain:
-    """Ordered upstream-to-downstream gauge chain."""
+    """Ordered upstream-to-downstream gage chain."""
 
     stations: List[ReachStation]
     status: str
@@ -27,7 +27,7 @@ class ReachChain:
 
 @dataclass(frozen=True)
 class ReachPair:
-    """Adjacent upstream/downstream gauge pair."""
+    """Adjacent upstream/downstream gage pair."""
 
     upstream_site_id: str
     downstream_site_id: str
@@ -104,7 +104,7 @@ def build_reach_chain(
 
 
 def derive_adjacent_reaches(chain: ReachChain) -> List[ReachPair]:
-    """Convert an ordered gauge chain into adjacent reach segments."""
+    """Convert an ordered gage chain into adjacent reach segments."""
     reaches: List[ReachPair] = []
     for upstream, downstream in zip(chain.stations, chain.stations[1:]):
         reaches.append(
@@ -123,7 +123,7 @@ def validate_reach_pair(
     downstream_site_id: str,
     related_sites: Iterable[Dict],
 ) -> ReachPair:
-    """Validate a proposed upstream/downstream gauge pair."""
+    """Validate a proposed upstream/downstream gage pair."""
     if upstream_site_id == downstream_site_id:
         return ReachPair(
             upstream_site_id,
