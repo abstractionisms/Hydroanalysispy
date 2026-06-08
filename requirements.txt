@@ -6,6 +6,7 @@ requests>=2.28.0
 
 # Data fetching
 meteostat==1.6.8
+dataretrieval>=1.0.0
 
 # Visualization
 matplotlib>=3.7.0

@@ -17,6 +17,10 @@ from .inventory import (
     search_sites,
 )
 from .nwm import NWMClient, NWMForecast, compare_nwm_usgs, get_forecast_skill
+from .groundwater import (
+    fetch_usgs_groundwater_measurements,
+    normalize_usgs_groundwater_measurements,
+)
 
 # HyRiver imports are optional (require conda-forge packages)
 try:
@@ -46,6 +50,8 @@ __all__ = [
     'NWMForecast',
     'compare_nwm_usgs',
     'get_forecast_skill',
+    'fetch_usgs_groundwater_measurements',
+    'normalize_usgs_groundwater_measurements',
     # HyRiver (optional)
     'get_watershed_boundary',
     'get_flowlines',
