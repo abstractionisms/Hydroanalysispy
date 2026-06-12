@@ -36,20 +36,20 @@ def apply_custom_css():
         --hydro-warn: #fbbf24;
     }
 
-    /* Premium fluid motion keyframes (short, tasteful, hydrology-appropriate).
-       Used for card/panel entrances, micro-lifts, and accent feedback.
-       All durations <= 220ms to feel responsive across Streamlit reruns. */
+    /* Premium fluid motion keyframes (noticeable but still professional).
+       These create the "alive" card entrances, lifts, and feedback you should see.
+       Durations kept under ~300ms so they feel responsive even with Streamlit reruns. */
     @keyframes fadeInUp {
-        from { opacity: 0; transform: translateY(6px); }
+        from { opacity: 0; transform: translateY(10px); }
         to { opacity: 1; transform: translateY(0); }
     }
     @keyframes cardPop {
-        from { opacity: 0.65; transform: scale(0.985); }
+        from { opacity: 0.6; transform: scale(0.96); }
         to { opacity: 1; transform: scale(1); }
     }
     @keyframes subtlePulse {
         0%, 100% { box-shadow: 0 0 0 0 rgba(78, 205, 196, 0.0); }
-        50% { box-shadow: 0 0 0 5px rgba(78, 205, 196, 0.09); }
+        50% { box-shadow: 0 0 0 7px rgba(78, 205, 196, 0.12); }
     }
     @keyframes accentShift {
         0%, 100% { border-color: rgba(118, 169, 192, 0.22); }
@@ -89,7 +89,7 @@ def apply_custom_css():
         margin: 0 0 1rem 0;
         background: linear-gradient(135deg, rgba(16, 28, 46, 0.92), rgba(12, 40, 55, 0.72));
         box-shadow: 0 16px 38px rgba(0, 0, 0, 0.28);
-        animation: fadeInUp 0.18s ease-out both;
+        animation: fadeInUp 0.28s ease-out both;
         will-change: transform, opacity;
     }
 
@@ -150,7 +150,7 @@ def apply_custom_css():
         background: linear-gradient(180deg, rgba(10, 21, 36, 0.92), rgba(7, 17, 29, 0.88));
         padding: 0.95rem;
         box-shadow: 0 14px 34px rgba(0, 0, 0, 0.20);
-        animation: fadeInUp 0.16s ease-out both;
+        animation: fadeInUp 0.26s ease-out both;
         will-change: transform, opacity;
     }
 
@@ -220,19 +220,19 @@ def apply_custom_css():
         color: var(--hydro-text);
         text-decoration: none;
         min-height: 92px;
-        transition: transform 0.18s cubic-bezier(0.2, 0, 0, 1),
-                    box-shadow 0.18s ease,
-                    border-color 0.18s ease,
-                    background 0.18s ease;
-        animation: cardPop 0.18s ease-out both;
+        transition: transform 0.22s cubic-bezier(0.2, 0, 0, 1),
+                    box-shadow 0.22s ease,
+                    border-color 0.22s ease,
+                    background 0.22s ease;
+        animation: cardPop 0.26s ease-out both;
         will-change: transform;
     }
 
     .action-card:hover {
         border-color: rgba(78, 205, 196, 0.62);
         background: rgba(78, 205, 196, 0.11);
-        transform: translateY(-2px);
-        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+        transform: translateY(-4px) scale(1.01);
+        box-shadow: 0 14px 32px rgba(0, 0, 0, 0.32);
         text-decoration: none;
         color: var(--hydro-text);
     }
@@ -265,10 +265,10 @@ def apply_custom_css():
         background: rgba(12, 21, 34, 0.76);
         min-height: 112px;
         box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
-        transition: transform 0.16s cubic-bezier(0.2, 0, 0, 1),
-                    box-shadow 0.16s ease,
-                    border-color 0.16s ease;
-        animation: cardPop 0.16s ease-out both;
+        transition: transform 0.22s cubic-bezier(0.2, 0, 0, 1),
+                    box-shadow 0.22s ease,
+                    border-color 0.22s ease;
+        animation: cardPop 0.24s ease-out both;
         will-change: transform;
     }
 
@@ -277,8 +277,8 @@ def apply_custom_css():
     }
 
     .plot-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 22px rgba(0, 0, 0, 0.26), inset 0 1px 0 rgba(255,255,255,0.03);
+        transform: translateY(-3px) scale(1.01);
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255,255,255,0.03);
     }
 
     .plot-card.limited {
@@ -339,10 +339,10 @@ def apply_custom_css():
         border-radius: 8px;
         padding: 0.8rem;
         min-height: 128px;
-        transition: transform 0.16s cubic-bezier(0.2, 0, 0, 1),
-                    box-shadow 0.16s ease,
-                    border-color 0.16s ease;
-        animation: fadeInUp 0.17s ease-out both;
+        transition: transform 0.22s cubic-bezier(0.2, 0, 0, 1),
+                    box-shadow 0.22s ease,
+                    border-color 0.22s ease;
+        animation: fadeInUp 0.26s ease-out both;
         will-change: transform;
     }
 
@@ -351,8 +351,8 @@ def apply_custom_css():
     }
 
     .insight-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 10px 26px rgba(0, 0, 0, 0.24);
+        transform: translateY(-3px) scale(1.01);
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.26);
     }
 
     .insight-card.limited {
@@ -546,20 +546,32 @@ def apply_custom_css():
     .stButton > button {
         border-radius: 8px;
         font-weight: 500;
-        transition: transform 0.16s cubic-bezier(0.2, 0, 0, 1),
-                    box-shadow 0.16s ease,
-                    border-color 0.16s ease;
+        transition: transform 0.18s cubic-bezier(0.2, 0, 0, 1),
+                    box-shadow 0.18s ease,
+                    border-color 0.18s ease;
         border-color: rgba(78, 205, 196, 0.45);
     }
 
     .stButton > button:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 6px 16px rgba(0,0,0,0.32);
-        border-color: rgba(78, 205, 196, 0.7);
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(0,0,0,0.34);
+        border-color: rgba(78, 205, 196, 0.8);
+    }
+
+    .stButton > button[type="primary"] {
+        box-shadow: 0 4px 12px rgba(78, 205, 196, 0.25);
+        animation: subtlePulse 2.2s ease-in-out infinite;
+        animation-play-state: running;
+    }
+
+    .stButton > button[type="primary"]:hover {
+        box-shadow: 0 10px 24px rgba(78, 205, 196, 0.35);
+        transform: translateY(-2px) scale(1.015);
+        animation-play-state: paused;
     }
 
     .stButton > button:active {
-        transform: translateY(0) scale(0.985);
+        transform: translateY(0) scale(0.98);
     }
 
     .stButton > button:focus-visible {
