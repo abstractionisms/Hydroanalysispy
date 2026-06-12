@@ -731,4 +731,28 @@ def baseflow_waterfall(
     fig.update_yaxes(title_text="Discharge (cfs)", row=1, col=1)
     fig.update_yaxes(title_text="Baseflow Index", range=[0, 1], row=2, col=1)
 
+    return apply_hydro_theme(fig)
+
+
+def apply_hydro_theme(fig: "go.Figure") -> "go.Figure":
+    """Lightweight consistent theming for Plotly charts to match the dashboard premium visual language.
+
+    Safe to call on any interactive fig returned from this module.
+    Uses the same teal accent and dark surfaces as the Streamlit custom CSS.
+    (Optional polish; callers can opt-in without behavior change.)
+    """
+    try:
+        fig.update_layout(
+            font=dict(family="Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif", size=12, color="#e7eef7"),
+            paper_bgcolor="rgba(16, 28, 46, 0.85)",
+            plot_bgcolor="rgba(10, 21, 36, 0.6)",
+            margin=dict(l=50, r=20, t=60, b=40),
+            hoverlabel=dict(bgcolor="#101c2e", bordercolor="#4ecdc4", font=dict(color="#e7eef7")),
+        )
+        # Subtle grid using the muted border tone
+        fig.update_xaxes(gridcolor="rgba(118, 169, 192, 0.12)", zerolinecolor="rgba(118, 169, 192, 0.2)")
+        fig.update_yaxes(gridcolor="rgba(118, 169, 192, 0.12)", zerolinecolor="rgba(118, 169, 192, 0.2)")
+    except Exception:
+        # Never break a chart for theme
+        pass
     return fig

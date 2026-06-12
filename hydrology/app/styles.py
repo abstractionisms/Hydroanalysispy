@@ -9,7 +9,19 @@ from html import escape
 
 
 def apply_custom_css():
-    """Apply custom CSS for a polished dark theme."""
+    """Apply custom CSS for a polished dark theme with premium fluid motion.
+
+    Motion language (subtle, performant, replay-safe under Streamlit reruns):
+    - Short fade + lift entrances on cards/panels.
+    - Hover lifts + accent intensification on actionable surfaces.
+    - Button transitions + active feedback.
+    - Loading affordances and status chip polish.
+    - Respects prefers-reduced-motion.
+
+    Inspiration: elevated animated "award-winning" web UI patterns (see
+    https://x.com/twetsfyp/status/2065283731833651709 for the reference video
+    of modern fluid website design that informed the polish direction).
+    """
     st.markdown("""
     <style>
     :root {
@@ -22,6 +34,26 @@ def apply_custom_css():
         --hydro-accent: #4ecdc4;
         --hydro-accent-2: #78a6ff;
         --hydro-warn: #fbbf24;
+    }
+
+    /* Premium fluid motion keyframes (short, tasteful, hydrology-appropriate).
+       Used for card/panel entrances, micro-lifts, and accent feedback.
+       All durations <= 220ms to feel responsive across Streamlit reruns. */
+    @keyframes fadeInUp {
+        from { opacity: 0; transform: translateY(6px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes cardPop {
+        from { opacity: 0.65; transform: scale(0.985); }
+        to { opacity: 1; transform: scale(1); }
+    }
+    @keyframes subtlePulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(78, 205, 196, 0.0); }
+        50% { box-shadow: 0 0 0 5px rgba(78, 205, 196, 0.09); }
+    }
+    @keyframes accentShift {
+        0%, 100% { border-color: rgba(118, 169, 192, 0.22); }
+        50% { border-color: rgba(78, 205, 196, 0.55); }
     }
 
     .stApp {
@@ -57,6 +89,8 @@ def apply_custom_css():
         margin: 0 0 1rem 0;
         background: linear-gradient(135deg, rgba(16, 28, 46, 0.92), rgba(12, 40, 55, 0.72));
         box-shadow: 0 16px 38px rgba(0, 0, 0, 0.28);
+        animation: fadeInUp 0.18s ease-out both;
+        will-change: transform, opacity;
     }
 
     .dashboard-hero .eyebrow {
@@ -116,6 +150,8 @@ def apply_custom_css():
         background: linear-gradient(180deg, rgba(10, 21, 36, 0.92), rgba(7, 17, 29, 0.88));
         padding: 0.95rem;
         box-shadow: 0 14px 34px rgba(0, 0, 0, 0.20);
+        animation: fadeInUp 0.16s ease-out both;
+        will-change: transform, opacity;
     }
 
     .workspace-panel h3 {
@@ -149,10 +185,15 @@ def apply_custom_css():
         border: 1px solid rgba(118, 169, 192, 0.22);
         color: var(--hydro-text);
         background: rgba(255, 255, 255, 0.055);
+        transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease;
     }
 
     .status-chip.ready {
         border-color: rgba(78, 205, 196, 0.48);
+    }
+
+    .status-chip:hover {
+        transform: scale(1.02);
     }
 
     .status-chip.limited {
@@ -179,11 +220,19 @@ def apply_custom_css():
         color: var(--hydro-text);
         text-decoration: none;
         min-height: 92px;
+        transition: transform 0.18s cubic-bezier(0.2, 0, 0, 1),
+                    box-shadow 0.18s ease,
+                    border-color 0.18s ease,
+                    background 0.18s ease;
+        animation: cardPop 0.18s ease-out both;
+        will-change: transform;
     }
 
     .action-card:hover {
         border-color: rgba(78, 205, 196, 0.62);
         background: rgba(78, 205, 196, 0.11);
+        transform: translateY(-2px);
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
         text-decoration: none;
         color: var(--hydro-text);
     }
@@ -216,10 +265,20 @@ def apply_custom_css():
         background: rgba(12, 21, 34, 0.76);
         min-height: 112px;
         box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+        transition: transform 0.16s cubic-bezier(0.2, 0, 0, 1),
+                    box-shadow 0.16s ease,
+                    border-color 0.16s ease;
+        animation: cardPop 0.16s ease-out both;
+        will-change: transform;
     }
 
     .plot-card.ready {
         border-color: rgba(78, 205, 196, 0.35);
+    }
+
+    .plot-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 22px rgba(0, 0, 0, 0.26), inset 0 1px 0 rgba(255,255,255,0.03);
     }
 
     .plot-card.limited {
@@ -280,10 +339,20 @@ def apply_custom_css():
         border-radius: 8px;
         padding: 0.8rem;
         min-height: 128px;
+        transition: transform 0.16s cubic-bezier(0.2, 0, 0, 1),
+                    box-shadow 0.16s ease,
+                    border-color 0.16s ease;
+        animation: fadeInUp 0.17s ease-out both;
+        will-change: transform;
     }
 
     .insight-card.ready {
         border-top: 3px solid var(--hydro-accent);
+    }
+
+    .insight-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 26px rgba(0, 0, 0, 0.24);
     }
 
     .insight-card.limited {
@@ -430,13 +499,19 @@ def apply_custom_css():
         font-size: 0.86rem;
         font-weight: 600;
         background: rgba(8, 18, 32, 0.55);
+        transition: transform 0.14s ease, border-color 0.14s ease, background 0.14s ease;
     }
 
     .main-nav a:hover {
         border-color: rgba(78, 205, 196, 0.65);
         background: rgba(78, 205, 196, 0.12);
+        transform: translateY(-1px);
         color: var(--hydro-text);
         text-decoration: none;
+    }
+
+    .main-nav a:active {
+        transform: translateY(0) scale(0.985);
     }
 
     /*
@@ -471,13 +546,25 @@ def apply_custom_css():
     .stButton > button {
         border-radius: 8px;
         font-weight: 500;
-        transition: all 0.2s ease;
+        transition: transform 0.16s cubic-bezier(0.2, 0, 0, 1),
+                    box-shadow 0.16s ease,
+                    border-color 0.16s ease;
         border-color: rgba(78, 205, 196, 0.45);
     }
 
     .stButton > button:hover {
         transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        box-shadow: 0 6px 16px rgba(0,0,0,0.32);
+        border-color: rgba(78, 205, 196, 0.7);
+    }
+
+    .stButton > button:active {
+        transform: translateY(0) scale(0.985);
+    }
+
+    .stButton > button:focus-visible {
+        outline: 2px solid rgba(78, 205, 196, 0.6);
+        outline-offset: 2px;
     }
 
     /* Plot container */
@@ -582,6 +669,33 @@ def apply_custom_css():
         .insight-board {
             grid-template-columns: 1fr;
         }
+    }
+
+    /* Respect user motion preference and add subtle global polish */
+    @media (prefers-reduced-motion: reduce) {
+        .dashboard-hero,
+        .workspace-panel,
+        .action-card,
+        .plot-card,
+        .insight-card,
+        .status-chip,
+        .main-nav a,
+        .stButton > button {
+            animation: none !important;
+            transition: none !important;
+            transform: none !important;
+        }
+    }
+
+    /* Extra container polish for Plotly/folium (map & chart surfaces feel premium) */
+    div[data-testid="stPlotlyChart"],
+    iframe[title="streamlit_folium.st_folium"] {
+        transition: box-shadow 0.2s ease, border-color 0.2s ease;
+    }
+
+    div[data-testid="stPlotlyChart"]:hover,
+    iframe[title="streamlit_folium.st_folium"]:hover {
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
     }
     </style>
     """, unsafe_allow_html=True)

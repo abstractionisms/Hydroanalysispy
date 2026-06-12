@@ -93,13 +93,14 @@ def _render_regional_summary():
     if not rows:
         return
 
-    # Render as styled cards in columns
+    # Regional current conditions — wrapped for consistent card polish/animation
+    render_workspace_panel("Regional Current Conditions", "Live flow and USGS seasonal percentile context for priority PNW sites.", None)
     cols = st.columns(len(rows))
     for col, row in zip(cols, rows):
         with col:
             st.markdown(
-                f'<div style="border-left: 3px solid {row["_color"]}; '
-                f'padding-left: 0.5rem; margin-bottom: 0.5rem;">'
+                f'<div class="status-chip-row" style="border-left: 3px solid {row["_color"]}; '
+                f'padding-left: 0.5rem; margin-bottom: 0.35rem;">'
                 f'<div style="font-size: 0.75rem; color: #8899a6;">{row["Site"]}</div>'
                 f'<div style="font-size: 1.1rem; font-weight: 600; color: #e0e0e0;">{row["Flow (cfs)"]}</div>'
                 f'<div style="font-size: 0.7rem; color: {row["_color"]};">{row["Condition"]}</div>'

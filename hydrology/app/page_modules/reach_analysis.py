@@ -21,6 +21,7 @@ from hydrology.app.shared import fetch_climate_cached
 from hydrology.visualization.interactive import baseflow_waterfall
 from hydrology.analysis.reach_gain_loss import summarize_reach_gain_loss
 from hydrology.data.nldi import discover_related_sites
+from hydrology.app.styles import render_workspace_panel, render_insight_board
 
 import pandas as pd
 
@@ -892,18 +893,25 @@ def show():
         _render_reach_map(up_info, dn_info, upstream_id, downstream_id, reach_km, search_km)
 
     with summary_col:
-        st.subheader("Selected Reach")
+        # Use styled workspace panel so entrance/hover polish from the premium CSS applies
         if upstream_id == downstream_id:
-            st.warning("Choose two different gages for a reach.")
+            render_workspace_panel(
+                "Selected Reach",
+                "Choose two different gages for a reach.",
+                [{"label": "Invalid pair", "state": "blocked"}],
+            )
         else:
-            st.metric("Reach", f"{upstream_id} -> {downstream_id}")
-        if estimated_reach_km:
-            st.metric("Network length", f"{estimated_reach_km:.1f} km")
-        elif manual_reach_km:
-            st.metric("Network length", f"{manual_reach_km:.1f} km manual")
-        else:
-            st.metric("Network length", "Not inferred")
-        st.metric("Candidate gages", len(candidate_records))
+            chips = []
+            if estimated_reach_km:
+                chips.append({"label": f"{estimated_reach_km:.1f} km network", "state": "ready"})
+            elif manual_reach_km:
+                chips.append({"label": f"{manual_reach_km:.1f} km manual", "state": "limited"})
+            chips.append({"label": f"{len(candidate_records)} candidates", "state": "ready"})
+            render_workspace_panel(
+                "Selected Reach",
+                f"{upstream_id} \u2192 {downstream_id}",
+                chips,
+            )
         generate = st.button(
             "Run Analysis",
             type="primary",
@@ -1012,7 +1020,13 @@ def show():
         reach_row = _build_reach_summary_row(upstream_id, downstream_id, upstream_q, downstream_q, reach_km=reach_km)
         length_source = "network" if estimated_reach_km else "manual" if reach_km else "missing"
         reach_interpretation = _build_reach_interpretation(reach_row, reach_km=reach_km, length_source=length_source)
-        st.subheader("Automated Reach Summary")
+        # Styled wrapper so new card entrance / hover / depth polish applies uniformly
+        render_workspace_panel(
+            "Automated Reach Summary",
+            f"{reach_interpretation.get('Finding', 'Reach result')} — {reach_interpretation.get('Interpretation', '')[:120]}",
+            [{"label": reach_interpretation.get("Confidence", "n/a"), "state": "ready" if reach_interpretation.get("Confidence") == "high" else "limited"}],
+        )
+        # Keep the compact table for the detailed numbers (existing behavior)
         st.dataframe(pd.DataFrame([reach_interpretation]), width="stretch", hide_index=True)
         with st.expander("Reach details", expanded=False):
             st.dataframe(pd.DataFrame(_format_reach_chain([upstream_id, downstream_id])), width="stretch", hide_index=True)
@@ -1079,7 +1093,11 @@ def show():
 
         # Baseflow separation waterfall (interactive Plotly)
         st.markdown("---")
-        st.subheader("Baseflow Separation")
+        render_workspace_panel(
+            "Baseflow Separation",
+            "Interactive view of quickflow vs baseflow contribution across the paired record.",
+            [{"label": "Plotly", "state": "ready"}],
+        )
         show_waterfall = st.checkbox(
             "Show Baseflow Waterfall", value=True, key="show_bf_waterfall"
         )

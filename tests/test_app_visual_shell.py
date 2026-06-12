@@ -20,3 +20,25 @@ def test_visual_system_avoids_sidebar_first_language():
 
     assert "Search in the sidebar" not in text
     assert "sidebar is not the primary" in text
+
+
+def test_styles_include_premium_motion_and_reduced_motion_guard():
+    """New fluid/animated premium polish (inspired by modern award-winning web UIs)
+    must be present in the CSS system and guarded for accessibility.
+    """
+    text = (ROOT / "hydrology/app/styles.py").read_text(encoding="utf-8")
+
+    for token in [
+        "@keyframes fadeInUp",
+        "@keyframes cardPop",
+        "@keyframes subtlePulse",
+        "animation: fadeInUp",
+        "animation: cardPop",
+        "prefers-reduced-motion: reduce",
+        "translateY(-2px)",
+        "will-change: transform",
+    ]:
+        assert token in text, f"Missing premium motion token: {token}"
+
+    # Inspiration comment / docstring reference present
+    assert "x.com/twetsfyp/status/2065283731833651709" in text or "award-winning" in text
