@@ -560,13 +560,36 @@ def apply_custom_css():
 
     .stButton > button[type="primary"] {
         box-shadow: 0 4px 12px rgba(78, 205, 196, 0.25);
-        animation: subtlePulse 2.2s ease-in-out infinite;
+        animation: subtlePulse 1.8s ease-in-out infinite, fadeInUp 0.4s ease-out;
         animation-play-state: running;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .stButton > button[type="primary"]::after {
+        content: '';
+        position: absolute;
+        top: -50%;
+        left: -100%;
+        width: 50%;
+        height: 200%;
+        background: linear-gradient(
+            90deg,
+            transparent,
+            rgba(255,255,255,0.35),
+            transparent
+        );
+        animation: shimmer 1.5s infinite;
+    }
+
+    @keyframes shimmer {
+        0% { left: -100%; }
+        100% { left: 300%; }
     }
 
     .stButton > button[type="primary"]:hover {
         box-shadow: 0 10px 24px rgba(78, 205, 196, 0.35);
-        transform: translateY(-2px) scale(1.015);
+        transform: translateY(-3px) scale(1.03);
         animation-play-state: paused;
     }
 
