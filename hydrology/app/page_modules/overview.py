@@ -67,24 +67,23 @@ LOCAL_SITES = {
 
 def _render_regional_summary():
     """Show a compact conditions table for local/priority sites."""
-    from hydrology.data.usgs import fetch_current_conditions, fetch_daily_percentiles, classify_condition
     from hydrology.visualization.map_utils import get_condition_color, get_condition_label
 
     site_ids = list(LOCAL_SITES.keys())
-    current = fetch_current_conditions(site_ids)
-    percentiles = fetch_daily_percentiles(site_ids)
+    # Use shared cache (ttl=3600) — avoids double-fetching on every Stations rerun
+    details = get_site_condition_details(site_ids)
 
     rows = []
     for sid, name in LOCAL_SITES.items():
-        flow = current.get(sid)
-        pcts = percentiles.get(sid)
-        pctile = classify_condition(flow, pcts) if flow and pcts else None
+        info = details.get(sid) or {}
+        flow = info.get("flow_cfs")
+        pctile = info.get("percentile")
         label = get_condition_label(pctile) if pctile is not None else "N/A"
         color = get_condition_color(pctile) if pctile is not None else "#808080"
 
         rows.append({
             "Site": name,
-            "Flow (cfs)": f"{flow:,.0f}" if flow else "N/A",
+            "Flow (cfs)": f"{flow:,.0f}" if flow is not None else "N/A",
             "Condition": label,
             "_color": color,
             "_site_id": sid,
@@ -94,7 +93,11 @@ def _render_regional_summary():
         return
 
     # Regional current conditions — wrapped for consistent card polish/animation
-    render_workspace_panel("Regional Current Conditions", "Live flow and USGS seasonal percentile context for priority PNW sites.", None)
+    render_workspace_panel(
+        "Regional Current Conditions",
+        "Live flow and USGS seasonal percentile context for priority PNW sites.",
+        [{"label": "Cached 1h", "state": "ready"}, {"label": f"{len(rows)} gages", "state": "ready"}],
+    )
     cols = st.columns(len(rows))
     for col, row in zip(cols, rows):
         with col:

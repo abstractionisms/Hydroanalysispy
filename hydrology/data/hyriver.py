@@ -260,6 +260,27 @@ def get_basin_characteristics(site_id: str) -> Optional[Dict[str, Any]]:
     return result if result else None
 
 
+def _daymet_credentials_available() -> bool:
+    """Daymet/ORNL THREDDS requires NASA Earthdata login (401 without it)."""
+    import os
+    from pathlib import Path
+
+    if os.environ.get("EARTHDATA_USERNAME") or os.environ.get("EARTHDATA_USER"):
+        return True
+    if os.environ.get("EARTHDATA_PASSWORD") or os.environ.get("EARTHDATA_TOKEN"):
+        return True
+    # netrc is the usual Earthdata CLI auth location
+    for candidate in (Path.home() / ".netrc", Path.home() / "_netrc"):
+        try:
+            if candidate.is_file() and "urs.earthdata.nasa.gov" in candidate.read_text(
+                encoding="utf-8", errors="ignore"
+            ):
+                return True
+        except Exception:
+            pass
+    return False
+
+
 def get_daymet_climate(
     site_id: str,
     start_date: str,
@@ -284,6 +305,15 @@ def get_daymet_climate(
     """
     if variables is None:
         variables = ['prcp', 'tmin', 'tmax']
+
+    # Avoid slow watershed + 401 storm when Earthdata is not configured.
+    if not _daymet_credentials_available():
+        logger.info(
+            "Skipping Daymet for %s: NASA Earthdata credentials not configured "
+            "(set EARTHDATA_USERNAME/PASSWORD or ~/.netrc for urs.earthdata.nasa.gov)",
+            site_id,
+        )
+        return None
 
     # Get watershed boundary for spatial averaging
     basin = get_watershed_boundary(site_id)

@@ -388,21 +388,37 @@ def fetch_climate_cached_result(
     include_temp: bool = True,
     include_precip: bool = True,
 ):
-    """Fetch normalized climate data with source metadata."""
+    """Fetch normalized climate data with source metadata.
+
+    Order of preference (reliability-first for SPI/dashboard):
+      1. Meteostat nearest station (no special auth, fast)
+      2. Daymet watershed grid (needs NASA Earthdata; often 401 without it)
+
+    Set HYDRO_PREFER_DAYMET=1 to try Daymet first when credentials exist.
+    """
+    import os
+
     start_dt = datetime.strptime(start_str, '%Y-%m-%d')
     end_dt = datetime.strptime(end_str, '%Y-%m-%d')
 
-    if site_id:
+    prefer_daymet = os.environ.get("HYDRO_PREFER_DAYMET", "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+    def _try_daymet():
+        if not site_id:
+            return None
         variables = []
         if include_precip:
-            variables.append('prcp')
+            variables.append("prcp")
         if include_temp:
-            variables.extend(['tmin', 'tmax'])
-
+            variables.extend(["tmin", "tmax"])
         try:
             from hydrology.data.hyriver import get_daymet_climate
 
-            daymet = get_daymet_climate(site_id, start_str, end_str, variables=variables or None)
+            daymet = get_daymet_climate(
+                site_id, start_str, end_str, variables=variables or None
+            )
             normalized = normalize_climate_columns(daymet)
             if normalized is not None and not normalized.empty:
                 return {
@@ -412,25 +428,69 @@ def fetch_climate_cached_result(
                 }
         except Exception as e:
             logger.info(f"Daymet climate unavailable for {site_id}: {e}")
+        return None
 
-    station_climate = normalize_climate_columns(fetch_climate_data(
-        lat, lon,
-        pd.Timestamp(start_dt),
-        pd.Timestamp(end_dt),
-        include_temp=include_temp,
-        include_precip=include_precip
-    ))
-    if station_climate is not None and not station_climate.empty:
-        return {
-            "data": station_climate,
-            "source": "Meteostat",
-            "message": "Loaded climate data from the nearest Meteostat station.",
-        }
+    def _try_meteostat():
+        station_climate = normalize_climate_columns(
+            fetch_climate_data(
+                lat,
+                lon,
+                pd.Timestamp(start_dt),
+                pd.Timestamp(end_dt),
+                include_temp=include_temp,
+                include_precip=include_precip,
+            )
+        )
+        if station_climate is not None and not station_climate.empty:
+            station = None
+            try:
+                station = fetch_nearest_station_info(lat, lon)
+            except Exception:
+                pass
+            dist = None
+            name = None
+            if station:
+                dist = station.get("distance_km")
+                name = station.get("name")
+            msg = "Loaded climate data from the nearest Meteostat station."
+            if name and dist is not None:
+                msg = (
+                    f"Loaded Meteostat station “{name}” "
+                    f"({float(dist):.1f} km from the gage)."
+                )
+            elif name:
+                msg = f"Loaded Meteostat station “{name}”."
+            return {
+                "data": station_climate,
+                "source": "Meteostat",
+                "message": msg,
+                "station_name": name,
+                "station_distance_km": dist,
+            }
+        return None
+
+    # Prefer Daymet only when asked AND credentials exist (otherwise it is a slow 401).
+    if prefer_daymet:
+        daymet_result = _try_daymet()
+        if daymet_result:
+            return daymet_result
+
+    meteo = _try_meteostat()
+    if meteo:
+        return meteo
+
+    # Last resort Daymet (may still 401 without Earthdata)
+    daymet_result = _try_daymet()
+    if daymet_result:
+        return daymet_result
 
     return {
         "data": None,
         "source": "Unavailable",
-        "message": "Could not load climate data from Daymet or Meteostat for this site and date range.",
+        "message": (
+            "Could not load climate data. Daymet needs NASA Earthdata login; "
+            "Meteostat had no usable series for this location/date range."
+        ),
     }
 
 

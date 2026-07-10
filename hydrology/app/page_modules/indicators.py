@@ -122,36 +122,70 @@ def _render_drought_tab(df_q, q_col, site_id, desc, lat, lon, start_str, end_str
     # SPI if climate data available
     st.markdown("---")
     st.subheader("Standardized Precipitation Index (SPI)")
-    st.caption("Fetches precipitation on demand, then calculates SPI from the selected date range.")
-    spi_key = f"spi_result_{site_id}_{start_str}_{end_str}"
-    calculate_spi_clicked = st.button("Calculate SPI from precipitation", key="calculate_spi", type="primary")
+    st.caption(
+        "Precipitation is resolved from the nearest Meteostat station (Daymet only if "
+        "NASA Earthdata credentials are configured). SPI fits need ~10+ years of monthly "
+        "precip — climate is auto-extended to at least 30 years when possible."
+    )
+    # Climate window: SPI-12 needs long monthly history (independent of discharge slider)
+    spi_start = (datetime.strptime(end_str, "%Y-%m-%d") - timedelta(days=30 * 365)).strftime(
+        "%Y-%m-%d"
+    )
+    spi_key = f"spi_result_{site_id}_{spi_start}_{end_str}"
+    calculate_spi_clicked = st.button(
+        "Calculate SPI from precipitation",
+        key=f"calculate_spi_{site_id}",
+        type="primary",
+    )
 
     if calculate_spi_clicked:
-        with st.spinner("Fetching climate data..."):
-            precip_result = _fetch_precip_data_result(site_id, lat, lon, start_str, end_str)
+        with st.spinner("Fetching precipitation (Meteostat / Daymet)..."):
+            precip_result = _fetch_precip_data_result(
+                site_id, lat, lon, spi_start, end_str
+            )
 
         precip_data = precip_result["precip"]
         if precip_data is not None and not precip_data.empty:
             spi_df = calculate_spi(precip_data, windows=[1, 3, 6, 12])
+            n_months = int(precip_data.resample("ME").sum().shape[0]) if len(precip_data) else 0
+            precip_result = {
+                **precip_result,
+                "n_months": n_months,
+                "climate_start": spi_start,
+                "climate_end": end_str,
+            }
             if not spi_df.empty:
                 st.session_state[spi_key] = {"fetch": precip_result, "spi": spi_df}
             else:
+                precip_result["message"] = (
+                    precip_result.get("message", "")
+                    + f" Precipitation loaded ({n_months} months) but SPI fit failed — "
+                    "need enough complete months per calendar month (≈10+ years)."
+                ).strip()
                 st.session_state[spi_key] = {"fetch": precip_result, "spi": pd.DataFrame()}
         else:
             st.session_state[spi_key] = {"fetch": precip_result, "spi": pd.DataFrame()}
 
     spi_result = st.session_state.get(spi_key)
     if spi_result:
-        st.dataframe(pd.DataFrame(_spi_readiness_rows(spi_result["fetch"])), width="stretch", hide_index=True)
+        st.dataframe(
+            pd.DataFrame(_spi_readiness_rows(spi_result["fetch"])),
+            width="stretch",
+            hide_index=True,
+        )
         spi_df = spi_result["spi"]
         if not spi_df.empty:
             _render_index_interpretation(spi_df, "SPI", "precipitation")
             fig_spi = _create_drought_timeseries(spi_df, title=f"{desc} - SPI")
-            st.plotly_chart(fig_spi, width="stretch", key="spi_chart")
-        elif spi_result["fetch"]["precip"] is not None:
-            st.warning("Insufficient precipitation data for SPI. Try a longer period or a site with stronger precipitation coverage.")
+            st.plotly_chart(fig_spi, width="stretch", key=f"spi_chart_{site_id}")
+        elif spi_result["fetch"].get("precip") is not None:
+            st.warning(
+                "Precipitation was found but SPI could not be fit. "
+                "Use a longer period (SPI needs ~10+ years of monthly totals) "
+                "or try another site if the weather station coverage is sparse."
+            )
         else:
-            st.warning(spi_result["fetch"]["message"])
+            st.warning(spi_result["fetch"].get("message") or "Precipitation unavailable.")
 
 
 def _render_drought_status_cards(sri_df: pd.DataFrame):
@@ -445,22 +479,44 @@ def _fetch_precip_data(site_id, lat, lon, start_str, end_str):
     return _fetch_precip_data_result(site_id, lat, lon, start_str, end_str)["precip"]
 
 
+def _valid_coords(lat, lon) -> tuple[float, float] | tuple[None, None]:
+    """Parse and validate lat/lon (reject None/NaN/out-of-range)."""
+    try:
+        lat_f = float(lat)
+        lon_f = float(lon)
+    except (TypeError, ValueError):
+        return None, None
+    if not (np.isfinite(lat_f) and np.isfinite(lon_f)):
+        return None, None
+    if not (-90.0 <= lat_f <= 90.0 and -180.0 <= lon_f <= 180.0):
+        return None, None
+    return lat_f, lon_f
+
+
 def _fetch_precip_data_result(site_id, lat, lon, start_str, end_str):
     """Fetch precipitation and return source metadata for the dashboard."""
-    if not lat or not lon:
+    lat_f, lon_f = _valid_coords(lat, lon)
+    if lat_f is None or lon_f is None:
         return {
             "precip": None,
             "source": "Unavailable",
             "n_days": 0,
-            "message": "Could not fetch precipitation because the selected site is missing site coordinates.",
+            "message": (
+                "Could not fetch precipitation because the selected site is missing "
+                "valid latitude/longitude in the inventory."
+            ),
         }
 
     try:
         result = fetch_climate_cached_result(
-            float(lat), float(lon),
-            start_str, end_str,
+            lat_f,
+            lon_f,
+            start_str,
+            end_str,
             site_id=site_id,
-            include_temp=False, include_precip=True)
+            include_temp=False,
+            include_precip=True,
+        )
         climate = result.get("data")
         if climate is not None and "Precip_mm" in climate.columns:
             precip = climate["Precip_mm"].dropna()
@@ -470,22 +526,50 @@ def _fetch_precip_data_result(site_id, lat, lon, start_str, end_str):
                     "source": result.get("source", "Climate"),
                     "n_days": len(precip),
                     "message": result.get("message", "Loaded precipitation data."),
+                    "station_name": result.get("station_name"),
+                    "station_distance_km": result.get("station_distance_km"),
                 }
+        # Pass through provider message when data missing
+        return {
+            "precip": None,
+            "source": result.get("source", "Unavailable"),
+            "n_days": 0,
+            "message": result.get(
+                "message",
+                "Could not fetch precipitation from Meteostat or Daymet for this site and date range.",
+            ),
+            "station_name": result.get("station_name"),
+            "station_distance_km": result.get("station_distance_km"),
+        }
     except Exception as e:
         logger.debug(f"Precipitation fetch failed: {e}")
-
-    return {
-        "precip": None,
-        "source": "Unavailable",
-        "n_days": 0,
-        "message": "Could not fetch precipitation from Daymet or Meteostat for this site and date range.",
-    }
+        return {
+            "precip": None,
+            "source": "Unavailable",
+            "n_days": 0,
+            "message": f"Precipitation fetch error: {e}",
+        }
 
 
 def _spi_readiness_rows(fetch_result):
     """Build compact source/status rows for SPI calculation."""
+    dist = fetch_result.get("station_distance_km")
+    dist_txt = f"{float(dist):.1f} km" if dist is not None else "—"
+    station = fetch_result.get("station_name") or "—"
+    climate_range = "—"
+    if fetch_result.get("climate_start") and fetch_result.get("climate_end"):
+        climate_range = f"{fetch_result['climate_start']} → {fetch_result['climate_end']}"
     return [
         {"Item": "Precipitation source", "Value": fetch_result.get("source", "Unavailable")},
+        {"Item": "Weather station", "Value": station},
+        {"Item": "Distance to gage", "Value": dist_txt},
+        {"Item": "Climate window", "Value": climate_range},
         {"Item": "Daily precipitation records", "Value": f"{int(fetch_result.get('n_days', 0)):,}"},
+        {
+            "Item": "Monthly totals",
+            "Value": f"{int(fetch_result.get('n_months', 0)):,}"
+            if fetch_result.get("n_months") is not None
+            else "—",
+        },
         {"Item": "Status", "Value": fetch_result.get("message", "")},
     ]
