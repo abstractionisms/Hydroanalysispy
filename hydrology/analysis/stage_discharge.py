@@ -277,6 +277,106 @@ def season_labels(index: pd.DatetimeIndex) -> pd.Series:
     return pd.Series(labels, index=index, name="season")
 
 
+def predict_rating_discharge(
+    stage: np.ndarray | pd.Series,
+    A: float,
+    B: float,
+    H0: float = 0.0,
+) -> np.ndarray:
+    """Q = A * (H - H0)^B with safe floor on effective stage."""
+    H = np.asarray(stage, dtype=float)
+    H_eff = np.maximum(H - float(H0), 1e-10)
+    A = float(A)
+    B = float(B)
+    if not np.isfinite(A) or not np.isfinite(B) or A <= 0:
+        return np.full_like(H, np.nan, dtype=float)
+    return A * (H_eff ** B)
+
+
+def evaluate_rating_params(
+    stage: pd.Series | np.ndarray,
+    discharge: pd.Series | np.ndarray,
+    A: float,
+    B: float,
+    H0: float = 0.0,
+) -> Dict[str, Any]:
+    """
+    Score a user- or auto-specified rating Q = A*(H-H0)^B against paired data.
+
+    Returns R², residual stats, equation string, and predicted Q on the clean pairs.
+    """
+    df = pd.DataFrame({"H": stage, "Q": discharge})
+    df = df.replace([np.inf, -np.inf], np.nan).dropna()
+    df = df[(df["H"] > float(H0) + 1e-9) & (df["Q"] > 0)]
+
+    empty = {
+        "model": "offset_powerlaw" if abs(float(H0)) > 1e-9 else "powerlaw",
+        "A": float(A),
+        "B": float(B),
+        "H0": float(H0),
+        "R2": np.nan,
+        "rmse": np.nan,
+        "mae": np.nan,
+        "mape": np.nan,
+        "bias": np.nan,
+        "nash_sutcliffe": np.nan,
+        "n_points": 0,
+        "equation": "n/a",
+        "Q_pred": np.array([], dtype=float),
+        "H_clean": np.array([], dtype=float),
+        "Q_clean": np.array([], dtype=float),
+        "residuals": np.array([], dtype=float),
+    }
+    if len(df) < 3 or not np.isfinite(A) or not np.isfinite(B) or A <= 0:
+        return empty
+
+    H = df["H"].values
+    Q = df["Q"].values
+    Q_hat = predict_rating_discharge(H, A, B, H0)
+    valid = np.isfinite(Q_hat)
+    H, Q, Q_hat = H[valid], Q[valid], Q_hat[valid]
+    if len(Q) < 3:
+        return empty
+
+    ss_res = float(np.sum((Q - Q_hat) ** 2))
+    ss_tot = float(np.sum((Q - Q.mean()) ** 2))
+    R2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else np.nan
+    residuals = Q_hat - Q
+    abs_err = np.abs(residuals)
+    rmse = float(np.sqrt(np.mean(residuals ** 2)))
+    mae = float(np.mean(abs_err))
+    nz = Q != 0
+    mape = float(np.mean(np.abs(residuals[nz] / Q[nz])) * 100) if np.any(nz) else np.nan
+    bias = float(np.mean(residuals))
+    nse = 1.0 - ss_res / ss_tot if ss_tot > 0 else np.nan
+
+    if abs(float(H0)) > 1e-6:
+        eq = f"Q = {A:.4g} · (H − {H0:.3f})^{B:.3f}"
+        model = "offset_powerlaw"
+    else:
+        eq = f"Q = {A:.4g} · H^{B:.3f}"
+        model = "powerlaw"
+
+    return {
+        "model": model,
+        "A": float(A),
+        "B": float(B),
+        "H0": float(H0),
+        "R2": float(R2) if np.isfinite(R2) else np.nan,
+        "rmse": rmse,
+        "mae": mae,
+        "mape": mape,
+        "bias": bias,
+        "nash_sutcliffe": float(nse) if np.isfinite(nse) else np.nan,
+        "n_points": int(len(Q)),
+        "equation": eq,
+        "Q_pred": Q_hat,
+        "H_clean": H,
+        "Q_clean": Q,
+        "residuals": residuals,
+    }
+
+
 def calculate_residuals(
     observed: pd.Series,
     predicted: pd.Series

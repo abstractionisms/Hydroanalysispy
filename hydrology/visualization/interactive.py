@@ -802,6 +802,266 @@ def baseflow_waterfall(
     return apply_hydro_theme(fig)
 
 
+def interactive_rating_curve(
+    df_q: pd.DataFrame,
+    A: float,
+    B: float,
+    H0: float = 0.0,
+    *,
+    discharge_col: str = "Discharge_cfs",
+    stage_col: str = "Gage_Height_ft",
+    title: str = "Stage–discharge rating",
+    show_auto_fit: bool = True,
+    auto_fit: Optional[Dict[str, Any]] = None,
+    show_residuals: bool = True,
+    log_q: Optional[bool] = None,
+    color_by: str = "season",
+    max_points: int = 4000,
+) -> go.Figure:
+    """
+    Interactive stage–discharge scatter with a live adjustable rating curve.
+
+    Points are colored by season (or year). User curve Q = A*(H-H0)^B is solid;
+    optional auto-fit reference is dashed. Optional residual subplot underneath.
+    """
+    from ..analysis.stage_discharge import (
+        evaluate_rating_params,
+        predict_rating_discharge,
+        season_labels,
+        fit_best_rating_curve,
+    )
+
+    empty = go.Figure()
+    empty.add_annotation(
+        text="No stage–discharge pairs available",
+        xref="paper", yref="paper", x=0.5, y=0.5,
+        showarrow=False, font=dict(size=15, color="#9bb4c8"),
+    )
+    apply_hydro_theme(empty)
+    empty.update_layout(height=420, title=title)
+
+    if df_q is None or df_q.empty:
+        return empty
+    if discharge_col not in df_q.columns or stage_col not in df_q.columns:
+        empty.layout.annotations[0].text = "Need Gage_Height_ft + Discharge_cfs"
+        return empty
+
+    pairs = df_q[[stage_col, discharge_col]].dropna().copy()
+    pairs = pairs[(pairs[stage_col] > 0) & (pairs[discharge_col] > 0)]
+    if len(pairs) < 5:
+        empty.layout.annotations[0].text = "Need ≥5 stage–discharge pairs"
+        return empty
+
+    # Downsample dense records for browser snappiness (keep extremes)
+    if len(pairs) > max_points:
+        step = max(1, len(pairs) // max_points)
+        keep = pairs.iloc[::step]
+        # Always include min/max stage and peak Q
+        extrema_idx = [
+            pairs[stage_col].idxmin(),
+            pairs[stage_col].idxmax(),
+            pairs[discharge_col].idxmax(),
+        ]
+        pairs = pd.concat([keep, pairs.loc[extrema_idx]]).sort_index()
+        pairs = pairs[~pairs.index.duplicated(keep="first")]
+
+    H = pairs[stage_col].astype(float)
+    Q = pairs[discharge_col].astype(float)
+    scored = evaluate_rating_params(H, Q, A, B, H0)
+
+    if auto_fit is None and show_auto_fit:
+        try:
+            auto_fit = fit_best_rating_curve(H, Q, min_points=10)
+        except Exception:
+            auto_fit = None
+
+    rows = 2 if show_residuals else 1
+    row_heights = [0.72, 0.28] if show_residuals else [1.0]
+    fig = make_subplots(
+        rows=rows,
+        cols=1,
+        shared_xaxes=True,
+        row_heights=row_heights,
+        vertical_spacing=0.06 if show_residuals else 0.02,
+        subplot_titles=(None, "Residuals (Q_fit − Q_obs)") if show_residuals else None,
+    )
+
+    season_colors = {
+        "DJF": "#5b9bd5",
+        "MAM": "#70ad47",
+        "JJA": "#ed7d31",
+        "SON": "#9e7bb5",
+        "UNK": "#8a9bb0",
+    }
+
+    if color_by == "year":
+        years = pd.DatetimeIndex(pairs.index).year
+        uniq = sorted(set(int(y) for y in years))
+        # Teal→amber ramp
+        n = max(len(uniq), 1)
+        for i, yr in enumerate(uniq):
+            mask = years == yr
+            t = i / max(n - 1, 1)
+            r = int(78 + t * (237 - 78))
+            g = int(205 + t * (125 - 205))
+            b = int(196 + t * (49 - 196))
+            color = f"rgb({r},{g},{b})"
+            fig.add_trace(
+                go.Scattergl(
+                    x=H.values[mask],
+                    y=Q.values[mask],
+                    mode="markers",
+                    name=str(yr),
+                    marker=dict(size=6, color=color, opacity=0.55, line=dict(width=0)),
+                    hovertemplate=(
+                        f"{yr}<br>H=%{{x:.2f}} ft<br>Q=%{{y:,.1f}} cfs<extra></extra>"
+                    ),
+                    legendgroup="pts",
+                ),
+                row=1, col=1,
+            )
+    else:
+        seasons = season_labels(pairs.index)
+        for season, color in season_colors.items():
+            mask = seasons.values == season
+            if not np.any(mask):
+                continue
+            fig.add_trace(
+                go.Scattergl(
+                    x=H.values[mask],
+                    y=Q.values[mask],
+                    mode="markers",
+                    name=season,
+                    marker=dict(size=7, color=color, opacity=0.55, line=dict(width=0)),
+                    hovertemplate=(
+                        f"{season}<br>H=%{{x:.2f}} ft<br>Q=%{{y:,.1f}} cfs<extra></extra>"
+                    ),
+                    legendgroup="pts",
+                ),
+                row=1, col=1,
+            )
+
+    # Curve domain
+    H0f = float(H0)
+    H_min = float(H.min())
+    H_max = float(H.max())
+    H_lo = max(H_min, H0f + 1e-3) if abs(H0f) > 1e-9 else H_min
+    H_line = np.linspace(H_lo, H_max, 250)
+    Q_user = predict_rating_discharge(H_line, A, B, H0f)
+
+    r2_txt = f"{scored['R2']:.3f}" if np.isfinite(scored.get("R2", np.nan)) else "—"
+    fig.add_trace(
+        go.Scatter(
+            x=H_line,
+            y=Q_user,
+            mode="lines",
+            name=f"Your fit · R²={r2_txt}",
+            line=dict(color="#ff6b6b", width=3.2),
+            hovertemplate="H=%{x:.2f} ft<br>Q_fit=%{y:,.1f} cfs<extra>Your rating</extra>",
+        ),
+        row=1, col=1,
+    )
+
+    if (
+        show_auto_fit
+        and auto_fit
+        and auto_fit.get("model") != "none"
+        and np.isfinite(auto_fit.get("A", np.nan))
+    ):
+        aA, aB, aH0 = auto_fit["A"], auto_fit["B"], float(auto_fit.get("H0") or 0.0)
+        a_lo = max(H_min, aH0 + 1e-3) if abs(aH0) > 1e-9 else H_min
+        H_auto = np.linspace(a_lo, H_max, 250)
+        Q_auto = predict_rating_discharge(H_auto, aA, aB, aH0)
+        a_r2 = auto_fit.get("R2", np.nan)
+        a_r2_txt = f"{a_r2:.3f}" if np.isfinite(a_r2) else "—"
+        fig.add_trace(
+            go.Scatter(
+                x=H_auto,
+                y=Q_auto,
+                mode="lines",
+                name=f"Auto-fit · R²={a_r2_txt}",
+                line=dict(color="#4ecdc4", width=2.2, dash="dash"),
+                hovertemplate="H=%{x:.2f} ft<br>Q_auto=%{y:,.1f} cfs<extra>Auto-fit</extra>",
+            ),
+            row=1, col=1,
+        )
+
+    if show_residuals and scored["n_points"] > 0:
+        resid = scored["residuals"]
+        fig.add_trace(
+            go.Scattergl(
+                x=scored["H_clean"],
+                y=resid,
+                mode="markers",
+                name="Residual",
+                showlegend=False,
+                marker=dict(
+                    size=5,
+                    color=resid,
+                    colorscale=[
+                        [0.0, "#4ecdc4"],
+                        [0.5, "#e7eef7"],
+                        [1.0, "#ff6b6b"],
+                    ],
+                    cmid=0,
+                    opacity=0.65,
+                    line=dict(width=0),
+                ),
+                hovertemplate="H=%{x:.2f} ft<br>ΔQ=%{y:,.1f} cfs<extra></extra>",
+            ),
+            row=2, col=1,
+        )
+        fig.add_hline(
+            y=0, line=dict(color="rgba(118,169,192,0.45)", width=1, dash="dot"),
+            row=2, col=1,
+        )
+
+    # Axis type for Q
+    use_log = log_q
+    if use_log is None:
+        q_pos = Q[Q > 0]
+        use_log = bool(len(q_pos) and (q_pos.max() / max(q_pos.min(), 1e-9)) >= 40)
+
+    yaxis_cfg = _discharge_yaxis_layout(Q.values, title="Discharge (cfs)")
+    if use_log:
+        yaxis_cfg["type"] = "log"
+    else:
+        yaxis_cfg["type"] = "linear"
+
+    eq = scored.get("equation") or f"Q = {A:.4g}·(H−{H0:.3f})^{B:.3f}"
+    subtitle = (
+        f"<span style='color:#9bb4c8;font-size:12px'>{eq} · n={scored['n_points']:,}</span>"
+    )
+
+    fig.update_layout(
+        title=dict(
+            text=f"{title}<br>{subtitle}",
+            font=dict(size=15),
+        ),
+        height=560 if show_residuals else 440,
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            bgcolor="rgba(16,28,46,0.55)",
+            bordercolor="rgba(78,205,196,0.25)",
+            borderwidth=1,
+            font=dict(size=11),
+        ),
+        margin=dict(l=60, r=24, t=90, b=48),
+    )
+    fig.update_xaxes(title_text="Stage height (ft)" if not show_residuals else None, row=1, col=1)
+    if show_residuals:
+        fig.update_xaxes(title_text="Stage height (ft)", row=2, col=1)
+        fig.update_yaxes(title_text="ΔQ (cfs)", row=2, col=1)
+    fig.update_yaxes(row=1, col=1, **yaxis_cfg)
+
+    return apply_hydro_theme(fig)
+
+
 def apply_hydro_theme(fig: "go.Figure") -> "go.Figure":
     """Lightweight consistent theming for Plotly charts to match the dashboard premium visual language.
 

@@ -28,15 +28,207 @@ from hydrology.app.plot_config import SINGLE_SITE_PLOTS, resolve_generated_plots
 from hydrology.app.page_modules.indicators import render_site_indicators
 from hydrology.visualization import create_multi_plot, PlotLayout
 from hydrology.visualization.interactive import (
-    interactive_hydrograph, interactive_fdc,
+    interactive_hydrograph, interactive_fdc, interactive_rating_curve,
     raster_hydrograph, percentile_bands_hydrograph)
 from hydrology.core import DEFAULT_DISCHARGE_CODE
+from hydrology.analysis.stage_discharge import (
+    fit_best_rating_curve,
+    evaluate_rating_params,
+)
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def _load_site_data(site_id, lat, lon, start_str, end_str):
     """Cached wrapper around process_site_data."""
     return process_site_data(site_id, lat, lon, start_str, end_str)
+
+
+def _render_rating_curve_workshop(
+    df_q: pd.DataFrame,
+    *,
+    site_id: str,
+    site_desc: str,
+) -> None:
+    """Sleek interactive stage–discharge fit: adjust A, B, H0 and see the curve update."""
+    import math
+
+    if df_q is None or df_q.empty:
+        return
+    if "Gage_Height_ft" not in df_q.columns or "Discharge_cfs" not in df_q.columns:
+        return
+
+    pairs = df_q[["Gage_Height_ft", "Discharge_cfs"]].dropna()
+    pairs = pairs[(pairs["Gage_Height_ft"] > 0) & (pairs["Discharge_cfs"] > 0)]
+    if len(pairs) < 10:
+        return
+
+    st.markdown("---")
+    st.subheader("Rating curve workshop")
+    st.caption(
+        "Tune the stage–discharge model live. **Red** = your parameters · "
+        "**Teal dashed** = auto-fit reference. Residuals show where the rating is biased."
+    )
+
+    stage = pairs["Gage_Height_ft"]
+    discharge = pairs["Discharge_cfs"]
+    auto = fit_best_rating_curve(stage, discharge, min_points=10)
+    if auto.get("model") == "none" or not pd.notna(auto.get("A")):
+        st.info("Could not auto-fit a rating curve for this period.")
+        return
+
+    state_key = f"rating_ws_{site_id}"
+    auto_A = float(auto["A"])
+    auto_B = float(auto["B"])
+    auto_H0 = float(auto.get("H0") or 0.0)
+    auto_r2 = float(auto["R2"]) if pd.notna(auto.get("R2")) else float("nan")
+    auto_eq = auto.get("equation", "")
+
+    if state_key not in st.session_state:
+        st.session_state[state_key] = {
+            "A": auto_A,
+            "B": auto_B,
+            "H0": auto_H0,
+            "use_offset": auto.get("model") == "offset_powerlaw",
+            "ver": 0,
+        }
+    ws = st.session_state[state_key]
+    # Keep auto baseline current for this period
+    ws["auto_A"] = auto_A
+    ws["auto_B"] = auto_B
+    ws["auto_H0"] = auto_H0
+    ws["auto_r2"] = auto_r2
+    ws["auto_eq"] = auto_eq
+    ver = int(ws.get("ver", 0))
+
+    c_left, c_right = st.columns([1, 1.55], gap="large")
+
+    with c_left:
+        st.markdown("##### Parameters")
+        use_offset = st.toggle(
+            "Offset model  Q = A·(H − H₀)ᴮ",
+            value=bool(ws.get("use_offset", True)),
+            key=f"{state_key}_offset_{ver}",
+            help="H₀ is the effective zero-flow stage when gage zero ≠ control elevation.",
+        )
+        ws["use_offset"] = use_offset
+
+        A_ref = max(float(ws.get("A", auto_A)), 1e-9)
+        log_A_ref = math.log10(max(auto_A, 1e-9))
+        log_A_min = log_A_ref - 2.0
+        log_A_max = log_A_ref + 2.0
+        cur_log_A = min(max(math.log10(A_ref), log_A_min), log_A_max)
+
+        log_A = st.slider(
+            "A  (scale, log₁₀)",
+            min_value=float(log_A_min),
+            max_value=float(log_A_max),
+            value=float(cur_log_A),
+            step=0.01,
+            key=f"{state_key}_logA_{ver}",
+            help="Coefficient in front of the power law (log scale for wide range).",
+        )
+        A = 10.0 ** log_A
+        st.caption(f"A = **{A:.4g}**")
+
+        B = st.slider(
+            "B  (exponent)",
+            min_value=0.15,
+            max_value=4.0,
+            value=float(min(max(float(ws.get("B", auto_B)), 0.15), 4.0)),
+            step=0.01,
+            key=f"{state_key}_B_{ver}",
+            help="Control shape. ~1.5–2.5 is common for open channels.",
+        )
+
+        H0 = 0.0
+        if use_offset:
+            H_min = float(stage.min())
+            H_max = float(stage.max())
+            h0_hi = H_min - 0.01
+            span = max(H_max - H_min, 0.5)
+            h0_lo = min(H_min - span - 2.0, h0_hi - 0.5)
+            h0_default = float(min(max(float(ws.get("H0", auto_H0)), h0_lo), h0_hi))
+            H0 = st.slider(
+                "H₀  (zero-flow stage, ft)",
+                min_value=float(h0_lo),
+                max_value=float(h0_hi),
+                value=h0_default,
+                step=0.01,
+                key=f"{state_key}_H0_{ver}",
+                help="Stage of zero discharge. Raising H₀ steepens the low end.",
+            )
+        ws["A"] = A
+        ws["B"] = B
+        ws["H0"] = H0
+
+        b1, b2 = st.columns(2)
+        with b1:
+            if st.button("↩ Auto-fit", key=f"{state_key}_reset", use_container_width=True):
+                ws["A"] = auto_A
+                ws["B"] = auto_B
+                ws["H0"] = auto_H0
+                ws["use_offset"] = abs(auto_H0) > 1e-6 or auto.get("model") == "offset_powerlaw"
+                ws["ver"] = ver + 1
+                st.rerun()
+        with b2:
+            st.caption(f"Auto: `{auto_eq}`")
+
+        scored = evaluate_rating_params(stage, discharge, A, B, H0)
+        m1, m2, m3, m4 = st.columns(4)
+        r2 = scored.get("R2")
+        rmse = scored.get("rmse")
+        nse = scored.get("nash_sutcliffe")
+        bias = scored.get("bias")
+        m1.metric("R²", f"{r2:.3f}" if pd.notna(r2) else "—")
+        m2.metric("RMSE", f"{rmse:,.0f}" if pd.notna(rmse) else "—", help="cfs")
+        m3.metric("NSE", f"{nse:.3f}" if pd.notna(nse) else "—")
+        m4.metric(
+            "Bias",
+            f"{bias:+,.0f}" if pd.notna(bias) else "—",
+            help="Mean (Q_fit − Q_obs) cfs",
+        )
+
+        if pd.notna(r2) and pd.notna(auto_r2):
+            delta = r2 - auto_r2
+            if delta >= 0.005:
+                st.success(f"Your fit beats auto-fit by **ΔR² = {delta:+.3f}**")
+            elif delta <= -0.02:
+                st.warning(f"Auto-fit is stronger (ΔR² = {delta:+.3f}). Try ↩ Auto-fit.")
+            else:
+                st.info(f"Close to auto-fit (ΔR² = {delta:+.3f})")
+
+        st.markdown(f"**Equation:** `{scored.get('equation', '—')}`")
+        st.caption(
+            f"{scored.get('n_points', 0):,} pairs · "
+            "Daily mean Q (00060) vs stage (00065) — empirical consistency check, "
+            "not a survey-grade rating table."
+        )
+
+    with c_right:
+        color_by = st.radio(
+            "Color points",
+            options=["season", "year"],
+            format_func=lambda x: "Season (DJF/MAM/JJA/SON)" if x == "season" else "Year",
+            horizontal=True,
+            key=f"{state_key}_color",
+        )
+        show_resid = st.checkbox("Show residuals", value=True, key=f"{state_key}_resid")
+        default_log = bool((discharge.max() / max(float(discharge.min()), 1e-9)) >= 40)
+        log_q = st.checkbox("Log discharge axis", value=default_log, key=f"{state_key}_logq")
+
+        fig = interactive_rating_curve(
+            df_q,
+            A=A,
+            B=B,
+            H0=H0,
+            title=f"{site_desc} — rating workshop",
+            show_auto_fit=True,
+            auto_fit=auto,
+            show_residuals=show_resid,
+            log_q=bool(log_q),
+            color_by=color_by,
+        )
+        st.plotly_chart(fig, width="stretch", key=f"plotly_rating_{site_id}")
 
 
 def _render_analysis_readiness(data, has_stage: bool, climate_info):
@@ -276,6 +468,10 @@ def show():
         st.markdown(
             build_interactive_chart_brief(data.get("df_q"), data.get("df_merged"))
         )
+
+    # ── Interactive rating-curve workshop ──
+    if has_stage:
+        _render_rating_curve_workshop(data["df_q"], site_id=site_id, site_desc=desc)
 
     # CSV download
     render_data_download(data['df_q'], filename_prefix=site_id)
