@@ -19,6 +19,63 @@ from ..core.logging_setup import get_logger
 logger = get_logger(__name__)
 
 
+def _discharge_yaxis_layout(values, title: str = "Discharge (cfs)") -> dict:
+    """Build a Plotly y-axis config that fits the data instead of a fixed log span.
+
+    Uses log only when the positive data truly spans multiple orders of magnitude.
+    Otherwise linear with padding so moderate-range FDCs/hydrographs are readable.
+    """
+    arr = np.asarray(values, dtype=float)
+    arr = arr[np.isfinite(arr)]
+    if arr.size == 0:
+        return {"title": title, "type": "linear", "rangemode": "tozero"}
+
+    pos = arr[arr > 0]
+    if pos.size == 0:
+        # All non-positive — stay linear and pin near zero
+        lo, hi = float(np.min(arr)), float(np.max(arr))
+        if lo == hi:
+            pad = abs(lo) * 0.1 + 1.0
+            return {"title": title, "type": "linear", "range": [lo - pad, hi + pad]}
+        pad = (hi - lo) * 0.08
+        return {"title": title, "type": "linear", "range": [lo - pad, hi + pad]}
+
+    # Use robust high/low so a few zeros or spikes do not crush the scale
+    q_lo = float(np.nanpercentile(pos, 1))
+    q_hi = float(np.nanpercentile(pos, 99.5))
+    q_lo = max(q_lo, float(np.min(pos)))
+    q_hi = max(q_hi, float(np.max(pos)), q_lo * 1.01)
+    span_ratio = q_hi / max(q_lo, 1e-9)
+
+    # Multi-order FDC (flashy basins): log, but clamp range to the data envelope
+    if span_ratio >= 40 and q_lo > 0:
+        log_lo = np.log10(max(q_lo * 0.85, 1e-3))
+        log_hi = np.log10(q_hi * 1.15)
+        if log_hi <= log_lo:
+            log_hi = log_lo + 0.5
+        return {
+            "title": title,
+            "type": "log",
+            "range": [log_lo, log_hi],
+            "tickformat": "~s",
+            "exponentformat": "power",
+        }
+
+    # Typical moderate range: linear, data-driven
+    lo = float(np.min(arr[arr >= 0])) if np.any(arr >= 0) else float(np.min(arr))
+    hi = float(np.max(arr))
+    if hi <= lo:
+        pad = abs(hi) * 0.1 + 1.0
+        return {"title": title, "type": "linear", "range": [max(0.0, lo - pad), hi + pad]}
+    pad = (hi - lo) * 0.08
+    return {
+        "title": title,
+        "type": "linear",
+        "range": [max(0.0, lo - pad), hi + pad],
+        "rangemode": "tozero" if lo >= 0 and lo < hi * 0.05 else "normal",
+    }
+
+
 def interactive_hydrograph(
     df_q: pd.DataFrame,
     df_hist: pd.DataFrame = None,
@@ -117,11 +174,11 @@ def interactive_hydrograph(
         hovertemplate='%{x|%Y-%m-%d}<br>%{y:,.0f} cfs<extra></extra>'
     ))
 
+    yaxis = _discharge_yaxis_layout(q_series.values)
     fig.update_layout(
         title=title,
         xaxis_title="Date",
-        yaxis_title="Discharge (cfs)",
-        yaxis_type="log",
+        yaxis=yaxis,
         height=450,
         hovermode='x unified',
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
@@ -163,6 +220,7 @@ def interactive_fdc(
         return fig
 
     q = df_q[discharge_col].dropna().sort_index()
+    y_for_scale = np.asarray(q.values, dtype=float)
 
     if color_by_dqdt and len(q) > 2:
         # Calculate dQ/dt (rate of change)
@@ -179,6 +237,7 @@ def interactive_fdc(
         conditions_sorted = conditions[sorted_idx]
         n = len(q_sorted)
         exceedance = np.arange(1, n + 1) / (n + 1) * 100
+        y_for_scale = np.asarray(q_sorted, dtype=float)
 
         fig = go.Figure()
 
@@ -212,6 +271,7 @@ def interactive_fdc(
                               x=0.5, y=0.5, showarrow=False)
             return fig
 
+        y_for_scale = np.asarray(fdc["discharge"].values, dtype=float)
         fig = go.Figure()
         fig.add_trace(go.Scatter(
             x=fdc['exceedance_pct'], y=fdc['discharge'],
@@ -220,19 +280,27 @@ def interactive_fdc(
             hovertemplate='Exceedance: %{x:.1f}%<br>Flow: %{y:,.0f} cfs<extra></extra>'
         ))
 
-    # Add reference lines for key percentiles
+    # Add reference lines for key percentiles (use same scale as curve)
     if not q.empty:
-        for pct, label in [(10, 'Q10'), (50, 'Q50'), (90, 'Q90')]:
-            q_val = np.percentile(q.values, 100 - pct)
-            fig.add_hline(y=q_val, line_dash="dash", line_color="gray",
-                         annotation_text=f"{label}: {q_val:,.0f}", annotation_position="right",
-                         line_width=1, opacity=0.5)
+        for pct, label in [(10, "Q10"), (50, "Q50"), (90, "Q90")]:
+            q_val = float(np.percentile(q.values, 100 - pct))
+            if q_val <= 0:
+                continue
+            fig.add_hline(
+                y=q_val,
+                line_dash="dash",
+                line_color="gray",
+                annotation_text=f"{label}: {q_val:,.0f}",
+                annotation_position="right",
+                line_width=1,
+                opacity=0.5,
+            )
 
+    yaxis = _discharge_yaxis_layout(y_for_scale)
     fig.update_layout(
         title=title,
         xaxis_title="Exceedance Probability (%)",
-        yaxis_title="Discharge (cfs)",
-        yaxis_type="log",
+        yaxis=yaxis,
         xaxis=dict(range=[0, 100]),
         height=450,
         margin=dict(l=60, r=80, t=60, b=40),
