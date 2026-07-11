@@ -18,7 +18,12 @@ from hydrology.app.styles import (
     render_site_header, render_availability_badges, render_metric_cards,
     render_plot_capability_board, render_insight_board
 )
-from hydrology.app.interpretation import summarize_flow_context, summarize_recommendations
+from hydrology.app.interpretation import (
+    summarize_flow_context,
+    summarize_recommendations,
+    build_plot_analysis_report,
+    build_interactive_chart_brief,
+)
 from hydrology.app.plot_config import SINGLE_SITE_PLOTS, resolve_generated_plots
 from hydrology.app.page_modules.indicators import render_site_indicators
 from hydrology.visualization import create_multi_plot, PlotLayout
@@ -265,6 +270,11 @@ def show():
         color_by_dqdt=koehler)
     st.plotly_chart(fig_fdc, width="stretch", key="plotly_fdc")
 
+    # Plain-language read of interactive charts
+    with st.container():
+        st.markdown("##### What these interactive charts are saying")
+        st.markdown(build_interactive_chart_brief(data.get("df_q")))
+
     # CSV download
     render_data_download(data['df_q'], filename_prefix=site_id)
 
@@ -434,3 +444,25 @@ def show():
                 st.pyplot(fig)
                 render_export_buttons(fig, site_id, dpi)
                 plt.close(fig)
+
+                # Text analysis of the data behind the generated plots
+                st.markdown("---")
+                st.subheader("Automated plot analysis")
+                st.caption(
+                    "Plain-language screening narrative from the selected period and plot set."
+                )
+                report = build_plot_analysis_report(
+                    site_id=site_id,
+                    site_desc=desc,
+                    plot_keys=static_plots,
+                    df_q=data.get("df_q"),
+                    df_merged=data.get("df_merged"),
+                )
+                st.markdown(report)
+                st.download_button(
+                    "Download analysis as Markdown",
+                    data=report,
+                    file_name=f"{site_id}_plot_analysis.md",
+                    mime="text/markdown",
+                    key=f"dl_plot_analysis_{site_id}",
+                )

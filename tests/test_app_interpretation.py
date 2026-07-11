@@ -42,3 +42,33 @@ def test_describe_standardized_index_explains_dry_and_normal_values():
     assert "drier" in dry_body
     assert normal_label == "Near normal"
     assert "historical middle range" in normal_body
+
+
+def test_build_plot_analysis_report_covers_core_sections():
+    from hydrology.app.interpretation import build_plot_analysis_report
+
+    index = pd.date_range("2015-01-01", periods=365 * 5, freq="D")
+    # Seasonal signal: higher in spring
+    q = []
+    for ts in index:
+        base = 50 + 200 * (1 if ts.month in (3, 4, 5) else 0.2)
+        q.append(base)
+    df = pd.DataFrame({"Discharge_cfs": q}, index=index)
+    df["Gage_Height_ft"] = 2 + df["Discharge_cfs"] ** 0.3 / 10
+    merged = df.copy()
+    merged["Precip_mm"] = 1.0
+    merged["Temp_C"] = 10.0
+
+    report = build_plot_analysis_report(
+        site_id="14018500",
+        site_desc="WALLA WALLA RIVER NEAR TOUCHET, WA",
+        plot_keys=["timeseries", "flow_duration", "rating_curve"],
+        df_q=df,
+        df_merged=merged,
+    )
+
+    assert "14018500" in report
+    assert "Flow duration" in report
+    assert "Seasonal pattern" in report
+    assert "Climate" in report
+    assert "Plots generated" in report

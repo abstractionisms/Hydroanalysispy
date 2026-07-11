@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Iterable
 
+import numpy as np
 import pandas as pd
 
 
@@ -20,6 +22,16 @@ def _flow_column(df: pd.DataFrame) -> str | None:
         if col in df.columns:
             return col
     return df.columns[0] if len(df.columns) else None
+
+
+def _series(df: pd.DataFrame | None, col: str | None = None) -> pd.Series:
+    if df is None or df.empty:
+        return pd.Series(dtype=float)
+    use = col or _flow_column(df)
+    if not use or use not in df.columns:
+        return pd.Series(dtype=float)
+    s = pd.to_numeric(df[use], errors="coerce").dropna()
+    return s[s >= 0]
 
 
 def _status_from_percentile(percentile: float | None) -> tuple[str, str]:
@@ -179,3 +191,253 @@ def describe_standardized_index(value: float | None) -> tuple[str, str]:
     if value < 2:
         return "Very wet signal", "Values above 1.3 are materially wetter than normal."
     return "Exceptional wet signal", "Values above 2 are rare and indicate very wet or high-flow conditions."
+
+
+def _percentile_label(p: float) -> str:
+    if p >= 90:
+        return "much higher than usual"
+    if p >= 75:
+        return "higher than usual"
+    if p >= 25:
+        return "near the middle of the record"
+    if p >= 10:
+        return "lower than usual"
+    return "much lower than usual"
+
+
+def summarize_flow_duration(df_q: pd.DataFrame | None) -> str:
+    """Plain-language flow-duration / regime summary from daily Q."""
+    s = _series(df_q)
+    if s.empty or len(s) < 30:
+        return "Not enough discharge values to characterize flow duration."
+
+    q10 = float(np.percentile(s, 90))  # high flow exceeded ~10% of time
+    q50 = float(np.percentile(s, 50))
+    q90 = float(np.percentile(s, 10))  # low flow exceeded ~90% of time
+    mean = float(s.mean())
+    # Flashiness-ish: high/low ratio
+    ratio = q10 / max(q90, 1e-6)
+    if ratio >= 50:
+        regime = "flashy / high-contrast"
+        regime_note = (
+            "High flows dwarf low flows (Q10/Q90 is large), so the stream swings "
+            "between wet-season peaks and sustained low baseflow."
+        )
+    elif ratio >= 15:
+        regime = "moderately variable"
+        regime_note = (
+            "There is a clear high-flow season and a quieter low-flow season, "
+            "but extremes are not extreme for all rivers."
+        )
+    else:
+        regime = "relatively steady"
+        regime_note = (
+            "High and low ends of the duration curve are closer together, "
+            "suggesting more regulated or baseflow-supported behavior."
+        )
+
+    return (
+        f"**Flow duration / regime ({regime}):** "
+        f"median daily flow is about **{q50:,.0f} cfs**, with high-flow (Q10) near "
+        f"**{q10:,.0f} cfs** and low-flow (Q90) near **{q90:,.0f} cfs** "
+        f"(mean **{mean:,.0f} cfs**). {regime_note}"
+    )
+
+
+def summarize_seasonal_pattern(df_q: pd.DataFrame | None) -> str:
+    """Seasonal mean-flow contrast from daily Q."""
+    s = _series(df_q)
+    if s.empty or len(s) < 90:
+        return "Not enough data for a seasonal pattern summary."
+
+    months = s.index.month
+    buckets = {
+        "winter (DJF)": s[np.isin(months, [12, 1, 2])],
+        "spring (MAM)": s[np.isin(months, [3, 4, 5])],
+        "summer (JJA)": s[np.isin(months, [6, 7, 8])],
+        "fall (SON)": s[np.isin(months, [9, 10, 11])],
+    }
+    means = {k: float(v.mean()) for k, v in buckets.items() if len(v) >= 10}
+    if len(means) < 2:
+        return "Seasonal contrast could not be estimated for this period."
+
+    wettest = max(means, key=means.get)
+    driest = min(means, key=means.get)
+    wet_v, dry_v = means[wettest], means[driest]
+    factor = wet_v / max(dry_v, 1e-6)
+    return (
+        f"**Seasonal pattern:** average daily flow is highest in **{wettest}** "
+        f"(~{wet_v:,.0f} cfs) and lowest in **{driest}** (~{dry_v:,.0f} cfs) — "
+        f"about **{factor:.1f}×** higher in the wetter season. "
+        "Use monthly boxplots / heatmaps to see timing of the high-flow pulse."
+    )
+
+
+def summarize_climate_merged(df_merged: pd.DataFrame | None) -> str:
+    """Climate linkage when precip/temp are merged to discharge."""
+    if df_merged is None or df_merged.empty:
+        return (
+            "**Climate:** no merged temperature/precipitation for this site and period "
+            "(Open-Meteo/Meteostat may still work for SPI separately)."
+        )
+
+    parts = []
+    if "Precip_mm" in df_merged.columns:
+        p = pd.to_numeric(df_merged["Precip_mm"], errors="coerce").dropna()
+        if not p.empty:
+            annual = p.resample("YE").sum()
+            mean_ann = float(annual.mean()) if len(annual) else float(p.sum() / max(len(p) / 365.25, 1))
+            wet_days = float((p > 1.0).mean() * 100)
+            parts.append(
+                f"mean annual precip ~**{mean_ann:,.0f} mm**, "
+                f"with precip >1 mm on about **{wet_days:.0f}%** of days"
+            )
+    if "Temp_C" in df_merged.columns:
+        t = pd.to_numeric(df_merged["Temp_C"], errors="coerce").dropna()
+        if not t.empty:
+            parts.append(
+                f"mean temp **{float(t.mean()):.1f}°C** "
+                f"(range {float(t.min()):.1f}–{float(t.max()):.1f}°C)"
+            )
+    if not parts:
+        return "**Climate:** merged frame present but precip/temp columns were empty."
+    return "**Climate (merged to streamflow days):** " + "; ".join(parts) + "."
+
+
+def summarize_rating_curve(df_q: pd.DataFrame | None) -> str:
+    """Text summary of stage–discharge fit when gage height is present."""
+    if df_q is None or df_q.empty:
+        return ""
+    if "Gage_Height_ft" not in df_q.columns or "Discharge_cfs" not in df_q.columns:
+        return ""
+    try:
+        from hydrology.analysis.stage_discharge import fit_best_rating_curve
+    except Exception:
+        return ""
+
+    stage = pd.to_numeric(df_q["Gage_Height_ft"], errors="coerce")
+    q = pd.to_numeric(df_q["Discharge_cfs"], errors="coerce")
+    fit = fit_best_rating_curve(stage, q, min_points=10)
+    if fit.get("model") == "none" or not np.isfinite(fit.get("R2", np.nan)):
+        return (
+            "**Rating curve:** stage is present but a stable Q–H fit could not be "
+            "estimated (need enough positive pairs)."
+        )
+    r2 = fit["R2"]
+    quality = "strong" if r2 >= 0.9 else "moderate" if r2 >= 0.7 else "weak"
+    note = ""
+    if fit["model"] == "offset_powerlaw":
+        note = (
+            f" An offset stage H₀≈{fit['H0']:.2f} ft was needed — common when gage "
+            "zero is not the zero-flow control elevation."
+        )
+    return (
+        f"**Stage–discharge rating:** best model is `{fit['equation']}` "
+        f"with **R²={r2:.3f}** ({quality} fit, n={fit['n_points']:,}).{note} "
+        "Points often show seasonal loops (rising vs falling limb / vegetation / ice)."
+    )
+
+
+def summarize_selected_plots(plot_keys: Iterable[str]) -> str:
+    """Explain what the selected plot set is good for."""
+    keys = [str(k) for k in plot_keys]
+    if not keys:
+        return "No static plots were selected."
+
+    themes = []
+    if any(k in keys for k in ("timeseries", "anomaly", "monthly_boxplot", "discharge_heatmap")):
+        themes.append("time patterns and seasonality")
+    if any(k in keys for k in ("flow_duration", "low_flow_trend", "7q10_analysis")):
+        themes.append("low-flow / duration behavior")
+    if any(k in keys for k in ("flood_frequency", "annual_trend")):
+        themes.append("peaks and long-term change")
+    if any(k in keys for k in ("rating_curve",)):
+        themes.append("stage–discharge relationship")
+    if any("precip" in k or "temp" in k or "climate" in k or "lag" in k or "hexbin" in k for k in keys):
+        themes.append("climate–streamflow links")
+    if not themes:
+        themes.append("general site diagnostics")
+
+    pretty = ", ".join(keys[:8]) + ("…" if len(keys) > 8 else "")
+    return (
+        f"**Plots generated ({len(keys)}):** {pretty}. "
+        f"Together they emphasize {', '.join(themes)}."
+    )
+
+
+def build_plot_analysis_report(
+    *,
+    site_id: str,
+    site_desc: str,
+    plot_keys: list[str] | tuple[str, ...],
+    df_q: pd.DataFrame | None,
+    df_merged: pd.DataFrame | None = None,
+) -> str:
+    """
+    Full markdown narrative after static plot generation.
+
+    Combines record stats, duration/regime, seasons, climate, and rating notes
+    so the user gets a text explanation next to the figure grid.
+    """
+    s = _series(df_q)
+    lines: list[str] = [
+        f"### Automated read — {site_desc}",
+        f"USGS **{site_id}** · generated from the selected period and plot set.",
+        "",
+    ]
+
+    if s.empty:
+        lines.append("No usable discharge series was available for this explanation.")
+        return "\n".join(lines)
+
+    years = (s.index.max() - s.index.min()).days / 365.25
+    latest = float(s.iloc[-1])
+    latest_date = s.index.max()
+    # Seasonal percentile for latest
+    doy = latest_date.dayofyear
+    seasonal = s[(s.index.dayofyear >= doy - 15) & (s.index.dayofyear <= doy + 15)]
+    baseline = seasonal if len(seasonal) >= 30 else s
+    pct = float((baseline < latest).mean() * 100) if len(baseline) else None
+
+    lines.append(
+        f"**Record:** {len(s):,} daily values spanning **{years:.1f} years** "
+        f"({s.index.min():%Y-%m-%d} → {s.index.max():%Y-%m-%d})."
+    )
+    if pct is not None:
+        lines.append(
+            f"**Latest flow:** **{latest:,.0f} cfs** on {latest_date:%Y-%m-%d} — "
+            f"about the **{pct:.0f}th percentile** for this time of year "
+            f"({_percentile_label(pct)})."
+        )
+    lines.append("")
+    lines.append(summarize_selected_plots(plot_keys))
+    lines.append("")
+    lines.append(summarize_flow_duration(df_q))
+    lines.append("")
+    lines.append(summarize_seasonal_pattern(df_q))
+    lines.append("")
+    lines.append(summarize_climate_merged(df_merged))
+    rating = summarize_rating_curve(df_q)
+    if rating:
+        lines.append("")
+        lines.append(rating)
+
+    lines.append("")
+    lines.append(
+        "_This is an automated screening narrative from the plotted data — not a formal "
+        "hydrologic design report. Verify peaks, ice, regulation, and rating shifts "
+        "before engineering use._"
+    )
+    return "\n".join(lines)
+
+
+def build_interactive_chart_brief(df_q: pd.DataFrame | None) -> str:
+    """Shorter narrative under auto-loaded interactive hydrograph + FDC."""
+    s = _series(df_q)
+    if s.empty:
+        return "Interactive charts loaded without discharge values to summarize."
+    parts = [
+        summarize_flow_duration(df_q),
+        summarize_seasonal_pattern(df_q),
+    ]
+    return "\n\n".join(parts)
