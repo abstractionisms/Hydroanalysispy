@@ -25,7 +25,11 @@ from hydrology.data.usgs import (
     fetch_instantaneous_values, DEFAULT_PARAM_DISCHARGE, DEFAULT_PARAM_STAGE,
     fetch_current_conditions, fetch_daily_percentiles, classify_condition
 )
-from hydrology.data.climate import fetch_climate_data, fetch_nearest_station_info
+from hydrology.data.climate import (
+    fetch_climate_data,
+    fetch_nearest_station_info,
+    fetch_open_meteo_climate,
+)
 from hydrology.data.nwm import NWMClient, compare_nwm_usgs, get_forecast_skill
 from hydrology.analysis.alerts import (
     AlertMonitor, AlertThreshold, create_flood_alert, create_low_flow_alert
@@ -391,19 +395,52 @@ def fetch_climate_cached_result(
     """Fetch normalized climate data with source metadata.
 
     Order of preference (reliability-first for SPI/dashboard):
-      1. Meteostat nearest station (no special auth, fast)
-      2. Daymet watershed grid (needs NASA Earthdata; often 401 without it)
+      1. Open-Meteo Historical (no key, gridded, strong modern coverage)
+      2. Meteostat multi-station fallback (skips dead nearest stations)
+      3. Daymet (needs NASA Earthdata; optional)
 
-    Set HYDRO_PREFER_DAYMET=1 to try Daymet first when credentials exist.
+    Set HYDRO_PREFER_DAYMET=1 to try Daymet earlier when credentials exist.
     """
     import os
 
-    start_dt = datetime.strptime(start_str, '%Y-%m-%d')
-    end_dt = datetime.strptime(end_str, '%Y-%m-%d')
+    start_dt = datetime.strptime(start_str, "%Y-%m-%d")
+    end_dt = datetime.strptime(end_str, "%Y-%m-%d")
 
     prefer_daymet = os.environ.get("HYDRO_PREFER_DAYMET", "").strip().lower() in (
-        "1", "true", "yes", "on",
+        "1",
+        "true",
+        "yes",
+        "on",
     )
+
+    def _try_open_meteo():
+        try:
+            om = fetch_open_meteo_climate(lat, lon, start_str, end_str)
+            normalized = normalize_climate_columns(om)
+            if normalized is None or normalized.empty:
+                return None
+            # Drop unused columns if only precip/temp requested
+            cols = []
+            if include_temp and "Temp_C" in normalized.columns:
+                cols.append("Temp_C")
+            if include_precip and "Precip_mm" in normalized.columns:
+                cols.append("Precip_mm")
+            if not cols:
+                return None
+            data = normalized[cols]
+            return {
+                "data": data,
+                "source": "Open-Meteo",
+                "message": (
+                    "Loaded gridded Open-Meteo historical climate at the gage location "
+                    "(no station gap / no API key)."
+                ),
+                "station_name": "Open-Meteo grid",
+                "station_distance_km": 0.0,
+            }
+        except Exception as e:
+            logger.info(f"Open-Meteo unavailable for {site_id or (lat, lon)}: {e}")
+            return None
 
     def _try_daymet():
         if not site_id:
@@ -444,7 +481,7 @@ def fetch_climate_cached_result(
         if station_climate is not None and not station_climate.empty:
             station = None
             try:
-                station = fetch_nearest_station_info(lat, lon)
+                station = fetch_nearest_station_info(lat, lon, prefer_recent=True)
             except Exception:
                 pass
             dist = None
@@ -452,7 +489,7 @@ def fetch_climate_cached_result(
             if station:
                 dist = station.get("distance_km")
                 name = station.get("name")
-            msg = "Loaded climate data from the nearest Meteostat station."
+            msg = "Loaded climate data from a Meteostat station with period coverage."
             if name and dist is not None:
                 msg = (
                     f"Loaded Meteostat station “{name}” "
@@ -469,17 +506,20 @@ def fetch_climate_cached_result(
             }
         return None
 
-    # Prefer Daymet only when asked AND credentials exist (otherwise it is a slow 401).
     if prefer_daymet:
         daymet_result = _try_daymet()
         if daymet_result:
             return daymet_result
 
+    # Primary: Open-Meteo (fixes sites where nearest Meteostat station is historical-only)
+    om = _try_open_meteo()
+    if om:
+        return om
+
     meteo = _try_meteostat()
     if meteo:
         return meteo
 
-    # Last resort Daymet (may still 401 without Earthdata)
     daymet_result = _try_daymet()
     if daymet_result:
         return daymet_result
@@ -488,8 +528,8 @@ def fetch_climate_cached_result(
         "data": None,
         "source": "Unavailable",
         "message": (
-            "Could not load climate data. Daymet needs NASA Earthdata login; "
-            "Meteostat had no usable series for this location/date range."
+            "Could not load climate data from Open-Meteo, Meteostat, or Daymet "
+            "for this site and date range."
         ),
     }
 
