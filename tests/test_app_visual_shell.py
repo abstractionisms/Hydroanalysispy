@@ -22,6 +22,13 @@ def test_visual_system_avoids_sidebar_first_language():
     assert "sidebar is not the primary" in text
 
 
+def test_styles_include_tile_hover_tooltips():
+    text = (ROOT / "hydrology/app/styles.py").read_text(encoding="utf-8")
+    assert ".tile-tip" in text
+    assert "def _tile_tip_html" in text
+    assert "section: str = \"all\"" in text or 'section: str = "all"' in text
+
+
 def test_styles_include_premium_motion_and_reduced_motion_guard():
     """New fluid/animated premium polish (inspired by modern award-winning web UIs)
     must be present in the CSS system and guarded for accessibility.

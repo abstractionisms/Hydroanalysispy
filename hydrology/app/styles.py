@@ -385,6 +385,7 @@ def apply_custom_css():
     }
 
     .plot-card {
+        position: relative;
         border: 1px solid rgba(125, 170, 200, 0.14);
         border-radius: var(--hydro-radius-sm);
         padding: 0.78rem 0.85rem;
@@ -396,6 +397,7 @@ def apply_custom_css():
                     border-color 0.16s ease;
         animation: cardPop 0.22s ease-out both;
         will-change: transform;
+        cursor: help;
     }
 
     .plot-card.ready {
@@ -405,6 +407,7 @@ def apply_custom_css():
     .plot-card:hover {
         transform: translateY(-2px);
         box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255,255,255,0.04);
+        z-index: 20;
     }
 
     .plot-card.limited {
@@ -452,6 +455,56 @@ def apply_custom_css():
         color: #f87171;
     }
 
+    .plot-card .tile-info {
+        position: absolute;
+        top: 0.45rem;
+        right: 0.5rem;
+        width: 1.05rem;
+        height: 1.05rem;
+        border-radius: 999px;
+        border: 1px solid rgba(78, 205, 196, 0.45);
+        color: var(--hydro-accent);
+        font-size: 0.62rem;
+        font-weight: 800;
+        line-height: 1.05rem;
+        text-align: center;
+        opacity: 0.75;
+    }
+
+    .tile-tip {
+        display: none;
+        position: absolute;
+        left: 0.35rem;
+        right: 0.35rem;
+        bottom: calc(100% + 8px);
+        z-index: 40;
+        padding: 0.65rem 0.75rem;
+        border-radius: 10px;
+        background: rgba(8, 16, 28, 0.97);
+        border: 1px solid rgba(78, 205, 196, 0.35);
+        box-shadow: 0 14px 32px rgba(0, 0, 0, 0.45);
+        color: #e7eef7;
+        font-size: 0.74rem;
+        line-height: 1.35;
+        white-space: normal;
+        pointer-events: none;
+    }
+
+    .tile-tip::after {
+        content: "";
+        position: absolute;
+        left: 1.1rem;
+        top: 100%;
+        border: 6px solid transparent;
+        border-top-color: rgba(78, 205, 196, 0.35);
+    }
+
+    .plot-card:hover .tile-tip,
+    .insight-card:hover .tile-tip {
+        display: block;
+        animation: fadeInUp 0.12s ease-out both;
+    }
+
     .insight-board {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -460,6 +513,7 @@ def apply_custom_css():
     }
 
     .insight-card {
+        position: relative;
         background: rgba(12, 22, 36, 0.92);
         border: 1px solid rgba(125, 170, 200, 0.14);
         border-radius: var(--hydro-radius);
@@ -470,6 +524,7 @@ def apply_custom_css():
                     border-color 0.16s ease;
         animation: fadeInUp 0.22s ease-out both;
         will-change: transform;
+        cursor: help;
     }
 
     .insight-card.ready {
@@ -479,6 +534,23 @@ def apply_custom_css():
     .insight-card:hover {
         transform: translateY(-2px);
         box-shadow: 0 12px 28px rgba(0, 0, 0, 0.26);
+        z-index: 20;
+    }
+
+    .insight-card .tile-info {
+        position: absolute;
+        top: 0.5rem;
+        right: 0.55rem;
+        width: 1.05rem;
+        height: 1.05rem;
+        border-radius: 999px;
+        border: 1px solid rgba(78, 205, 196, 0.45);
+        color: var(--hydro-accent);
+        font-size: 0.62rem;
+        font-weight: 800;
+        line-height: 1.05rem;
+        text-align: center;
+        opacity: 0.75;
     }
 
     .insight-card.limited {
@@ -1064,19 +1136,32 @@ def render_action_cards(cards: list[dict]):
     st.markdown('<div class="action-card-grid">' + "".join(html) + "</div>", unsafe_allow_html=True)
 
 
+def _tile_tip_html(help_text: str | None) -> str:
+    """Optional hover popup markup for HTML tiles."""
+    if not help_text:
+        return ""
+    tip = escape(str(help_text))
+    return (
+        f'<span class="tile-info" aria-hidden="true" title="Hover for more">i</span>'
+        f'<div class="tile-tip" role="tooltip">{tip}</div>'
+    )
+
+
 def render_plot_capability_board(cards: list[dict]):
-    """Render compact plot capability cards."""
+    """Render compact plot capability cards with optional hover help."""
     if not cards:
         return
 
     html_cards = []
     for card in cards:
-        state = card.get("state", "ready")
-        title = card.get("title", "Plot")
-        body = card.get("body", "")
-        status = card.get("status", "Ready")
+        state = escape(str(card.get("state", "ready")))
+        title = escape(str(card.get("title", "Plot")))
+        body = escape(str(card.get("body", "")))
+        status = escape(str(card.get("status", "Ready")))
+        tip = _tile_tip_html(card.get("help") or card.get("tip"))
         html_cards.append(
             f'<div class="plot-card {state}">'
+            f"{tip}"
             f"<strong>{title}</strong>"
             f"<span>{body}</span>"
             f'<div class="status">{status}</div>'
@@ -1087,24 +1172,36 @@ def render_plot_capability_board(cards: list[dict]):
         '<div class="plot-board">' + "".join(html_cards) + "</div>",
         unsafe_allow_html=True,
     )
+    st.caption("Hover a tile (or the **i**) for more detail.")
 
 
 def render_insight_board(cards):
-    """Render data interpretation cards."""
+    """Render data interpretation cards with optional hover help."""
     if not cards:
         return
 
     html_cards = []
     for card in cards:
-        state = getattr(card, "state", "ready")
-        title = getattr(card, "title", "")
-        value = getattr(card, "value", "")
-        body = getattr(card, "body", "")
+        if isinstance(card, dict):
+            state = card.get("state", "ready")
+            title = card.get("title", "")
+            value = card.get("value", "")
+            body = card.get("body", "")
+            help_text = card.get("help") or card.get("tip") or ""
+        else:
+            state = getattr(card, "state", "ready")
+            title = getattr(card, "title", "")
+            value = getattr(card, "value", "")
+            body = getattr(card, "body", "")
+            help_text = getattr(card, "help", "") or getattr(card, "tip", "") or ""
+
+        tip = _tile_tip_html(help_text)
         html_cards.append(
-            f'<div class="insight-card {state}">'
-            f'<div class="label">{title}</div>'
-            f'<div class="value">{value}</div>'
-            f'<div class="body">{body}</div>'
+            f'<div class="insight-card {escape(str(state))}">'
+            f"{tip}"
+            f'<div class="label">{escape(str(title))}</div>'
+            f'<div class="value">{escape(str(value))}</div>'
+            f'<div class="body">{escape(str(body))}</div>'
             "</div>"
         )
 
@@ -1158,8 +1255,19 @@ def render_availability_badges(has_discharge: bool, has_stage: bool, climate_inf
     st.markdown(' '.join(badges), unsafe_allow_html=True)
 
 
-def render_metric_cards(df_q: pd.DataFrame, df_merged: pd.DataFrame = None, discharge_col: str = 'Discharge_cfs'):
-    """Render key statistics as metric cards with site-specific relevance."""
+def render_metric_cards(
+    df_q: pd.DataFrame,
+    df_merged: pd.DataFrame = None,
+    discharge_col: str = "Discharge_cfs",
+    section: str = "all",
+):
+    """Render key statistics with site-specific help tooltips.
+
+    section:
+      - ``record``: record length + data points (site header strip)
+      - ``duration``: mean/peak + Q10/Q50/Q90 (belongs with flow-duration)
+      - ``all``: both (legacy / overview)
+    """
     if df_q is None or df_q.empty:
         return
 
@@ -1173,26 +1281,43 @@ def render_metric_cards(df_q: pd.DataFrame, df_merged: pd.DataFrame = None, disc
     def _help(key: str) -> str:
         return metric_help_text(key, df_q, df_merged, discharge_col)
 
-    profile = compute_hydrologic_profile(df_q, df_merged, discharge_col)
+    show_record = section in ("all", "record")
+    show_duration = section in ("all", "duration")
+    profile = (
+        compute_hydrologic_profile(df_q, df_merged, discharge_col)
+        if show_duration or section == "all"
+        else {}
+    )
 
-    col1, col2, col3, col4 = st.columns(4)
+    if show_record:
+        if section == "record":
+            st.caption("Record coverage for the selected period (hover metrics for tips).")
+        col1, col2 = st.columns(2)
+        if hasattr(df_q.index, "min") and hasattr(df_q.index, "max"):
+            years = (df_q.index.max() - df_q.index.min()).days / 365.25
+            with col1:
+                st.metric("Record Length", f"{years:.1f} yrs", help=_help("record_length"))
+        with col2:
+            st.metric("Data Points", f"{len(df_q):,}", help=_help("data_points"))
 
-    # Record length
-    if hasattr(df_q.index, 'min') and hasattr(df_q.index, 'max'):
-        years = (df_q.index.max() - df_q.index.min()).days / 365.25
-        with col1:
-            st.metric("Record Length", f"{years:.1f} yrs", help=_help("record_length"))
-
-    # Data points
-    with col2:
-        st.metric("Data Points", f"{len(df_q):,}", help=_help("data_points"))
-
-    # Mean / peak discharge
-    if discharge_col in df_q.columns:
+    if show_duration and discharge_col in df_q.columns:
         series = pd.to_numeric(df_q[discharge_col], errors="coerce").dropna()
-        mean_q = float(series.mean()) if len(series) else float("nan")
-        max_q = float(series.max()) if len(series) else float("nan")
-        median_q = float(series.median()) if len(series) else float("nan")
+        series = series[series >= 0]
+        if len(series) == 0:
+            return
+
+        if section == "duration":
+            st.markdown("##### Duration statistics")
+            st.caption(
+                "These map to the flow-duration curve below: "
+                "**Q10** ≈ high-flow end · **Q50** median · **Q90** low-flow end. "
+                "Hover each metric for site-specific context."
+            )
+
+        mean_q = float(series.mean())
+        max_q = float(series.max())
+        median_q = float(series.median())
+        col3, col4 = st.columns(2)
         with col3:
             delta = None
             if np.isfinite(mean_q) and np.isfinite(median_q) and median_q > 0:
@@ -1201,7 +1326,7 @@ def render_metric_cards(df_q: pd.DataFrame, df_merged: pd.DataFrame = None, disc
                     delta = f"{skew_pct:+.0f}% vs median"
             st.metric(
                 "Mean Flow",
-                f"{mean_q:,.0f} cfs" if np.isfinite(mean_q) else "—",
+                f"{mean_q:,.0f} cfs",
                 delta=delta,
                 delta_color="off",
                 help=_help("mean_flow"),
@@ -1209,14 +1334,10 @@ def render_metric_cards(df_q: pd.DataFrame, df_merged: pd.DataFrame = None, disc
         with col4:
             st.metric(
                 "Peak Flow",
-                f"{max_q:,.0f} cfs" if np.isfinite(max_q) else "—",
+                f"{max_q:,.0f} cfs",
                 help=_help("peak_flow"),
             )
 
-    # Q10 / Q50 / Q90 relevance strip
-    if discharge_col in df_q.columns:
-        series = pd.to_numeric(df_q[discharge_col], errors="coerce").dropna()
-        series = series[series >= 0]
         if len(series) >= 30:
             q10 = float(np.percentile(series, 90))
             q50 = float(np.percentile(series, 50))
@@ -1229,29 +1350,31 @@ def render_metric_cards(df_q: pd.DataFrame, df_merged: pd.DataFrame = None, disc
             with c3:
                 st.metric("Q90 (low)", f"{q90:,.0f} cfs", help=_help("q90"))
 
-    card_keys = ["record_length", "data_points", "mean_flow", "peak_flow", "q10", "q50", "q90"]
-    regime_label = profile.get("regime_plain", "this period") if profile.get("ok") else "this period"
-    expander_title = f"Metric relevance — {regime_label} (this gage)"
-    with st.expander(expander_title, expanded=False):
-        if profile.get("ok"):
-            st.caption(
-                f"Tooltips and table use **this site’s** Q10/Q50/Q90, seasonality, and "
-                f"Q10/Q90≈{profile['q10_q90']:.1f} — not a static textbook blurb."
-            )
-        else:
-            st.caption("Hover any metric for a short tip, or read the full table below.")
-        rows = dynamic_metric_relevance(
-            df_q, df_merged, discharge_col=discharge_col, metric_keys=card_keys
+        card_keys = ["mean_flow", "peak_flow", "q10", "q50", "q90"]
+        if section == "all":
+            card_keys = ["record_length", "data_points"] + card_keys
+        regime_label = (
+            profile.get("regime_plain", "this period") if profile.get("ok") else "this period"
         )
-        if rows:
-            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
-        st.markdown(
-            format_metric_relevance_markdown(
-                ["spi_sri", "rating_r2"],
-                df_q=df_q,
-                df_merged=df_merged,
+        expander_title = f"What these duration stats mean — {regime_label}"
+        with st.expander(expander_title, expanded=False):
+            if profile.get("ok"):
+                st.caption(
+                    f"Site-specific: Q10/Q90≈{profile['q10_q90']:.1f}, "
+                    f"regime **{regime_label}**."
+                )
+            rows = dynamic_metric_relevance(
+                df_q, df_merged, discharge_col=discharge_col, metric_keys=card_keys
             )
-        )
+            if rows:
+                st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+            st.markdown(
+                format_metric_relevance_markdown(
+                    ["spi_sri", "rating_r2"],
+                    df_q=df_q,
+                    df_merged=df_merged,
+                )
+            )
 
 
 def render_progress_bar(current: int, total: int, text: str = "Loading..."):

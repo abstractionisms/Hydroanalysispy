@@ -15,6 +15,7 @@ class InsightCard:
     value: str
     body: str
     state: str = "ready"
+    help: str = ""
 
 
 def _flow_column(df: pd.DataFrame) -> str | None:
@@ -57,6 +58,7 @@ def summarize_flow_context(df: pd.DataFrame | None) -> list[InsightCard]:
                 "No data",
                 "Daily discharge was not available for this site and date range.",
                 "blocked",
+                help="Widen the date range or choose a gage with continuous daily discharge (00060).",
             )
         ]
 
@@ -72,6 +74,7 @@ def summarize_flow_context(df: pd.DataFrame | None) -> list[InsightCard]:
                 "No values",
                 "The selected discharge column contains no numeric values.",
                 "blocked",
+                help="The table loaded but discharge cells are empty or non-numeric for this period.",
             )
         ]
 
@@ -103,24 +106,41 @@ def summarize_flow_context(df: pd.DataFrame | None) -> list[InsightCard]:
             f"{latest_value:,.0f} cfs",
             f"Latest daily value on {latest_date:%Y-%m-%d}.",
             "ready",
+            help=(
+                "Most recent daily mean discharge in the selected window. "
+                "Compare with Seasonal Context — the same number can be high or low "
+                "depending on the time of year."
+            ),
         ),
         InsightCard(
             "Seasonal Context",
             f"{percentile:.0f}th pct." if percentile is not None else "Unknown",
             f"{status} for this time of year based on the selected historical record.",
             status_state,
+            help=(
+                "Percentile of current flow among same calendar days (±15 days) in this "
+                "record. 50th ≈ typical for the season; 90th ≈ much wetter than normal."
+            ),
         ),
         InsightCard(
             "Recent Direction",
             trend_label,
             trend_body,
             trend_state,
+            help=(
+                "Compares the last 30-day mean to the prior 30 days. Short-term only — "
+                "not a multi-year trend. Rising after storms is normal."
+            ),
         ),
         InsightCard(
             "Record Depth",
             f"{record_years:.1f} yrs",
             "Enough for trend and duration views." if record_years >= 10 else "Use caution for climate normals and frequency-style interpretation.",
             "ready" if record_years >= 10 else "limited",
+            help=(
+                "Years of daily data in the selected range. Flood frequency and climate "
+                "normals usually want 10–30+ years; short windows are fine for screening."
+            ),
         ),
     ]
 
@@ -133,6 +153,10 @@ def summarize_recommendations(has_stage: bool, has_climate: bool, record_years: 
             "Flow duration",
             "Start with flow duration and seasonal anomaly to understand normal vs unusual flow states.",
             "ready",
+            help=(
+                "The FDC and Q10/Q50/Q90 strip show how often high vs low flows occur. "
+                "Scroll to Interactive Charts → Duration statistics."
+            ),
         )
     ]
     if has_climate:
@@ -142,6 +166,10 @@ def summarize_recommendations(has_stage: bool, has_climate: bool, record_years: 
                 "Use SPI",
                 "Climate data is available, so precipitation and drought context are worth reviewing.",
                 "ready",
+                help=(
+                    "SPI tracks meteorological drought; SRI tracks runoff drought. "
+                    "Open Drought & Baseflow Indicators below the charts when ready."
+                ),
             )
         )
     else:
@@ -151,6 +179,10 @@ def summarize_recommendations(has_stage: bool, has_climate: bool, record_years: 
                 "Limited",
                 "Climate-linked plots may be incomplete until weather data can be merged.",
                 "limited",
+                help=(
+                    "No reliable precip/temp merge for this period. SPI may still fetch "
+                    "Open-Meteo, but co-plotted climate overlays will be thin."
+                ),
             )
         )
     if has_stage:
@@ -160,6 +192,10 @@ def summarize_recommendations(has_stage: bool, has_climate: bool, record_years: 
                 "Available",
                 "Stage overlay and rating-curve checks are valid for this selected period.",
                 "ready",
+                help=(
+                    "Gage height is present. Use dual-axis stage on the hydrograph and the "
+                    "Rating curve workshop to tune A, B, and H₀."
+                ),
             )
         )
     if record_years >= 10:
@@ -169,6 +205,10 @@ def summarize_recommendations(has_stage: bool, has_climate: bool, record_years: 
                 "On demand",
                 "Peak-flow frequency can be run separately without slowing the page load.",
                 "limited",
+                help=(
+                    "Annual-max flood frequency is opt-in so page load stays fast. "
+                    "Open Frequency Analysis under Advanced when you need return periods."
+                ),
             )
         )
     return cards

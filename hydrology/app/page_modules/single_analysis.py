@@ -179,13 +179,25 @@ def _render_rating_curve_workshop(
         rmse = scored.get("rmse")
         nse = scored.get("nash_sutcliffe")
         bias = scored.get("bias")
-        m1.metric("R²", f"{r2:.3f}" if pd.notna(r2) else "—")
-        m2.metric("RMSE", f"{rmse:,.0f}" if pd.notna(rmse) else "—", help="cfs")
-        m3.metric("NSE", f"{nse:.3f}" if pd.notna(nse) else "—")
+        m1.metric(
+            "R²",
+            f"{r2:.3f}" if pd.notna(r2) else "—",
+            help="Fraction of Q variance explained by the rating. ~1.0 = tight fit; <0.7 often means hysteresis, ice, or a shifted control.",
+        )
+        m2.metric(
+            "RMSE",
+            f"{rmse:,.0f}" if pd.notna(rmse) else "—",
+            help="Root-mean-square residual in cfs. Lower is better; sensitive to a few big misses at high stage.",
+        )
+        m3.metric(
+            "NSE",
+            f"{nse:.3f}" if pd.notna(nse) else "—",
+            help="Nash–Sutcliffe efficiency. 1 = perfect; 0 = no better than using mean Q; negative = worse than the mean.",
+        )
         m4.metric(
             "Bias",
             f"{bias:+,.0f}" if pd.notna(bias) else "—",
-            help="Mean (Q_fit − Q_obs) cfs",
+            help="Mean (Q_fit − Q_obs) in cfs. Positive = rating overpredicts; negative = underpredicts.",
         )
 
         if pd.notna(r2) and pd.notna(auto_r2):
@@ -250,29 +262,45 @@ def _render_analysis_readiness(data, has_stage: bool, climate_info):
             "body": f"{discharge_days:,} daily observations for hydrographs, duration curves, anomalies, and seasonal context.",
             "status": "Ready" if discharge_days else "Unavailable",
             "state": "ready" if discharge_days else "blocked",
+            "help": (
+                "Unlocks interactive hydrograph, flow-duration curve, Q10/Q50/Q90 stats, "
+                "and most static plots. If blocked, widen the date range or pick another gage."
+            ),
         },
         {
             "title": "Climate Links",
             "body": "Temperature and precipitation overlays, lag response, SPI, and correlation views.",
             "status": climate_status,
             "state": "ready" if has_climate else "limited",
+            "help": (
+                "Merged precip/temp near this gage. Ready = co-plotted climate and SPI context "
+                "are usable. Distant station = signals may lag or smear local storms."
+            ),
         },
         {
             "title": "Stage + Rating",
             "body": "Dual-axis stage overlay and stage-discharge rating curve when gage height exists.",
             "status": "Ready" if has_stage else "Needs gage height",
             "state": "ready" if has_stage else "blocked",
+            "help": (
+                "Needs daily gage height (00065). When ready, use stage overlay on the "
+                "hydrograph and the Rating curve workshop (A, B, H₀) further down the page."
+            ),
         },
         {
             "title": "Frequency",
             "body": "Flood frequency runs on demand from annual peak records so it does not slow page load.",
             "status": "On demand",
             "state": "limited",
+            "help": (
+                "Not auto-run. Open Frequency Analysis (expander) when you need return-period "
+                "estimates. Best with longer records; short periods are exploratory only."
+            ),
         },
     ]
 
     st.subheader("Analysis Readiness")
-    st.caption("Plot availability is based on the selected site, date range, and linked weather station.")
+    st.caption("What this site/period can support. Hover a tile for details.")
     render_plot_capability_board(cards)
 
 
@@ -288,7 +316,7 @@ def _render_hydrologic_summary(data, has_stage: bool, climate_info):
         record_years = (df_q.index.max() - df_q.index.min()).days / 365.25
 
     st.subheader("Hydrologic Summary")
-    st.caption("Automated context from the selected site's historical daily record.")
+    st.caption("Automated context for this period. Hover a tile (or the **i**) for more detail.")
     render_insight_board(summarize_flow_context(df_q))
 
     with st.expander("Recommended next views", expanded=False):
@@ -364,7 +392,8 @@ def show():
     has_stage = 'Gage_Height_ft' in data['df_q'].columns if data['df_q'] is not None else False
     climate_info = get_weather_station_info(float(lat), float(lon)) if lat and lon else None
     render_availability_badges(True, has_stage, climate_info)
-    render_metric_cards(data['df_q'], data['df_merged'])
+    # Record coverage only at top — duration quantiles live next to the FDC
+    render_metric_cards(data['df_q'], data['df_merged'], section="record")
 
     st.markdown("---")
     _render_hydrologic_summary(data, has_stage, climate_info)
@@ -448,6 +477,10 @@ def show():
             )
 
     st.plotly_chart(fig_hydro, width="stretch", key="plotly_hydro")
+
+    # Duration stats sit with the FDC (not at page top)
+    st.markdown("---")
+    render_metric_cards(data["df_q"], data.get("df_merged"), section="duration")
 
     # Flow Duration Curve
     koehler = st.checkbox(

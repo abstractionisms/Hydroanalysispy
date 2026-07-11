@@ -16,6 +16,7 @@ def test_summarize_flow_context_includes_current_and_record_depth():
     assert cards[0].title == "Current Flow"
     assert cards[0].value.endswith("cfs")
     assert any(card.title == "Record Depth" and "12.0" in card.value for card in cards)
+    assert all(getattr(card, "help", "") for card in cards)
 
 
 def test_summarize_flow_context_handles_empty_data():
