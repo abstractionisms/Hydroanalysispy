@@ -89,3 +89,53 @@ def test_metric_relevance_table_has_core_metrics():
     keys = metric_keys_for_plots(["flow_duration", "rating_curve"])
     assert "rating_r2" in keys
     assert "q90" in keys
+
+
+def test_dynamic_metric_relevance_uses_site_hydrology():
+    from hydrology.app.interpretation import (
+        compute_hydrologic_profile,
+        dynamic_metric_relevance,
+        format_metric_relevance_markdown,
+        metric_help_text,
+    )
+
+    index = pd.date_range("2010-01-01", periods=365 * 8, freq="D")
+    q = []
+    for ts in index:
+        # Flashy spring peaks vs low summer baseflow
+        if ts.month in (3, 4, 5):
+            q.append(800 + (ts.day % 20) * 40)
+        elif ts.month in (7, 8):
+            q.append(25 + (ts.day % 5))
+        else:
+            q.append(120 + (ts.day % 10) * 5)
+    df = pd.DataFrame({"Discharge_cfs": q}, index=index)
+    df["Gage_Height_ft"] = 1.5 + (df["Discharge_cfs"] / 50) ** 0.4
+    merged = df.copy()
+    merged["Precip_mm"] = 0.8
+    merged["Temp_C"] = 9.0
+
+    profile = compute_hydrologic_profile(df, merged)
+    assert profile["ok"]
+    assert profile["q10"] > profile["q50"] > profile["q90"]
+    assert profile["regime"] in {"flashy", "seasonal", "steady"}
+
+    rows = dynamic_metric_relevance(
+        df, merged, metric_keys=["mean_flow", "q10", "q50", "q90", "spi_sri", "rating_r2"]
+    )
+    assert len(rows) == 6
+    why = " ".join(r["Why it matters here"] for r in rows)
+    assert f"{profile['q50']:,.0f}" in why or "Median" in why or "cfs" in why
+    assert "This site/period" in rows[0]
+    assert rows[0]["This site/period"] != "—"
+    assert any(r["Regime"] == profile["regime_plain"] for r in rows)
+
+    md = format_metric_relevance_markdown(
+        ["q50", "q90"], df_q=df, df_merged=merged
+    )
+    assert "regime" in md.lower()
+    assert str(int(profile["q50"])) in md.replace(",", "") or f"{profile['q50']:,.0f}" in md
+
+    tip = metric_help_text("q10", df, merged)
+    assert "cfs" in tip.lower() or "Q10" in tip
+    assert tip != ""

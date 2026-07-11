@@ -440,7 +440,14 @@ def build_plot_analysis_report(
                 "- **Mean ≫ median** — floods pull the average up; prefer median/Q50 for “typical” conditions."
             )
         lines.append("")
-        lines.append(format_metric_relevance_markdown(metric_keys_for_plots(plot_keys)))
+        lines.append(
+            format_metric_relevance_markdown(
+                metric_keys_for_plots(plot_keys),
+                df_q=df_q,
+                df_merged=df_merged,
+                plot_keys=plot_keys,
+            )
+        )
 
     lines.append("")
     lines.append(
@@ -451,7 +458,10 @@ def build_plot_analysis_report(
     return "\n".join(lines)
 
 
-def build_interactive_chart_brief(df_q: pd.DataFrame | None) -> str:
+def build_interactive_chart_brief(
+    df_q: pd.DataFrame | None,
+    df_merged: pd.DataFrame | None = None,
+) -> str:
     """Shorter narrative under auto-loaded interactive hydrograph + FDC."""
     s = _series(df_q)
     if s.empty:
@@ -460,10 +470,12 @@ def build_interactive_chart_brief(df_q: pd.DataFrame | None) -> str:
         summarize_flow_duration(df_q),
         summarize_seasonal_pattern(df_q),
         "",
-        "#### Metric relevance (quick)",
-        "- **Q10 / Q50 / Q90** — high, median, and low ends of the duration curve; used for floods vs droughts.",
-        "- **Seasonal means** — when the river is wettest/driest; timing matters for irrigation, fish, and floods.",
-        "- **Log vs linear axes** — log only when flow spans many orders of magnitude so extremes stay readable.",
+        format_metric_relevance_markdown(
+            ["q10", "q50", "q90", "mean_flow"],
+            df_q=df_q,
+            df_merged=df_merged,
+            plot_keys=["flow_duration", "timeseries"],
+        ),
     ]
     return "\n\n".join(parts)
 
@@ -545,10 +557,308 @@ METRIC_RELEVANCE: dict[str, dict[str, str]] = {
 }
 
 
+def metric_keys_for_plots(plot_keys: Iterable[str] | None = None) -> list[str]:
+    """Pick relevance keys that match the generated plot set."""
+    keys = set(plot_keys) if plot_keys is not None else set()
+    out = ["record_length", "data_points", "mean_flow", "peak_flow", "q50", "q10", "q90"]
+    if any(k in keys for k in ("flow_duration", "low_flow_trend", "7q10_analysis")):
+        out.extend(["q10", "q90"])
+    if "rating_curve" in keys:
+        out.append("rating_r2")
+    if any("spi" in k or "drought" in k or "precip" in k for k in keys):
+        out.append("spi_sri")
+    if not keys:
+        out = ["record_length", "data_points", "mean_flow", "peak_flow", "q10", "q50", "q90"]
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for k in out:
+        if k not in seen and k in METRIC_RELEVANCE:
+            seen.add(k)
+            ordered.append(k)
+    return ordered
+
+
+def compute_hydrologic_profile(
+    df_q: pd.DataFrame | None,
+    df_merged: pd.DataFrame | None = None,
+    discharge_col: str | None = None,
+) -> dict:
+    """Site/period stats that drive dynamic metric relevance."""
+    s = _series(df_q, discharge_col)
+    profile: dict = {"ok": False}
+    if s.empty or len(s) < 5:
+        return profile
+
+    q10 = float(np.percentile(s, 90))
+    q50 = float(np.percentile(s, 50))
+    q90 = float(np.percentile(s, 10))
+    mean = float(s.mean())
+    peak = float(s.max())
+    years = max((s.index.max() - s.index.min()).days / 365.25, 0.01)
+    n = int(len(s))
+    cv = float(s.std() / mean) if mean > 0 else float("nan")
+    ratio = q10 / max(q90, 1e-6)
+    skew = mean / max(q50, 1e-6)
+
+    months = s.index.month
+    season_means: dict[str, float] = {}
+    for name, mlist in (
+        ("DJF", [12, 1, 2]),
+        ("MAM", [3, 4, 5]),
+        ("JJA", [6, 7, 8]),
+        ("SON", [9, 10, 11]),
+    ):
+        sub = s[np.isin(months, mlist)]
+        if len(sub) >= 10:
+            season_means[name] = float(sub.mean())
+
+    wet_season = max(season_means, key=season_means.get) if season_means else None
+    dry_season = min(season_means, key=season_means.get) if season_means else None
+    season_factor = None
+    if wet_season and dry_season and season_means[dry_season] > 0:
+        season_factor = season_means[wet_season] / season_means[dry_season]
+
+    if ratio >= 50 or (np.isfinite(cv) and cv >= 1.5):
+        regime, regime_plain = "flashy", "flashy / peak-dominated"
+    elif ratio >= 15 or (np.isfinite(cv) and cv >= 0.8):
+        regime, regime_plain = "seasonal", "seasonally variable"
+    else:
+        regime, regime_plain = "steady", "relatively steady / baseflow-supported"
+
+    zero_frac = float((s <= max(q90 * 0.05, 0.01)).mean())
+
+    has_stage = (
+        df_q is not None
+        and "Gage_Height_ft" in df_q.columns
+        and pd.to_numeric(df_q["Gage_Height_ft"], errors="coerce").notna().sum() >= 10
+    )
+    rating = None
+    if has_stage:
+        try:
+            from hydrology.analysis.stage_discharge import fit_best_rating_curve
+
+            stage = pd.to_numeric(df_q["Gage_Height_ft"], errors="coerce")
+            q = pd.to_numeric(df_q["Discharge_cfs"], errors="coerce")
+            fit = fit_best_rating_curve(stage, q, min_points=10)
+            if fit.get("model") != "none" and np.isfinite(fit.get("R2", np.nan)):
+                rating = fit
+        except Exception:
+            rating = None
+
+    climate: dict = {"has_precip": False, "has_temp": False}
+    if df_merged is not None and not df_merged.empty:
+        if "Precip_mm" in df_merged.columns:
+            p = pd.to_numeric(df_merged["Precip_mm"], errors="coerce").dropna()
+            if not p.empty:
+                climate["has_precip"] = True
+                if len(p) > 60:
+                    climate["mean_annual_mm"] = float(p.resample("YE").sum().mean())
+                else:
+                    climate["mean_annual_mm"] = float(p.mean() * 365.25)
+                climate["wet_day_pct"] = float((p > 1.0).mean() * 100)
+        if "Temp_C" in df_merged.columns:
+            t = pd.to_numeric(df_merged["Temp_C"], errors="coerce").dropna()
+            if not t.empty:
+                climate["has_temp"] = True
+                climate["mean_temp_c"] = float(t.mean())
+
+    latest = float(s.iloc[-1])
+    latest_date = s.index.max()
+    doy = latest_date.dayofyear
+    seasonal = s[(s.index.dayofyear >= doy - 15) & (s.index.dayofyear <= doy + 15)]
+    baseline = seasonal if len(seasonal) >= 30 else s
+    latest_pct = float((baseline < latest).mean() * 100) if len(baseline) else None
+
+    profile.update(
+        {
+            "ok": True,
+            "n": n,
+            "years": years,
+            "q10": q10,
+            "q50": q50,
+            "q90": q90,
+            "mean": mean,
+            "peak": peak,
+            "cv": cv,
+            "q10_q90": ratio,
+            "mean_median": skew,
+            "regime": regime,
+            "regime_plain": regime_plain,
+            "season_means": season_means,
+            "wet_season": wet_season,
+            "dry_season": dry_season,
+            "season_factor": season_factor,
+            "zero_frac": zero_frac,
+            "has_stage": has_stage,
+            "rating": rating,
+            "climate": climate,
+            "latest": latest,
+            "latest_date": latest_date,
+            "latest_pct": latest_pct,
+            "start": s.index.min(),
+            "end": s.index.max(),
+        }
+    )
+    return profile
+
+
+def dynamic_metric_relevance(
+    df_q: pd.DataFrame | None,
+    df_merged: pd.DataFrame | None = None,
+    plot_keys: Iterable[str] | None = None,
+    discharge_col: str | None = None,
+    metric_keys: Iterable[str] | None = None,
+) -> list[dict[str, str]]:
+    """Metric relevance rows computed from this gage/period's hydrology."""
+    profile = compute_hydrologic_profile(df_q, df_merged, discharge_col)
+    if metric_keys is not None:
+        keys = [k for k in metric_keys if k in METRIC_RELEVANCE]
+    else:
+        keys = metric_keys_for_plots(plot_keys or [])
+
+    if not profile.get("ok"):
+        return metric_relevance_table(keys)
+
+    years, n = profile["years"], profile["n"]
+    q10, q50, q90 = profile["q10"], profile["q50"], profile["q90"]
+    mean, peak = profile["mean"], profile["peak"]
+    ratio, skew = profile["q10_q90"], profile["mean_median"]
+    regime = profile["regime_plain"]
+    wet, dry = profile.get("wet_season"), profile.get("dry_season")
+    sfactor = profile.get("season_factor")
+
+    here = {
+        "record_length": (
+            f"This selection covers **{years:.1f} years**. "
+            + (
+                "Long enough for rough frequency/SPI screening."
+                if years >= 10
+                else "Short for design frequency — treat extremes as exploratory only."
+            )
+        ),
+        "data_points": (
+            f"**{n:,}** daily values in window. "
+            + (
+                "Dense enough for stable percentiles."
+                if n >= 365 * 3
+                else "Thin sample — duration quantiles can jump if you change dates."
+            )
+        ),
+        "mean_flow": (
+            f"Mean **{mean:,.0f} cfs** vs median **{q50:,.0f} cfs** "
+            f"(mean is **{skew:.2f}×** the median). "
+            + (
+                "Floods dominate the average — lean on Q50 for “typical” conditions."
+                if skew >= 1.35
+                else "Mean and median are close — the series is not heavily peak-skewed."
+            )
+        ),
+        "peak_flow": (
+            f"Highest daily mean in this window is **{peak:,.0f} cfs** "
+            f"(**{peak / max(q50, 1e-6):.1f}×** the median). "
+            "Window peak only — not a formal annual-max design flood."
+        ),
+        "q10": (
+            f"Q10 ≈ **{q10:,.0f} cfs** (exceeded ~10% of days). "
+            + (
+                f"Q10/Q90 ≈ **{ratio:.0f}** → high flows sit far above baseflow ({regime})."
+                if ratio >= 15
+                else f"Q10/Q90 ≈ {ratio:.1f} → high-flow contrast is mild for this period."
+            )
+        ),
+        "q50": (
+            f"Median **{q50:,.0f} cfs** is the best single “normal day” summary here. "
+            + (
+                f"Wet season **{wet}** vs dry **{dry}** (~{sfactor:.1f}× contrast)."
+                if wet and dry and sfactor
+                else "Seasonal contrast is weak or not resolved in this window."
+            )
+        ),
+        "q90": (
+            f"Q90 ≈ **{q90:,.0f} cfs** (about 90% of days are at least this wet). "
+            + (
+                f"Near-dry days are common (~{profile['zero_frac']*100:.0f}% near-zero)."
+                if profile["zero_frac"] >= 0.05
+                else "Near-zero flow days are uncommon in this window."
+            )
+            + f" Low-flow relevance is high for a **{regime}** river."
+        ),
+        "rating_r2": (
+            (
+                f"Best rating fit R²=**{profile['rating']['R2']:.3f}** "
+                f"(`{profile['rating']['equation']}`). "
+                + (
+                    "Offset H₀ correction active — gage zero ≠ zero-flow control."
+                    if profile["rating"]["model"] == "offset_powerlaw"
+                    else "Simple power-law is adequate for this pair set."
+                )
+            )
+            if profile.get("rating")
+            else (
+                "Stage present but rating fit unavailable."
+                if profile.get("has_stage")
+                else "No gage-height in this window — rating metrics do not apply."
+            )
+        ),
+        "spi_sri": (
+            (
+                "Climate is merged for this period"
+                + (
+                    f" (~{profile['climate'].get('mean_annual_mm', 0):.0f} mm/yr precip)"
+                    if profile["climate"].get("has_precip")
+                    else ""
+                )
+                + f" — SPI/SRI should be read against this **{regime}** flow regime."
+            )
+            if profile.get("climate", {}).get("has_precip")
+            or profile.get("climate", {}).get("has_temp")
+            else (
+                "Climate is not merged into discharge for this period; "
+                "SPI may still run via Open-Meteo, but co-plotted climate metrics are limited."
+            )
+        ),
+    }
+
+    rows: list[dict[str, str]] = []
+    for key in keys:
+        meta = METRIC_RELEVANCE.get(key)
+        if not meta:
+            continue
+        observed = {
+            "record_length": f"{years:.1f} yrs",
+            "data_points": f"{n:,}",
+            "mean_flow": f"{mean:,.0f} cfs",
+            "peak_flow": f"{peak:,.0f} cfs",
+            "q10": f"{q10:,.0f} cfs",
+            "q50": f"{q50:,.0f} cfs",
+            "q90": f"{q90:,.0f} cfs",
+            "rating_r2": (
+                f"R²={profile['rating']['R2']:.3f}" if profile.get("rating") else "n/a"
+            ),
+            "spi_sri": (
+                "climate linked"
+                if profile.get("climate", {}).get("has_precip")
+                else "climate limited"
+            ),
+        }.get(key, "—")
+
+        rows.append(
+            {
+                "Metric": meta["label"],
+                "This site/period": observed,
+                "What it is": meta["meaning"],
+                "Why it matters here": here.get(key, meta["relevance"]),
+                "Use it when…": meta["use_when"],
+                "Regime": regime,
+            }
+        )
+    return rows
+
+
 def metric_relevance_table(
     keys: Iterable[str] | None = None,
 ) -> list[dict[str, str]]:
-    """Rows for a metric-relevance dataframe/markdown section."""
+    """Static catalog rows (fallback when no discharge series)."""
     use_keys = list(keys) if keys is not None else list(METRIC_RELEVANCE.keys())
     rows = []
     for key in use_keys:
@@ -558,48 +868,96 @@ def metric_relevance_table(
         rows.append(
             {
                 "Metric": meta["label"],
+                "This site/period": "—",
                 "What it is": meta["meaning"],
-                "Why it matters": meta["relevance"],
+                "Why it matters here": meta["relevance"],
                 "Use it when…": meta["use_when"],
+                "Regime": "—",
             }
         )
     return rows
 
 
-def format_metric_relevance_markdown(keys: Iterable[str] | None = None) -> str:
-    """Markdown block explaining metric relevance."""
-    rows = metric_relevance_table(keys)
+def format_metric_relevance_markdown(
+    keys: Iterable[str] | None = None,
+    df_q: pd.DataFrame | None = None,
+    df_merged: pd.DataFrame | None = None,
+    plot_keys: Iterable[str] | None = None,
+) -> str:
+    """Markdown metric relevance — dynamic when discharge data is provided."""
+    use_keys = list(keys) if keys is not None else None
+    if df_q is not None:
+        # Prefer explicit metric keys; else derive from plot set
+        if use_keys is not None and all(k in METRIC_RELEVANCE for k in use_keys):
+            rows = dynamic_metric_relevance(
+                df_q, df_merged, metric_keys=use_keys
+            )
+        else:
+            rows = dynamic_metric_relevance(
+                df_q, df_merged, plot_keys=plot_keys or use_keys
+            )
+        profile = compute_hydrologic_profile(df_q, df_merged)
+    else:
+        rows = metric_relevance_table(use_keys)
+        profile = {}
+
     if not rows:
         return ""
-    lines = [
-        "#### Metric relevance",
-        "What each number means and when to trust it:",
-        "",
-    ]
+
+    if profile.get("ok"):
+        header = (
+            f"#### Metric relevance — **{profile['regime_plain']}** regime "
+            f"(Q10/Q90≈{profile['q10_q90']:.1f})"
+        )
+        blurb = (
+            "Each line uses **this site’s numbers** for the selected period "
+            "(not generic textbook text)."
+        )
+    else:
+        header = "#### Metric relevance"
+        blurb = "What each number means and when to trust it:"
+
+    lines = [header, blurb, ""]
     for row in rows:
+        site_bit = row.get("This site/period") or "—"
         lines.append(
-            f"- **{row['Metric']}** — {row['What it is']} "
-            f"*{row['Why it matters']}* "
-            f"Use when: {row['Use it when…']}"
+            f"- **{row['Metric']}** (**{site_bit}**) — {row['What it is']} "
+            f"*{row['Why it matters here']}*"
         )
     return "\n".join(lines)
 
 
-def metric_keys_for_plots(plot_keys: Iterable[str]) -> list[str]:
-    """Pick relevance keys that match the generated plot set."""
-    keys = set(plot_keys)
-    out = ["record_length", "data_points", "mean_flow", "peak_flow", "q50", "q10", "q90"]
-    if "flow_duration" in keys or "low_flow_trend" in keys or "7q10_analysis" in keys:
-        out.extend(["q10", "q90"])
-    if "rating_curve" in keys:
-        out.append("rating_r2")
-    if any("spi" in k or "drought" in k or "precip" in k for k in keys):
-        out.append("spi_sri")
-    # de-dupe preserve order
-    seen = set()
-    ordered = []
-    for k in out:
-        if k not in seen and k in METRIC_RELEVANCE:
-            seen.add(k)
-            ordered.append(k)
-    return ordered
+def metric_help_text(
+    key: str,
+    df_q: pd.DataFrame | None = None,
+    df_merged: pd.DataFrame | None = None,
+    discharge_col: str | None = None,
+) -> str:
+    """Short tooltip for st.metric — site-specific when data is available."""
+    meta = METRIC_RELEVANCE.get(key, {})
+    base = " ".join(
+        p for p in (meta.get("meaning", ""), meta.get("use_when", "")) if p
+    )
+    if df_q is None:
+        rel = meta.get("relevance", "")
+        return " ".join(p for p in (base, rel) if p)
+
+    rows = dynamic_metric_relevance(
+        df_q, df_merged, discharge_col=discharge_col, metric_keys=[key]
+    )
+    if not rows:
+        rel = meta.get("relevance", "")
+        return " ".join(p for p in (base, rel) if p)
+
+    row = rows[0]
+    site = row.get("This site/period", "")
+    why = row.get("Why it matters here", "")
+    # Strip markdown for Streamlit tooltips
+    why_plain = why.replace("**", "").replace("`", "")
+    site_plain = site.replace("**", "").replace("`", "")
+    bits = [base]
+    if site_plain and site_plain != "—":
+        bits.append(f"This site/period: {site_plain}.")
+    if why_plain:
+        bits.append(why_plain)
+    return " ".join(bits)

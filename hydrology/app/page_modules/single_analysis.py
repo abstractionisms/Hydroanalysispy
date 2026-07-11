@@ -273,7 +273,9 @@ def show():
     # Plain-language read of interactive charts
     with st.container():
         st.markdown("##### What these interactive charts are saying")
-        st.markdown(build_interactive_chart_brief(data.get("df_q")))
+        st.markdown(
+            build_interactive_chart_brief(data.get("df_q"), data.get("df_merged"))
+        )
 
     # CSV download
     render_data_download(data['df_q'], filename_prefix=site_id)

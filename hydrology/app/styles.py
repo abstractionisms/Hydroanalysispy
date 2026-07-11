@@ -1159,20 +1159,21 @@ def render_availability_badges(has_discharge: bool, has_stage: bool, climate_inf
 
 
 def render_metric_cards(df_q: pd.DataFrame, df_merged: pd.DataFrame = None, discharge_col: str = 'Discharge_cfs'):
-    """Render key statistics as metric cards with relevance tooltips + expander."""
+    """Render key statistics as metric cards with site-specific relevance."""
     if df_q is None or df_q.empty:
         return
 
     from hydrology.app.interpretation import (
-        METRIC_RELEVANCE,
-        metric_relevance_table,
+        compute_hydrologic_profile,
+        dynamic_metric_relevance,
         format_metric_relevance_markdown,
+        metric_help_text,
     )
 
     def _help(key: str) -> str:
-        meta = METRIC_RELEVANCE.get(key, {})
-        parts = [meta.get("meaning", ""), meta.get("relevance", ""), meta.get("use_when", "")]
-        return " ".join(p for p in parts if p)
+        return metric_help_text(key, df_q, df_merged, discharge_col)
+
+    profile = compute_hydrologic_profile(df_q, df_merged, discharge_col)
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -1228,14 +1229,29 @@ def render_metric_cards(df_q: pd.DataFrame, df_merged: pd.DataFrame = None, disc
             with c3:
                 st.metric("Q90 (low)", f"{q90:,.0f} cfs", help=_help("q90"))
 
-    with st.expander("Metric relevance — what these numbers mean", expanded=False):
-        st.caption("Hover any metric for a short tip, or read the full table below.")
-        rows = metric_relevance_table(
-            ["record_length", "data_points", "mean_flow", "peak_flow", "q10", "q50", "q90"]
+    card_keys = ["record_length", "data_points", "mean_flow", "peak_flow", "q10", "q50", "q90"]
+    regime_label = profile.get("regime_plain", "this period") if profile.get("ok") else "this period"
+    expander_title = f"Metric relevance — {regime_label} (this gage)"
+    with st.expander(expander_title, expanded=False):
+        if profile.get("ok"):
+            st.caption(
+                f"Tooltips and table use **this site’s** Q10/Q50/Q90, seasonality, and "
+                f"Q10/Q90≈{profile['q10_q90']:.1f} — not a static textbook blurb."
+            )
+        else:
+            st.caption("Hover any metric for a short tip, or read the full table below.")
+        rows = dynamic_metric_relevance(
+            df_q, df_merged, discharge_col=discharge_col, metric_keys=card_keys
         )
         if rows:
             st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
-        st.markdown(format_metric_relevance_markdown(["spi_sri", "rating_r2"]))
+        st.markdown(
+            format_metric_relevance_markdown(
+                ["spi_sri", "rating_r2"],
+                df_q=df_q,
+                df_merged=df_merged,
+            )
+        )
 
 
 def render_progress_bar(current: int, total: int, text: str = "Loading..."):
