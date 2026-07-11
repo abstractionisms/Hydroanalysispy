@@ -422,6 +422,26 @@ def build_plot_analysis_report(
         lines.append("")
         lines.append(rating)
 
+    # Computed metric strip + relevance
+    if not s.empty:
+        q10 = float(np.percentile(s, 90))
+        q50 = float(np.percentile(s, 50))
+        q90 = float(np.percentile(s, 10))
+        mean = float(s.mean())
+        peak = float(s.max())
+        lines.append("")
+        lines.append("#### Key metrics (this period)")
+        lines.append(
+            f"- Mean **{mean:,.0f} cfs** · Median (Q50) **{q50:,.0f} cfs** · "
+            f"Q10 **{q10:,.0f} cfs** · Q90 **{q90:,.0f} cfs** · Peak day **{peak:,.0f} cfs**"
+        )
+        if mean > q50 * 1.35:
+            lines.append(
+                "- **Mean ≫ median** — floods pull the average up; prefer median/Q50 for “typical” conditions."
+            )
+        lines.append("")
+        lines.append(format_metric_relevance_markdown(metric_keys_for_plots(plot_keys)))
+
     lines.append("")
     lines.append(
         "_This is an automated screening narrative from the plotted data — not a formal "
@@ -439,5 +459,147 @@ def build_interactive_chart_brief(df_q: pd.DataFrame | None) -> str:
     parts = [
         summarize_flow_duration(df_q),
         summarize_seasonal_pattern(df_q),
+        "",
+        "#### Metric relevance (quick)",
+        "- **Q10 / Q50 / Q90** — high, median, and low ends of the duration curve; used for floods vs droughts.",
+        "- **Seasonal means** — when the river is wettest/driest; timing matters for irrigation, fish, and floods.",
+        "- **Log vs linear axes** — log only when flow spans many orders of magnitude so extremes stay readable.",
     ]
     return "\n\n".join(parts)
+
+
+# Plain-English "why this metric matters" for dashboard cards and reports
+METRIC_RELEVANCE: dict[str, dict[str, str]] = {
+    "record_length": {
+        "label": "Record length",
+        "meaning": "How many years of daily data are in the selected window.",
+        "relevance": (
+            "Longer records support trends, frequency analysis, and climate normals. "
+            "Under ~10 years, treat flood frequency and long-term SPI carefully."
+        ),
+        "use_when": "Judging whether trends/frequency/SPI are defensible.",
+    },
+    "data_points": {
+        "label": "Data points",
+        "meaning": "Count of daily observations after quality filtering.",
+        "relevance": (
+            "More points reduce noise in percentiles and duration curves. "
+            "Large gaps matter more than total count for seasonal plots."
+        ),
+        "use_when": "Checking completeness before trusting summary stats.",
+    },
+    "mean_flow": {
+        "label": "Mean flow",
+        "meaning": "Average daily discharge over the selected period.",
+        "relevance": (
+            "Anchors water-supply style questions, but is pulled up by floods. "
+            "Compare to median (Q50) — if mean ≫ median, the record is peak-dominated."
+        ),
+        "use_when": "Rough water yield; always pair with median for skewed rivers.",
+    },
+    "peak_flow": {
+        "label": "Peak flow",
+        "meaning": "Highest daily mean discharge in the selected period.",
+        "relevance": (
+            "Flags flood magnitude in the window, not the official annual peak series. "
+            "Use Frequency Analysis (peak-flow table) for design return periods."
+        ),
+        "use_when": "Screening large events; not a substitute for LP3 frequency design.",
+    },
+    "q10": {
+        "label": "Q10 (high flow)",
+        "meaning": "Discharge exceeded about 10% of days (upper duration curve).",
+        "relevance": "Describes wet-season / high-flow habitat and floodplain connectivity.",
+        "use_when": "High-flow ecology, channel maintenance, flood context.",
+    },
+    "q50": {
+        "label": "Q50 (median)",
+        "meaning": "Discharge exceeded about half the days.",
+        "relevance": "Robust central tendency; less skewed by floods than the mean.",
+        "use_when": "Typical conditions and year-to-year comparisons.",
+    },
+    "q90": {
+        "label": "Q90 (low flow)",
+        "meaning": "Discharge exceeded about 90% of days (lower duration curve).",
+        "relevance": "Drought, baseflow, and aquatic-habitat stress indicator.",
+        "use_when": "Low-flow management, summer shortages, baseflow screening.",
+    },
+    "rating_r2": {
+        "label": "Rating R²",
+        "meaning": "How tightly stage and discharge follow the fitted Q–H model.",
+        "relevance": (
+            "High R² means a stable control; scatter/seasonal color can flag hysteresis, "
+            "rating shifts, ice, or vegetation."
+        ),
+        "use_when": "Interpreting stage–discharge plots and gage reliability.",
+    },
+    "spi_sri": {
+        "label": "SPI / SRI",
+        "meaning": "Standardized precip (SPI) or runoff (SRI) anomalies (γ → normal).",
+        "relevance": (
+            "Negative = drier than normal for that accumulation window. "
+            "SRI lags SPI when soil/groundwater buffer the response."
+        ),
+        "use_when": "Drought monitoring and comparing meteorological vs hydrologic drought.",
+    },
+}
+
+
+def metric_relevance_table(
+    keys: Iterable[str] | None = None,
+) -> list[dict[str, str]]:
+    """Rows for a metric-relevance dataframe/markdown section."""
+    use_keys = list(keys) if keys is not None else list(METRIC_RELEVANCE.keys())
+    rows = []
+    for key in use_keys:
+        meta = METRIC_RELEVANCE.get(key)
+        if not meta:
+            continue
+        rows.append(
+            {
+                "Metric": meta["label"],
+                "What it is": meta["meaning"],
+                "Why it matters": meta["relevance"],
+                "Use it when…": meta["use_when"],
+            }
+        )
+    return rows
+
+
+def format_metric_relevance_markdown(keys: Iterable[str] | None = None) -> str:
+    """Markdown block explaining metric relevance."""
+    rows = metric_relevance_table(keys)
+    if not rows:
+        return ""
+    lines = [
+        "#### Metric relevance",
+        "What each number means and when to trust it:",
+        "",
+    ]
+    for row in rows:
+        lines.append(
+            f"- **{row['Metric']}** — {row['What it is']} "
+            f"*{row['Why it matters']}* "
+            f"Use when: {row['Use it when…']}"
+        )
+    return "\n".join(lines)
+
+
+def metric_keys_for_plots(plot_keys: Iterable[str]) -> list[str]:
+    """Pick relevance keys that match the generated plot set."""
+    keys = set(plot_keys)
+    out = ["record_length", "data_points", "mean_flow", "peak_flow", "q50", "q10", "q90"]
+    if "flow_duration" in keys or "low_flow_trend" in keys or "7q10_analysis" in keys:
+        out.extend(["q10", "q90"])
+    if "rating_curve" in keys:
+        out.append("rating_r2")
+    if any("spi" in k or "drought" in k or "precip" in k for k in keys):
+        out.append("spi_sri")
+    # de-dupe preserve order
+    seen = set()
+    ordered = []
+    for k in out:
+        if k not in seen and k in METRIC_RELEVANCE:
+            seen.add(k)
+            ordered.append(k)
+    return ordered

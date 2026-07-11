@@ -4,6 +4,7 @@ Custom styling and UI components for the Hydrology Dashboard.
 
 import streamlit as st
 from typing import Dict, Any, Optional
+import numpy as np
 import pandas as pd
 from html import escape
 
@@ -1158,9 +1159,20 @@ def render_availability_badges(has_discharge: bool, has_stage: bool, climate_inf
 
 
 def render_metric_cards(df_q: pd.DataFrame, df_merged: pd.DataFrame = None, discharge_col: str = 'Discharge_cfs'):
-    """Render key statistics as metric cards."""
+    """Render key statistics as metric cards with relevance tooltips + expander."""
     if df_q is None or df_q.empty:
         return
+
+    from hydrology.app.interpretation import (
+        METRIC_RELEVANCE,
+        metric_relevance_table,
+        format_metric_relevance_markdown,
+    )
+
+    def _help(key: str) -> str:
+        meta = METRIC_RELEVANCE.get(key, {})
+        parts = [meta.get("meaning", ""), meta.get("relevance", ""), meta.get("use_when", "")]
+        return " ".join(p for p in parts if p)
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -1168,22 +1180,62 @@ def render_metric_cards(df_q: pd.DataFrame, df_merged: pd.DataFrame = None, disc
     if hasattr(df_q.index, 'min') and hasattr(df_q.index, 'max'):
         years = (df_q.index.max() - df_q.index.min()).days / 365.25
         with col1:
-            st.metric("Record Length", f"{years:.1f} yrs", help="Total years of data")
+            st.metric("Record Length", f"{years:.1f} yrs", help=_help("record_length"))
 
     # Data points
     with col2:
-        st.metric("Data Points", f"{len(df_q):,}", help="Number of daily observations")
+        st.metric("Data Points", f"{len(df_q):,}", help=_help("data_points"))
 
-    # Mean discharge
+    # Mean / peak discharge
     if discharge_col in df_q.columns:
-        mean_q = df_q[discharge_col].mean()
+        series = pd.to_numeric(df_q[discharge_col], errors="coerce").dropna()
+        mean_q = float(series.mean()) if len(series) else float("nan")
+        max_q = float(series.max()) if len(series) else float("nan")
+        median_q = float(series.median()) if len(series) else float("nan")
         with col3:
-            st.metric("Mean Flow", f"{mean_q:,.0f} cfs", help="Average daily discharge")
-
-        # Max discharge
-        max_q = df_q[discharge_col].max()
+            delta = None
+            if np.isfinite(mean_q) and np.isfinite(median_q) and median_q > 0:
+                skew_pct = (mean_q / median_q - 1.0) * 100
+                if abs(skew_pct) >= 15:
+                    delta = f"{skew_pct:+.0f}% vs median"
+            st.metric(
+                "Mean Flow",
+                f"{mean_q:,.0f} cfs" if np.isfinite(mean_q) else "—",
+                delta=delta,
+                delta_color="off",
+                help=_help("mean_flow"),
+            )
         with col4:
-            st.metric("Peak Flow", f"{max_q:,.0f} cfs", help="Maximum recorded discharge")
+            st.metric(
+                "Peak Flow",
+                f"{max_q:,.0f} cfs" if np.isfinite(max_q) else "—",
+                help=_help("peak_flow"),
+            )
+
+    # Q10 / Q50 / Q90 relevance strip
+    if discharge_col in df_q.columns:
+        series = pd.to_numeric(df_q[discharge_col], errors="coerce").dropna()
+        series = series[series >= 0]
+        if len(series) >= 30:
+            q10 = float(np.percentile(series, 90))
+            q50 = float(np.percentile(series, 50))
+            q90 = float(np.percentile(series, 10))
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric("Q10 (high)", f"{q10:,.0f} cfs", help=_help("q10"))
+            with c2:
+                st.metric("Q50 (median)", f"{q50:,.0f} cfs", help=_help("q50"))
+            with c3:
+                st.metric("Q90 (low)", f"{q90:,.0f} cfs", help=_help("q90"))
+
+    with st.expander("Metric relevance — what these numbers mean", expanded=False):
+        st.caption("Hover any metric for a short tip, or read the full table below.")
+        rows = metric_relevance_table(
+            ["record_length", "data_points", "mean_flow", "peak_flow", "q10", "q50", "q90"]
+        )
+        if rows:
+            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+        st.markdown(format_metric_relevance_markdown(["spi_sri", "rating_r2"]))
 
 
 def render_progress_bar(current: int, total: int, text: str = "Loading..."):

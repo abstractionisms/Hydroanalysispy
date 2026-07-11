@@ -72,3 +72,20 @@ def test_build_plot_analysis_report_covers_core_sections():
     assert "Seasonal pattern" in report
     assert "Climate" in report
     assert "Plots generated" in report
+    assert "Metric relevance" in report
+    assert "Q50" in report or "Median" in report
+
+
+def test_metric_relevance_table_has_core_metrics():
+    from hydrology.app.interpretation import metric_relevance_table, metric_keys_for_plots
+
+    rows = metric_relevance_table(["q10", "q90", "mean_flow"])
+    assert len(rows) == 3
+    assert {r["Metric"] for r in rows} == {
+        "Q10 (high flow)",
+        "Q90 (low flow)",
+        "Mean flow",
+    }
+    keys = metric_keys_for_plots(["flow_duration", "rating_curve"])
+    assert "rating_r2" in keys
+    assert "q90" in keys
