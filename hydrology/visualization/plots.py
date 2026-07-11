@@ -1340,17 +1340,17 @@ def plot_double_mass_curve(ax, df_merged: pd.DataFrame = None, config: Dict[str,
 
 def plot_rating_curve(ax, df_q: pd.DataFrame = None, config: Dict[str, Any] = None, **kwargs):
     """
-    Plot stage-discharge rating curve with power-law fit: Q = A * H^B.
+    Plot stage-discharge rating curve with best power-law / offset-power fit.
 
-    Uses the fit_powerlaw_rating_curve function to fit the relationship
-    between stage height and discharge, plotting observed points and fitted curve.
+    Points are colored by meteorological season (DJF/MAM/JJA/SON). The fit
+    prefers Q = A*(H-H0)^B when a simple Q = A*H^B is a poor model (common when
+    gage zero is not the zero-flow stage — e.g. USGS 14018500).
 
-    Args:
-        ax: Matplotlib axis to plot on
-        df_q: DataFrame with Discharge_cfs and Gage_Height_ft columns
-        config: Optional configuration dict
+    Daily mean Q (00060) is paired with daily mean stage (00065) by date.
+    Note: for continuous gages, published Q is often already rating-derived from
+    stage, so this is an empirical consistency / hysteresis diagnostic.
     """
-    from ..analysis.stage_discharge import fit_powerlaw_rating_curve
+    from ..analysis.stage_discharge import fit_best_rating_curve, season_labels
 
     cfg = {**DEFAULT_CONFIG, **(config or {})}
     DISCHARGE_COL = cfg['discharge_col']
@@ -1369,44 +1369,96 @@ def plot_rating_curve(ax, df_q: pd.DataFrame = None, config: Dict[str, Any] = No
         return
 
     try:
-        df = df_q[[STAGE_COL, DISCHARGE_COL]].dropna()
+        df = df_q[[STAGE_COL, DISCHARGE_COL]].dropna().copy()
         df = df[(df[STAGE_COL] > 0) & (df[DISCHARGE_COL] > 0)]
 
         if len(df) < 10:
             _plot_placeholder(ax, "Rating Curve\nInsufficient data (need 10+ points)")
             return
 
-        # Fit power-law rating curve
-        A, B, R2, Q_pred = fit_powerlaw_rating_curve(
-            df[STAGE_COL], df[DISCHARGE_COL], min_points=10
-        )
-
-        if np.isnan(A) or np.isnan(B):
+        fit = fit_best_rating_curve(df[STAGE_COL], df[DISCHARGE_COL], min_points=10)
+        if fit["model"] == "none" or not np.isfinite(fit.get("A", np.nan)):
             _plot_placeholder(ax, "Rating Curve\nCould not fit curve")
             return
 
-        # Plot observed data
-        ax.scatter(df[STAGE_COL], df[DISCHARGE_COL], c='steelblue', s=10,
-                  alpha=0.4, label='Observed')
+        # Season colors (cool → warm year cycle)
+        seasons = season_labels(df.index)
+        season_colors = {
+            "DJF": "#4C78A8",  # winter blue
+            "MAM": "#59A14F",  # spring green
+            "JJA": "#F28E2B",  # summer orange
+            "SON": "#B07AA1",  # fall purple
+            "UNK": "#9E9E9E",
+        }
+        for season, color in season_colors.items():
+            mask = seasons.values == season
+            if not np.any(mask):
+                continue
+            ax.scatter(
+                df.loc[mask, STAGE_COL],
+                df.loc[mask, DISCHARGE_COL],
+                c=color,
+                s=14,
+                alpha=0.45,
+                edgecolors="none",
+                label=season,
+                zorder=2,
+            )
 
-        # Plot fitted curve
-        H_range = np.linspace(df[STAGE_COL].min(), df[STAGE_COL].max(), 100)
-        Q_fit = A * H_range ** B
-        ax.plot(H_range, Q_fit, 'r-', linewidth=2.5,
-               label=f'Q = {A:.3f} * H^{B:.2f} (R²={R2:.3f})')
+        # Fitted curve
+        H0 = float(fit.get("H0") or 0.0)
+        H_min = float(df[STAGE_COL].min())
+        H_max = float(df[STAGE_COL].max())
+        H_lo = max(H_min, H0 + 1e-3) if fit["model"] == "offset_powerlaw" else H_min
+        H_range = np.linspace(H_lo, H_max, 200)
+        if fit["model"] == "offset_powerlaw":
+            Q_fit = fit["A"] * np.maximum(H_range - H0, 1e-10) ** fit["B"]
+        else:
+            Q_fit = fit["A"] * H_range ** fit["B"]
 
-        # Formatting
-        ax.set_xlabel('Stage Height (ft)')
-        ax.set_ylabel('Discharge (cfs)')
-        ax.set_yscale('log')
-        ax.set_xscale('log')
-        ax.set_title('Stage-Discharge Rating Curve', fontweight='bold')
-        ax.legend(loc='upper left', fontsize=8)
-        ax.grid(True, alpha=0.3, which='both')
-        ax.yaxis.set_major_formatter(mticker.ScalarFormatter())
-        ax.yaxis.get_major_formatter().set_scientific(False)
-        ax.xaxis.set_major_formatter(mticker.ScalarFormatter())
-        ax.xaxis.get_major_formatter().set_scientific(False)
+        ax.plot(
+            H_range,
+            Q_fit,
+            color="#E15759",
+            linewidth=2.4,
+            zorder=3,
+            label=f'{fit["equation"]}  (R²={fit["R2"]:.3f}, n={fit["n_points"]:,})',
+        )
+
+        # Axes: stage linear (physically natural); Q log only if multi-order span
+        ax.set_xlabel("Stage height (ft)")
+        ax.set_ylabel("Discharge (cfs)")
+        q_pos = df[DISCHARGE_COL][df[DISCHARGE_COL] > 0]
+        if len(q_pos) and (q_pos.max() / max(q_pos.min(), 1e-9)) >= 40:
+            ax.set_yscale("log")
+            ax.yaxis.set_major_formatter(mticker.ScalarFormatter())
+            ax.yaxis.get_major_formatter().set_scientific(False)
+        else:
+            ax.set_yscale("linear")
+            y0 = 0.0
+            y1 = float(df[DISCHARGE_COL].max()) * 1.08
+            ax.set_ylim(y0, y1)
+
+        ax.set_xscale("linear")
+        ax.set_title("Stage–discharge rating curve (seasonal points)", fontweight="bold")
+        ax.legend(loc="upper left", fontsize=7, framealpha=0.92)
+        ax.grid(True, alpha=0.3, which="both")
+        # Caption-like note
+        model_note = (
+            "Offset power-law (H₀ stage correction)"
+            if fit["model"] == "offset_powerlaw"
+            else "Simple power-law"
+        )
+        ax.text(
+            0.98,
+            0.02,
+            f"{model_note} · daily mean Q (00060) vs stage (00065)",
+            transform=ax.transAxes,
+            ha="right",
+            va="bottom",
+            fontsize=7,
+            color="#666666",
+        )
 
     except Exception as e:
         logger.error(f"Rating curve error: {e}")

@@ -12,6 +12,8 @@ import numpy as np
 from hydrology.analysis.stage_discharge import (
     fit_powerlaw_rating_curve,
     fit_offset_powerlaw,
+    fit_best_rating_curve,
+    season_labels,
     flow_duration_curve,
     classify_flow_regime
 )
@@ -108,6 +110,31 @@ class TestFitOffsetPowerlaw:
         )
 
         assert np.isnan(A)
+
+
+class TestFitBestRatingCurve:
+    """Tests for fit_best_rating_curve model selection."""
+
+    def test_prefers_offset_when_h0_matters(self):
+        """Sites like 14018500 need H0; simple power-law R² collapses."""
+        np.random.seed(0)
+        H0 = 1.45
+        H = np.linspace(1.6, 8.0, 80)
+        Q = 40.0 * (H - H0) ** 2.1
+        Q = Q * (1 + np.random.normal(0, 0.03, size=H.size))
+        idx = pd.date_range("2015-01-01", periods=len(H), freq="D")
+        stage = pd.Series(H, index=idx)
+        discharge = pd.Series(Q, index=idx)
+
+        fit = fit_best_rating_curve(stage, discharge, min_points=20)
+        assert fit["model"] == "offset_powerlaw"
+        assert fit["R2"] > 0.95
+        assert abs(fit["H0"] - H0) < 0.4
+
+    def test_season_labels(self):
+        idx = pd.DatetimeIndex(["2020-01-15", "2020-04-01", "2020-07-04", "2020-10-31"])
+        seasons = season_labels(idx)
+        assert list(seasons.values) == ["DJF", "MAM", "JJA", "SON"]
 
 
 class TestFlowDurationCurve:
