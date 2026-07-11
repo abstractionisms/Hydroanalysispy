@@ -12,6 +12,10 @@ import numpy as np
 from hydrology.analysis.stage_discharge import (
     fit_powerlaw_rating_curve,
     fit_offset_powerlaw,
+    fit_best_rating_curve,
+    evaluate_rating_params,
+    predict_rating_discharge,
+    season_labels,
     flow_duration_curve,
     classify_flow_regime
 )
@@ -108,6 +112,61 @@ class TestFitOffsetPowerlaw:
         )
 
         assert np.isnan(A)
+
+
+class TestFitBestRatingCurve:
+    """Tests for fit_best_rating_curve model selection."""
+
+    def test_prefers_offset_when_h0_matters(self):
+        """Sites like 14018500 need H0; simple power-law R² collapses."""
+        np.random.seed(0)
+        H0 = 1.45
+        H = np.linspace(1.6, 8.0, 80)
+        Q = 40.0 * (H - H0) ** 2.1
+        Q = Q * (1 + np.random.normal(0, 0.03, size=H.size))
+        idx = pd.date_range("2015-01-01", periods=len(H), freq="D")
+        stage = pd.Series(H, index=idx)
+        discharge = pd.Series(Q, index=idx)
+
+        fit = fit_best_rating_curve(stage, discharge, min_points=20)
+        assert fit["model"] == "offset_powerlaw"
+        assert fit["R2"] > 0.95
+        assert abs(fit["H0"] - H0) < 0.4
+
+    def test_season_labels(self):
+        idx = pd.DatetimeIndex(["2020-01-15", "2020-04-01", "2020-07-04", "2020-10-31"])
+        seasons = season_labels(idx)
+        assert list(seasons.values) == ["DJF", "MAM", "JJA", "SON"]
+
+
+class TestEvaluateRatingParams:
+    """Manual / interactive rating parameter scoring."""
+
+    def test_perfect_offset_scores_near_one(self):
+        H0 = 1.2
+        H = np.linspace(1.5, 6.0, 60)
+        A, B = 25.0, 1.8
+        Q = A * (H - H0) ** B
+        stage = pd.Series(H)
+        discharge = pd.Series(Q)
+
+        scored = evaluate_rating_params(stage, discharge, A, B, H0)
+        assert scored["n_points"] == 60
+        assert scored["R2"] > 0.999
+        assert scored["rmse"] < 1e-6
+        assert "H −" in scored["equation"] or "H -" in scored["equation"].replace("−", "-")
+
+    def test_wrong_params_lower_r2(self):
+        H = np.linspace(1.0, 5.0, 40)
+        Q = 10.0 * H ** 2.0
+        good = evaluate_rating_params(H, Q, 10.0, 2.0, 0.0)
+        bad = evaluate_rating_params(H, Q, 10.0, 0.5, 0.0)
+        assert good["R2"] > bad["R2"]
+
+    def test_predict_rating_discharge_shape(self):
+        out = predict_rating_discharge(np.array([1.0, 2.0, 3.0]), A=2.0, B=1.5, H0=0.0)
+        assert out.shape == (3,)
+        assert np.all(out > 0)
 
 
 class TestFlowDurationCurve:

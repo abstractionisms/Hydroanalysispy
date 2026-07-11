@@ -11,10 +11,8 @@ def test_main_navigation_uses_role_specific_labels():
         "Stations",
         "Site Analysis",
         "Compare Sites",
-        "Reach Tools",
-        "Current Check",
-        "Climate Indicators",
-        "More Tools",
+        "Reach Analysis",
+        "Watershed",
     ]:
         assert label in text
 
@@ -23,29 +21,55 @@ def test_main_navigation_uses_role_specific_labels():
         ">Analyze<",
         ">Compare<",
         ">Monitor<",
+        "More Tools",
+        "Current Check",
+        "Climate Indicators",
     ]:
         assert old_label not in text
 
 
-def test_workflow_tiles_match_primary_navigation_terms():
-    text = (ROOT / "hydrology/app/styles.py").read_text(encoding="utf-8")
+def test_app_shell_uses_coalesced_page_set():
+    text = (ROOT / "hydrology/app/app.py").read_text(encoding="utf-8")
 
-    assert '"title": "Stations"' in text
-    assert '"title": "Site Analysis"' in text
-    assert '"title": "Compare Sites"' in text
-    assert '"title": "Current Check"' in text
-
-
-def test_workflow_tiles_cover_all_navigation_roles():
-    text = (ROOT / "hydrology/app/styles.py").read_text(encoding="utf-8")
-
-    for label in [
-        '"title": "Stations"',
-        '"title": "Site Analysis"',
-        '"title": "Compare Sites"',
-        '"title": "Reach Tools"',
-        '"title": "Current Check"',
-        '"title": "Climate Indicators"',
-        '"title": "More Tools"',
+    for title in [
+        'title="Stations"',
+        'title="Site Analysis"',
+        'title="Compare Sites"',
+        'title="Reach Analysis"',
+        'title="Watershed"',
     ]:
-        assert label in text
+        assert title in text
+
+    for removed in [
+        'title="Alerts"',
+        'title="Indicators"',
+        'title="Advanced"',
+        "render_workflow_strip()",
+    ]:
+        assert removed not in text
+
+
+def test_compare_page_owns_multisite_relationships():
+    text = (ROOT / "hydrology/app/page_modules/comparisons.py").read_text(encoding="utf-8")
+
+    assert "Site Relationships" in text
+    assert "_multisite_analysis" in text
+
+
+def test_site_analysis_owns_indicators_without_autoloading():
+    text = (ROOT / "hydrology/app/page_modules/single_analysis.py").read_text(encoding="utf-8")
+
+    assert "Drought & Baseflow Indicators" in text
+    assert "Load Indicators" in text
+    assert "render_site_indicators" in text
+    assert "indicator_loaded_key" in text
+    assert "indicator_button_key" in text
+    assert "st.session_state[indicator_button_key]" not in text
+
+
+def test_stations_owns_current_conditions_check():
+    text = (ROOT / "hydrology/app/page_modules/overview.py").read_text(encoding="utf-8")
+
+    assert "Current Conditions Check" in text
+    assert "render_site_current_check" in text
+    assert "alerts?site=" not in text

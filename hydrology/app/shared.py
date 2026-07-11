@@ -25,7 +25,11 @@ from hydrology.data.usgs import (
     fetch_instantaneous_values, DEFAULT_PARAM_DISCHARGE, DEFAULT_PARAM_STAGE,
     fetch_current_conditions, fetch_daily_percentiles, classify_condition
 )
-from hydrology.data.climate import fetch_climate_data, fetch_nearest_station_info
+from hydrology.data.climate import (
+    fetch_climate_data,
+    fetch_nearest_station_info,
+    fetch_open_meteo_climate,
+)
 from hydrology.data.nwm import NWMClient, compare_nwm_usgs, get_forecast_skill
 from hydrology.analysis.alerts import (
     AlertMonitor, AlertThreshold, create_flood_alert, create_low_flow_alert
@@ -279,22 +283,6 @@ def find_availability_windows(site_id: str, param_cd: str, check_iv: bool = Fals
         except Exception:
             pass
 
-    # Fallback to the local filtered inventory for legacy long-record sites
-    # (e.g. 12510500 Kiona, WA — real POR since ~1905 but USGS series catalog
-    # or the snapshot often only reports 1948). This mitigates the "stale
-    # inventory ignored" problem created by prior agent changes without
-    # discarding the primary live catalog path.
-    try:
-        site_info = get_site_info(site_id)
-        if site_info:
-            begin = site_info.get('begin_date')
-            if begin:
-                start_year = int(str(begin)[:4])
-                if start_year < current_year - 1:
-                    return [(start_year, "present")]
-    except Exception:
-        pass
-
     return None
 
 
@@ -395,66 +383,161 @@ def fetch_discharge_data(site_id: str, param_cd: str, start_str: str, end_str: s
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def fetch_climate_cached(lat: float, lon: float, start_str: str, end_str: str, site_id: str | None = None):
+def fetch_climate_cached_result(
+    lat: float,
+    lon: float,
+    start_str: str,
+    end_str: str,
+    site_id: str | None = None,
+    include_temp: bool = True,
+    include_precip: bool = True,
+):
+    """Fetch normalized climate data with source metadata.
+
+    Order of preference (reliability-first for SPI/dashboard):
+      1. Open-Meteo Historical (no key, gridded, strong modern coverage)
+      2. Meteostat multi-station fallback (skips dead nearest stations)
+      3. Daymet (needs NASA Earthdata; optional)
+
+    Set HYDRO_PREFER_DAYMET=1 to try Daymet earlier when credentials exist.
     """
-    Fetch climate data with per-gage source awareness and multiple providers.
+    import os
 
-    Sourcing order (chosen for historical depth + reliability + low friction):
-    1. Open-Meteo Historical (excellent coverage, no key, very stable)
-    2. Meteostat (station-based)
-    3. Daymet (gridded, optional heavy dependency)
+    start_dt = datetime.strptime(start_str, "%Y-%m-%d")
+    end_dt = datetime.strptime(end_str, "%Y-%m-%d")
 
-    Returns structured metadata so the rest of the app can behave dynamically
-    per gage when historical climate data is poor or missing.
-    """
-    start_dt = datetime.strptime(start_str, '%Y-%m-%d')
-    end_dt = datetime.strptime(end_str, '%Y-%m-%d')
+    prefer_daymet = os.environ.get("HYDRO_PREFER_DAYMET", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
 
-    # === Provider 1: Open-Meteo Historical (preferred for historical depth) ===
-    try:
-        from hydrology.data.climate import fetch_open_meteo_climate
-        om = fetch_open_meteo_climate(lat, lon, start_str, end_str)
-        om_norm = normalize_climate_columns(om)
-        if om_norm is not None and not om_norm.empty:
+    def _try_open_meteo():
+        try:
+            om = fetch_open_meteo_climate(lat, lon, start_str, end_str)
+            normalized = normalize_climate_columns(om)
+            if normalized is None or normalized.empty:
+                return None
+            # Drop unused columns if only precip/temp requested
+            cols = []
+            if include_temp and "Temp_C" in normalized.columns:
+                cols.append("Temp_C")
+            if include_precip and "Precip_mm" in normalized.columns:
+                cols.append("Precip_mm")
+            if not cols:
+                return None
+            data = normalized[cols]
             return {
-                'data': om_norm,
-                'source': 'open-meteo',
-                'quality': 'good' if len(om_norm) > 30 else 'partial'
+                "data": data,
+                "source": "Open-Meteo",
+                "message": (
+                    "Loaded gridded Open-Meteo historical climate at the gage location "
+                    "(no station gap / no API key)."
+                ),
+                "station_name": "Open-Meteo grid",
+                "station_distance_km": 0.0,
             }
-    except Exception as e:
-        logger.info(f"Open-Meteo unavailable for {site_id or (lat,lon)}: {e}")
+        except Exception as e:
+            logger.info(f"Open-Meteo unavailable for {site_id or (lat, lon)}: {e}")
+            return None
 
-    # === Provider 2: Meteostat ===
-    station_climate = normalize_climate_columns(fetch_climate_data(
-        lat, lon,
-        pd.Timestamp(start_dt),
-        pd.Timestamp(end_dt),
-        include_temp=True,
-        include_precip=True
-    ))
-    if station_climate is not None and not station_climate.empty:
-        return {
-            'data': station_climate,
-            'source': 'meteostat',
-            'quality': 'good' if len(station_climate) > 30 else 'partial'
-        }
-
-    # === Provider 3: Daymet (optional) ===
-    if site_id:
+    def _try_daymet():
+        if not site_id:
+            return None
+        variables = []
+        if include_precip:
+            variables.append("prcp")
+        if include_temp:
+            variables.extend(["tmin", "tmax"])
         try:
             from hydrology.data.hyriver import get_daymet_climate
-            daymet = get_daymet_climate(site_id, start_str, end_str, variables=['prcp', 'tmin', 'tmax'])
+
+            daymet = get_daymet_climate(
+                site_id, start_str, end_str, variables=variables or None
+            )
             normalized = normalize_climate_columns(daymet)
             if normalized is not None and not normalized.empty:
                 return {
-                    'data': normalized,
-                    'source': 'daymet',
-                    'quality': 'good' if len(normalized) > 30 else 'partial'
+                    "data": normalized,
+                    "source": "Daymet",
+                    "message": "Loaded gridded Daymet climate data for the selected gage.",
                 }
         except Exception as e:
             logger.info(f"Daymet climate unavailable for {site_id}: {e}")
+        return None
 
-    return {'data': None, 'source': 'none', 'quality': 'none'}
+    def _try_meteostat():
+        station_climate = normalize_climate_columns(
+            fetch_climate_data(
+                lat,
+                lon,
+                pd.Timestamp(start_dt),
+                pd.Timestamp(end_dt),
+                include_temp=include_temp,
+                include_precip=include_precip,
+            )
+        )
+        if station_climate is not None and not station_climate.empty:
+            station = None
+            try:
+                station = fetch_nearest_station_info(lat, lon, prefer_recent=True)
+            except Exception:
+                pass
+            dist = None
+            name = None
+            if station:
+                dist = station.get("distance_km")
+                name = station.get("name")
+            msg = "Loaded climate data from a Meteostat station with period coverage."
+            if name and dist is not None:
+                msg = (
+                    f"Loaded Meteostat station “{name}” "
+                    f"({float(dist):.1f} km from the gage)."
+                )
+            elif name:
+                msg = f"Loaded Meteostat station “{name}”."
+            return {
+                "data": station_climate,
+                "source": "Meteostat",
+                "message": msg,
+                "station_name": name,
+                "station_distance_km": dist,
+            }
+        return None
+
+    if prefer_daymet:
+        daymet_result = _try_daymet()
+        if daymet_result:
+            return daymet_result
+
+    # Primary: Open-Meteo (fixes sites where nearest Meteostat station is historical-only)
+    om = _try_open_meteo()
+    if om:
+        return om
+
+    meteo = _try_meteostat()
+    if meteo:
+        return meteo
+
+    daymet_result = _try_daymet()
+    if daymet_result:
+        return daymet_result
+
+    return {
+        "data": None,
+        "source": "Unavailable",
+        "message": (
+            "Could not load climate data from Open-Meteo, Meteostat, or Daymet "
+            "for this site and date range."
+        ),
+    }
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_climate_cached(lat: float, lon: float, start_str: str, end_str: str, site_id: str | None = None):
+    """Fetch normalized climate data - cached."""
+    return fetch_climate_cached_result(lat, lon, start_str, end_str, site_id)["data"]
 
 
 def normalize_climate_columns(df: pd.DataFrame | None) -> pd.DataFrame | None:
@@ -784,10 +867,7 @@ def process_site_data(site_id: str, lat: float, lon: float, start_str: str, end_
     except Exception as e:
         logger.info(f"Stage data not available for {site_id}: {e}")
 
-    climate_result = fetch_climate_cached(lat, lon, start_str, end_str, site_id)
-    df_climate = climate_result.get('data') if isinstance(climate_result, dict) else climate_result
-    climate_source = climate_result.get('source', 'none') if isinstance(climate_result, dict) else ('meteostat' if df_climate is not None else 'none')
-    climate_quality = climate_result.get('quality', 'none') if isinstance(climate_result, dict) else ('good' if df_climate is not None else 'none')
+    df_climate = fetch_climate_cached(lat, lon, start_str, end_str, site_id)
 
     df_merged = None
     analysis_results = None
@@ -799,7 +879,7 @@ def process_site_data(site_id: str, lat: float, lon: float, start_str: str, end_
         df_merged = pd.merge(df_q, df_climate, left_index=True, right_index=True, how='inner')
 
         if df_merged.empty:
-            logger.warning(f"Merge produced empty result for {site_id}. df_q: {len(df_q)} rows, df_climate: {len(df_climate)} rows")
+            logger.warning(f"Merge produced empty result. df_q: {len(df_q)} rows, df_climate: {len(df_climate)} rows")
             df_merged = None
         else:
             analysis_results = analyze_correlation(df_merged)
@@ -819,11 +899,7 @@ def process_site_data(site_id: str, lat: float, lon: float, start_str: str, end_
         'climate_count': len(df_climate) if df_climate is not None else 0,
         'merged_count': len(df_merged) if df_merged is not None else 0,
         'discharge_coverage': discharge_coverage,
-        'stage_coverage': stage_coverage,
-        # New per-gage dynamic climate metadata (makes climate behavior gage-specific)
-        'climate_source': climate_source,
-        'climate_quality': climate_quality,
-        'climate_available': df_climate is not None and not (df_climate.empty if df_climate is not None else True),
+        'stage_coverage': stage_coverage
     }
 
 

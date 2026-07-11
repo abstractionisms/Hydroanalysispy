@@ -79,8 +79,9 @@ def test_normalize_climate_columns_converts_daymet_names():
     assert str(climate.index.tz) == "UTC"
 
 
-def test_fetch_climate_cached_prefers_station_data_before_daymet(monkeypatch):
+def test_fetch_climate_cached_prefers_daymet_for_site_climate(monkeypatch):
     shared.fetch_climate_cached.clear()
+    shared.fetch_climate_cached_result.clear()
     calls = []
 
     station = pd.DataFrame(
@@ -94,7 +95,10 @@ def test_fetch_climate_cached_prefers_station_data_before_daymet(monkeypatch):
 
     def fake_daymet(*args, **kwargs):
         calls.append("daymet")
-        return pd.DataFrame()
+        return pd.DataFrame(
+            {"precip_mm": [1.0], "tmin_c": [2.0], "tmax_c": [8.0]},
+            index=pd.date_range("2024-01-01", periods=1, freq="D"),
+        )
 
     monkeypatch.setattr(shared, "fetch_climate_data", fake_station)
     monkeypatch.setattr("hydrology.data.hyriver.get_daymet_climate", fake_daymet)
@@ -102,4 +106,34 @@ def test_fetch_climate_cached_prefers_station_data_before_daymet(monkeypatch):
     climate = shared.fetch_climate_cached(47.0, -117.0, "2024-01-01", "2024-01-01", "12422500")
 
     assert climate["Temp_C"].tolist() == [5.0]
-    assert calls == ["station"]
+    assert climate["Precip_mm"].tolist() == [1.0]
+    assert calls == ["daymet"]
+
+
+def test_fetch_climate_cached_falls_back_to_station_data(monkeypatch):
+    shared.fetch_climate_cached.clear()
+    shared.fetch_climate_cached_result.clear()
+    calls = []
+
+    station = pd.DataFrame(
+        {"Temp_C": [6.0], "Precip_mm": [0.4]},
+        index=pd.date_range("2024-01-01", periods=1, freq="D"),
+    )
+
+    def fake_station(*args, **kwargs):
+        calls.append("station")
+        return station
+
+    def fake_daymet(*args, **kwargs):
+        calls.append("daymet")
+        return None
+
+    monkeypatch.setattr(shared, "fetch_climate_data", fake_station)
+    monkeypatch.setattr("hydrology.data.hyriver.get_daymet_climate", fake_daymet)
+
+    result = shared.fetch_climate_cached_result(47.0, -117.0, "2024-01-01", "2024-01-01", "12422500")
+
+    assert result["source"] == "Meteostat"
+    assert result["data"]["Temp_C"].tolist() == [6.0]
+    assert result["data"]["Precip_mm"].tolist() == [0.4]
+    assert calls == ["daymet", "station"]

@@ -4,8 +4,29 @@ from .trends import calculate_annual_means, analyze_trend
 from .stage_discharge import fit_powerlaw_rating_curve
 from .alerts import AlertMonitor, AlertThreshold, Alert, create_flood_alert, create_low_flow_alert
 from .multisite import MultiSiteAnalyzer, quick_correlation_check, CorrelationResult, LagAnalysisResult
-from .frequency import fit_flood_frequency, estimate_return_periods, low_flow_frequency, get_plotting_positions
+from .frequency import (
+    estimate_return_periods,
+    fit_flood_frequency,
+    flood_frequency_diagnostics,
+    get_plotting_positions,
+    low_flow_frequency,
+)
 from .indicators import calculate_spi, calculate_sri, classify_drought, calculate_baseflow_index_timeseries
+from .baseflow import BaseflowResult, compare_baseflow_methods, eckhardt_filter, lyne_hollick_filter
+from .signatures import compute_hydrologic_signatures
+from .changepoints import pettitt_test
+from .reach_topology import (
+    ReachChain,
+    ReachPair,
+    ReachStation,
+    build_reach_chain,
+    classify_pair_direction,
+    derive_adjacent_reaches,
+    validate_reach_pair,
+)
+from .reach_gain_loss import classify_reach_gain_loss, summarize_reach_gain_loss
+from .temperature_context import classify_thermal_sensitivity
+from .validation import ValidationResult, validate_range, validate_relative_error
 
 __all__ = [
     'calculate_annual_means',
@@ -25,6 +46,7 @@ __all__ = [
     # Frequency analysis
     'fit_flood_frequency',
     'estimate_return_periods',
+    'flood_frequency_diagnostics',
     'low_flow_frequency',
     'get_plotting_positions',
     # Drought indicators
@@ -32,4 +54,30 @@ __all__ = [
     'calculate_sri',
     'classify_drought',
     'calculate_baseflow_index_timeseries',
+    # Baseflow separation
+    'BaseflowResult',
+    'compare_baseflow_methods',
+    'eckhardt_filter',
+    'lyne_hollick_filter',
+    # Hydrologic signatures
+    'compute_hydrologic_signatures',
+    # Changepoints
+    'pettitt_test',
+    # Reach topology
+    'ReachChain',
+    'ReachPair',
+    'ReachStation',
+    'build_reach_chain',
+    'classify_pair_direction',
+    'derive_adjacent_reaches',
+    'validate_reach_pair',
+    # Reach gain/loss screening
+    'classify_reach_gain_loss',
+    'summarize_reach_gain_loss',
+    # Temperature context
+    'classify_thermal_sensitivity',
+    # Validation helpers
+    'ValidationResult',
+    'validate_range',
+    'validate_relative_error',
 ]

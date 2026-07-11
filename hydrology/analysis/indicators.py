@@ -5,7 +5,7 @@ Provides:
 - SPI (Standardized Precipitation Index): Gamma-fitted precipitation anomalies
 - SRI (Standardized Runoff Index): Gamma-fitted streamflow anomalies
 - Drought classification (D0-D4 severity per US Drought Monitor)
-- Rolling Baseflow Index (BFI) for groundwater contribution tracking
+- Rolling Baseflow Index (BFI) for baseflow-dominance screening
 
 These are standard indicators used in drought monitoring networks (NIDIS, USDM).
 The SRI is particularly relevant for the Spokane dry reach thesis.
@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats as sp_stats
 
+from .baseflow import lyne_hollick_filter
 from ..core.logging_setup import get_logger
 
 logger = get_logger(__name__)
@@ -275,13 +276,13 @@ def calculate_baseflow_index_timeseries(
     window_days: int = 90,
 ) -> pd.DataFrame:
     """
-    Calculate rolling Baseflow Index (BFI) for tracking groundwater contribution.
+    Calculate rolling Baseflow Index (BFI) for screening baseflow dominance.
 
     Uses the Lyne-Hollick recursive digital filter for baseflow separation,
     then computes BFI as the ratio of baseflow to total flow over a rolling window.
 
     Relevant to Spokane dry reach analysis: declining BFI indicates reduced
-    groundwater contribution (aquifer depletion or diversion effects).
+    sustained/baseflow-dominated flow (potentially from groundwater, storage, or regulation effects).
 
     Args:
         daily_q: Daily discharge series (datetime index, values in cfs)
@@ -296,22 +297,7 @@ def calculate_baseflow_index_timeseries(
         logger.warning("Insufficient data for BFI timeseries")
         return pd.DataFrame()
 
-    Q = daily_q.values.astype(float)
-
-    # Lyne-Hollick filter
-    Q_f = np.zeros_like(Q)
-    for t in range(1, len(Q)):
-        Q_f[t] = alpha * Q_f[t-1] + (1 + alpha) / 2 * (Q[t] - Q[t-1])
-        Q_f[t] = max(0, Q_f[t])
-
-    baseflow = np.clip(Q - Q_f, 0, Q)
-    quickflow = Q - baseflow
-
-    df = pd.DataFrame({
-        'total_flow': Q,
-        'baseflow': baseflow,
-        'quickflow': quickflow,
-    }, index=daily_q.index)
+    df = lyne_hollick_filter(daily_q, alpha=alpha, passes=1).components.copy()
 
     # Rolling BFI
     rolling_total = df['total_flow'].rolling(window=window_days, min_periods=window_days//2).sum()

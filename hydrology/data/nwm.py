@@ -123,6 +123,8 @@ class NWMUSGSComparison:
     correlation: float
     nash_sutcliffe: float
     percent_bias: float
+    nwm_data: Optional[pd.DataFrame] = None
+    usgs_data: Optional[pd.DataFrame] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
@@ -700,7 +702,9 @@ def compare_nwm_usgs(
         rmse=rmse,
         correlation=correlation,
         nash_sutcliffe=nse,
-        percent_bias=pbias
+        percent_bias=pbias,
+        nwm_data=nwm_data[['streamflow_cfs']].sort_index(),
+        usgs_data=usgs_data[['usgs_cfs']].sort_index(),
     )
 
 

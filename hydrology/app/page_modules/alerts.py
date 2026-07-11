@@ -12,7 +12,7 @@ import plotly.graph_objects as go
 
 from hydrology.app.shared import (
     get_inventory, get_cached_site_info, get_weather_station_info,
-    extract_site_id, display_site_info, site_picker,
+    extract_site_id, display_site_info, site_picker, fetch_climate_cached_result,
     logger)
 from hydrology.data.usgs import (
     fetch_daily_values, fetch_instantaneous_values,
@@ -38,9 +38,14 @@ def show():
         st.error(f"Site {site_id} not found")
         return
 
+    render_site_current_check(site_id, site_info, key_prefix="alert_page")
+
+
+def render_site_current_check(site_id: str, site_info: dict, key_prefix: str = "current_check"):
+    """Render a manual current threshold check for a selected site."""
     desc = site_info.get('description', site_id)
 
-    st.header("Alert Check")
+    st.subheader("Current Conditions Check")
     st.caption(
         f"Manual threshold check for {desc}. Streamlit does not run background monitoring "
         "unless it is connected to a scheduled job or notification service."
@@ -51,18 +56,18 @@ def show():
 
     with col1:
         st.subheader("Flood Alerts")
-        flood_enabled = st.checkbox("Enable flood alerts", value=True)
+        flood_enabled = st.checkbox("Enable flood alerts", value=True, key=f"{key_prefix}_flood_enabled")
         if flood_enabled:
-            action_stage = st.number_input("Action Stage (ft)", value=10.0, step=0.5)
-            flood_stage = st.number_input("Flood Stage (ft)", value=12.0, step=0.5)
-            major_flood = st.number_input("Major Flood Stage (ft)", value=15.0, step=0.5)
+            action_stage = st.number_input("Action Stage (ft)", value=10.0, step=0.5, key=f"{key_prefix}_action_stage")
+            flood_stage = st.number_input("Flood Stage (ft)", value=12.0, step=0.5, key=f"{key_prefix}_flood_stage")
+            major_flood = st.number_input("Major Flood Stage (ft)", value=15.0, step=0.5, key=f"{key_prefix}_major_flood")
 
     with col2:
         st.subheader("Low Flow Alerts")
-        low_flow_enabled = st.checkbox("Enable low flow alerts", value=False)
+        low_flow_enabled = st.checkbox("Enable low flow alerts", value=False, key=f"{key_prefix}_low_flow_enabled")
         if low_flow_enabled:
-            low_flow_threshold = st.number_input("Low Flow (cfs)", value=100.0, step=10.0)
-            critical_flow = st.number_input("Critical Flow (cfs)", value=50.0, step=10.0)
+            low_flow_threshold = st.number_input("Low Flow (cfs)", value=100.0, step=10.0, key=f"{key_prefix}_low_flow")
+            critical_flow = st.number_input("Critical Flow (cfs)", value=50.0, step=10.0, key=f"{key_prefix}_critical_flow")
 
     st.markdown("---")
 
@@ -72,7 +77,7 @@ def show():
         icon="ℹ️",
     )
 
-    if st.button("Run Current Check", type="primary"):
+    if st.button("Check Current Conditions", type="primary", key=f"{key_prefix}_run"):
         with st.spinner("Fetching current data..."):
             monitor = AlertMonitor()
 
@@ -88,7 +93,7 @@ def show():
 
             alerts = monitor.check_site(site_id, use_instantaneous=True)
 
-            st.subheader("Current Check")
+            st.subheader("Current Reading")
 
             try:
                 end_date = datetime.now()
@@ -228,14 +233,20 @@ def show():
                     lat = site_info.get('latitude')
                     lon = site_info.get('longitude')
                     if lat and lon:
-                        from hydrology.data.climate import fetch_climate_data
                         precip_start = (end_date - timedelta(days=7)).strftime('%Y-%m-%d')
                         precip_end = end_date.strftime('%Y-%m-%d')
 
-                        climate_df = fetch_climate_data(float(lat), float(lon), precip_start, precip_end)
+                        climate_result = fetch_climate_cached_result(
+                            float(lat), float(lon),
+                            precip_start, precip_end,
+                            site_id=site_id,
+                            include_temp=False,
+                            include_precip=True,
+                        )
+                        climate_df = climate_result.get("data")
 
-                        if climate_df is not None and 'prcp' in climate_df.columns:
-                            total_precip_mm = climate_df['prcp'].sum()
+                        if climate_df is not None and 'Precip_mm' in climate_df.columns:
+                            total_precip_mm = climate_df['Precip_mm'].sum()
                             total_precip_in = total_precip_mm / 25.4
 
                             if total_precip_in > 2:
@@ -249,7 +260,7 @@ def show():
 
                             st.metric("7-Day Precipitation", f"{total_precip_in:.2f} in",
                                      delta=precip_status, delta_color="off",
-                         help="Total precipitation in the last 7 days from nearest weather station")
+                         help=f"Total precipitation in the last 7 days from {climate_result.get('source', 'the climate source')}")
                         else:
                             st.metric("7-Day Precipitation", "N/A",
                          help="Total precipitation in the last 7 days from nearest weather station")

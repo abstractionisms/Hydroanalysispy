@@ -33,6 +33,7 @@ logger = get_logger(__name__)
 _boundary_cache: Dict[str, Any] = {}
 _characteristics_cache: Dict[str, Dict] = {}
 _flowlines_cache: Dict[Tuple[str, float], Any] = {}
+_navigation_flowlines_cache: Dict[Tuple[str, str, float], Any] = {}
 _dams_cache: Dict[Tuple[str, float], Any] = {}
 
 
@@ -125,6 +126,54 @@ def get_flowlines(site_id: str, distance_km: float = 50) -> Optional[Any]:
         return None
 
 
+def get_navigation_flowlines(
+    site_id: str,
+    navigation: str = "upstreamMain",
+    distance_km: float = 50,
+) -> Optional[Any]:
+    """
+    Get NHDPlus flowlines for a specific NLDI navigation mode.
+
+    Args:
+        site_id: USGS site identifier
+        navigation: NLDI navigation mode, such as upstreamMain or upstreamTributaries
+        distance_km: Navigation distance to retrieve
+
+    Returns:
+        geopandas GeoDataFrame with flowline geometries, or None
+    """
+    cache_key = (site_id, navigation, float(distance_km))
+    if cache_key in _navigation_flowlines_cache:
+        return _navigation_flowlines_cache[cache_key]
+
+    try:
+        from pynhd import NLDI
+
+        nldi = NLDI()
+        flowlines = nldi.navigate_byid(
+            fsource="nwissite",
+            fid=f"USGS-{site_id}",
+            navigation=navigation,
+            source="flowlines",
+            distance=distance_km,
+        )
+
+        if flowlines is not None and not flowlines.empty:
+            _navigation_flowlines_cache[cache_key] = flowlines
+            logger.info(f"Retrieved {len(flowlines)} {navigation} flowlines for {site_id}")
+            return flowlines
+
+        _navigation_flowlines_cache[cache_key] = None
+        return None
+
+    except ImportError:
+        logger.error("pynhd not installed")
+        return None
+    except Exception as e:
+        logger.error(f"Error fetching {navigation} flowlines for {site_id}: {e}")
+        return None
+
+
 def get_basin_characteristics(site_id: str) -> Optional[Dict[str, Any]]:
     """
     Get basin characteristics including drainage area, land cover, and soil.
@@ -211,6 +260,27 @@ def get_basin_characteristics(site_id: str) -> Optional[Dict[str, Any]]:
     return result if result else None
 
 
+def _daymet_credentials_available() -> bool:
+    """Daymet/ORNL THREDDS requires NASA Earthdata login (401 without it)."""
+    import os
+    from pathlib import Path
+
+    if os.environ.get("EARTHDATA_USERNAME") or os.environ.get("EARTHDATA_USER"):
+        return True
+    if os.environ.get("EARTHDATA_PASSWORD") or os.environ.get("EARTHDATA_TOKEN"):
+        return True
+    # netrc is the usual Earthdata CLI auth location
+    for candidate in (Path.home() / ".netrc", Path.home() / "_netrc"):
+        try:
+            if candidate.is_file() and "urs.earthdata.nasa.gov" in candidate.read_text(
+                encoding="utf-8", errors="ignore"
+            ):
+                return True
+        except Exception:
+            pass
+    return False
+
+
 def get_daymet_climate(
     site_id: str,
     start_date: str,
@@ -235,6 +305,15 @@ def get_daymet_climate(
     """
     if variables is None:
         variables = ['prcp', 'tmin', 'tmax']
+
+    # Avoid slow watershed + 401 storm when Earthdata is not configured.
+    if not _daymet_credentials_available():
+        logger.info(
+            "Skipping Daymet for %s: NASA Earthdata credentials not configured "
+            "(set EARTHDATA_USERNAME/PASSWORD or ~/.netrc for urs.earthdata.nasa.gov)",
+            site_id,
+        )
+        return None
 
     # Get watershed boundary for spatial averaging
     basin = get_watershed_boundary(site_id)

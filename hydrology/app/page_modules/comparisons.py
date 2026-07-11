@@ -15,6 +15,7 @@ from hydrology.app.shared import (
     create_comparison_figure, render_export_buttons,
     site_picker, logger)
 from hydrology.app.styles import render_site_header, render_plot_capability_board
+from hydrology.app.page_modules.advanced import _multisite_analysis
 from hydrology.visualization.plots import AVAILABLE_PLOTS
 from hydrology.visualization.interactive import interactive_comparison, interactive_hydrograph
 
@@ -34,9 +35,10 @@ def show():
 
     st.header("Comparisons")
 
-    tab_time, tab_sites, tab_quad = st.tabs([
+    tab_time, tab_sites, tab_relationships, tab_quad = st.tabs([
         "Compare Time Periods",
         "Compare Sites",
+        "Site Relationships",
         "2x2 Comparison"
     ])
 
@@ -45,6 +47,9 @@ def show():
 
     with tab_sites:
         _compare_sites(inventory_df)
+
+    with tab_relationships:
+        _multisite_analysis(inventory_df)
 
     with tab_quad:
         _quad_comparison(inventory_df)

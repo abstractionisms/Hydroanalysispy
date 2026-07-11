@@ -184,6 +184,199 @@ def fit_offset_powerlaw(
         return (A, B, 0.0, R2, Q_pred)
 
 
+def fit_best_rating_curve(
+    stage: pd.Series,
+    discharge: pd.Series,
+    min_points: int = 10,
+) -> Dict[str, Any]:
+    """
+    Fit simple and offset power-law ratings; return the better model by R².
+
+    Many USGS gages (e.g. Walla Walla nr Touchet 14018500) have a non-zero
+    control stage H0. Fitting Q = A * H^B on raw stage then produces garbage
+    (even negative R²). Prefer Q = A * (H - H0)^B when it improves fit.
+
+    Returns dict with keys:
+      model: 'offset_powerlaw' | 'powerlaw' | 'none'
+      A, B, H0, R2, Q_pred, n_points, equation
+    """
+    df = pd.DataFrame({"H": stage, "Q": discharge})
+    df = df.replace([np.inf, -np.inf], np.nan).dropna()
+    df = df[(df["H"] > 0) & (df["Q"] > 0)]
+    n = len(df)
+
+    empty = {
+        "model": "none",
+        "A": np.nan,
+        "B": np.nan,
+        "H0": 0.0,
+        "R2": np.nan,
+        "Q_pred": pd.Series(index=stage.index, dtype=float),
+        "n_points": n,
+        "equation": "n/a",
+    }
+    if n < min_points:
+        logger.warning("Insufficient pairs for rating curve: %s", n)
+        return empty
+
+    A_s, B_s, R2_s, Q_s = fit_powerlaw_rating_curve(
+        df["H"], df["Q"], min_points=min_points
+    )
+    A_o, B_o, H0, R2_o, Q_o = fit_offset_powerlaw(
+        df["H"], df["Q"], min_points=min_points
+    )
+
+    # Prefer offset when R² is clearly better (or simple fit is invalid)
+    use_offset = (
+        np.isfinite(R2_o)
+        and (not np.isfinite(R2_s) or R2_o >= R2_s + 0.02 or R2_s < 0.5)
+        and np.isfinite(A_o)
+        and np.isfinite(B_o)
+    )
+
+    if use_offset:
+        A_f, B_f, H0_f, R2_f, Q_full = fit_offset_powerlaw(
+            stage, discharge, min_points=min_points
+        )
+        eq = f"Q = {A_f:.4g} · (H − {H0_f:.3f})^{B_f:.3f}"
+        return {
+            "model": "offset_powerlaw",
+            "A": float(A_f),
+            "B": float(B_f),
+            "H0": float(H0_f),
+            "R2": float(R2_f) if np.isfinite(R2_f) else np.nan,
+            "Q_pred": Q_full,
+            "n_points": n,
+            "equation": eq,
+        }
+
+    A_f, B_f, R2_f, Q_full = fit_powerlaw_rating_curve(
+        stage, discharge, min_points=min_points
+    )
+    eq = f"Q = {A_f:.4g} · H^{B_f:.3f}"
+    return {
+        "model": "powerlaw",
+        "A": float(A_f) if np.isfinite(A_f) else np.nan,
+        "B": float(B_f) if np.isfinite(B_f) else np.nan,
+        "H0": 0.0,
+        "R2": float(R2_f) if np.isfinite(R2_f) else np.nan,
+        "Q_pred": Q_full,
+        "n_points": n,
+        "equation": eq,
+    }
+
+
+def season_labels(index: pd.DatetimeIndex) -> pd.Series:
+    """Map datetime index → meteorological season labels (DJF/MAM/JJA/SON)."""
+    month = pd.DatetimeIndex(index).month
+    labels = np.full(len(month), "UNK", dtype=object)
+    labels[np.isin(month, [12, 1, 2])] = "DJF"
+    labels[np.isin(month, [3, 4, 5])] = "MAM"
+    labels[np.isin(month, [6, 7, 8])] = "JJA"
+    labels[np.isin(month, [9, 10, 11])] = "SON"
+    return pd.Series(labels, index=index, name="season")
+
+
+def predict_rating_discharge(
+    stage: np.ndarray | pd.Series,
+    A: float,
+    B: float,
+    H0: float = 0.0,
+) -> np.ndarray:
+    """Q = A * (H - H0)^B with safe floor on effective stage."""
+    H = np.asarray(stage, dtype=float)
+    H_eff = np.maximum(H - float(H0), 1e-10)
+    A = float(A)
+    B = float(B)
+    if not np.isfinite(A) or not np.isfinite(B) or A <= 0:
+        return np.full_like(H, np.nan, dtype=float)
+    return A * (H_eff ** B)
+
+
+def evaluate_rating_params(
+    stage: pd.Series | np.ndarray,
+    discharge: pd.Series | np.ndarray,
+    A: float,
+    B: float,
+    H0: float = 0.0,
+) -> Dict[str, Any]:
+    """
+    Score a user- or auto-specified rating Q = A*(H-H0)^B against paired data.
+
+    Returns R², residual stats, equation string, and predicted Q on the clean pairs.
+    """
+    df = pd.DataFrame({"H": stage, "Q": discharge})
+    df = df.replace([np.inf, -np.inf], np.nan).dropna()
+    df = df[(df["H"] > float(H0) + 1e-9) & (df["Q"] > 0)]
+
+    empty = {
+        "model": "offset_powerlaw" if abs(float(H0)) > 1e-9 else "powerlaw",
+        "A": float(A),
+        "B": float(B),
+        "H0": float(H0),
+        "R2": np.nan,
+        "rmse": np.nan,
+        "mae": np.nan,
+        "mape": np.nan,
+        "bias": np.nan,
+        "nash_sutcliffe": np.nan,
+        "n_points": 0,
+        "equation": "n/a",
+        "Q_pred": np.array([], dtype=float),
+        "H_clean": np.array([], dtype=float),
+        "Q_clean": np.array([], dtype=float),
+        "residuals": np.array([], dtype=float),
+    }
+    if len(df) < 3 or not np.isfinite(A) or not np.isfinite(B) or A <= 0:
+        return empty
+
+    H = df["H"].values
+    Q = df["Q"].values
+    Q_hat = predict_rating_discharge(H, A, B, H0)
+    valid = np.isfinite(Q_hat)
+    H, Q, Q_hat = H[valid], Q[valid], Q_hat[valid]
+    if len(Q) < 3:
+        return empty
+
+    ss_res = float(np.sum((Q - Q_hat) ** 2))
+    ss_tot = float(np.sum((Q - Q.mean()) ** 2))
+    R2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else np.nan
+    residuals = Q_hat - Q
+    abs_err = np.abs(residuals)
+    rmse = float(np.sqrt(np.mean(residuals ** 2)))
+    mae = float(np.mean(abs_err))
+    nz = Q != 0
+    mape = float(np.mean(np.abs(residuals[nz] / Q[nz])) * 100) if np.any(nz) else np.nan
+    bias = float(np.mean(residuals))
+    nse = 1.0 - ss_res / ss_tot if ss_tot > 0 else np.nan
+
+    if abs(float(H0)) > 1e-6:
+        eq = f"Q = {A:.4g} · (H − {H0:.3f})^{B:.3f}"
+        model = "offset_powerlaw"
+    else:
+        eq = f"Q = {A:.4g} · H^{B:.3f}"
+        model = "powerlaw"
+
+    return {
+        "model": model,
+        "A": float(A),
+        "B": float(B),
+        "H0": float(H0),
+        "R2": float(R2) if np.isfinite(R2) else np.nan,
+        "rmse": rmse,
+        "mae": mae,
+        "mape": mape,
+        "bias": bias,
+        "nash_sutcliffe": float(nse) if np.isfinite(nse) else np.nan,
+        "n_points": int(len(Q)),
+        "equation": eq,
+        "Q_pred": Q_hat,
+        "H_clean": H,
+        "Q_clean": Q,
+        "residuals": residuals,
+    }
+
+
 def calculate_residuals(
     observed: pd.Series,
     predicted: pd.Series

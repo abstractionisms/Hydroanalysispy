@@ -24,6 +24,7 @@ from hydrology.app.styles import (
     render_status_chips
 )
 from hydrology.app.interpretation import summarize_flow_context
+from hydrology.app.page_modules.alerts import render_site_current_check
 from hydrology.data.usgs import (
     fetch_daily_values, fetch_instantaneous_values,
     DEFAULT_PARAM_DISCHARGE, DEFAULT_PARAM_STAGE
@@ -66,24 +67,23 @@ LOCAL_SITES = {
 
 def _render_regional_summary():
     """Show a compact conditions table for local/priority sites."""
-    from hydrology.data.usgs import fetch_current_conditions, fetch_daily_percentiles, classify_condition
     from hydrology.visualization.map_utils import get_condition_color, get_condition_label
 
     site_ids = list(LOCAL_SITES.keys())
-    current = fetch_current_conditions(site_ids)
-    percentiles = fetch_daily_percentiles(site_ids)
+    # Use shared cache (ttl=3600) — avoids double-fetching on every Stations rerun
+    details = get_site_condition_details(site_ids)
 
     rows = []
     for sid, name in LOCAL_SITES.items():
-        flow = current.get(sid)
-        pcts = percentiles.get(sid)
-        pctile = classify_condition(flow, pcts) if flow and pcts else None
+        info = details.get(sid) or {}
+        flow = info.get("flow_cfs")
+        pctile = info.get("percentile")
         label = get_condition_label(pctile) if pctile is not None else "N/A"
         color = get_condition_color(pctile) if pctile is not None else "#808080"
 
         rows.append({
             "Site": name,
-            "Flow (cfs)": f"{flow:,.0f}" if flow else "N/A",
+            "Flow (cfs)": f"{flow:,.0f}" if flow is not None else "N/A",
             "Condition": label,
             "_color": color,
             "_site_id": sid,
@@ -92,13 +92,18 @@ def _render_regional_summary():
     if not rows:
         return
 
-    # Render as styled cards in columns
+    # Regional current conditions — wrapped for consistent card polish/animation
+    render_workspace_panel(
+        "Regional Current Conditions",
+        "Live flow and USGS seasonal percentile context for priority PNW sites.",
+        [{"label": "Cached 1h", "state": "ready"}, {"label": f"{len(rows)} gages", "state": "ready"}],
+    )
     cols = st.columns(len(rows))
     for col, row in zip(cols, rows):
         with col:
             st.markdown(
-                f'<div style="border-left: 3px solid {row["_color"]}; '
-                f'padding-left: 0.5rem; margin-bottom: 0.5rem;">'
+                f'<div class="status-chip-row" style="border-left: 3px solid {row["_color"]}; '
+                f'padding-left: 0.5rem; margin-bottom: 0.35rem;">'
                 f'<div style="font-size: 0.75rem; color: #8899a6;">{row["Site"]}</div>'
                 f'<div style="font-size: 1.1rem; font-weight: 600; color: #e0e0e0;">{row["Flow (cfs)"]}</div>'
                 f'<div style="font-size: 0.7rem; color: {row["_color"]};">{row["Condition"]}</div>'
@@ -142,6 +147,10 @@ def show():
         st.caption("Fast context from the last 10 years of daily discharge.")
         render_insight_board(summarize_flow_context(df_hist))
 
+    with st.expander("Current Conditions Check", expanded=False):
+        st.caption("Run threshold checks for the selected gage without leaving Stations.")
+        render_site_current_check(site_id, site_info, key_prefix=f"overview_current_{site_id}")
+
     _render_quick_stats(df_hist)
 
 
@@ -162,11 +171,6 @@ def _render_site_workspace(site_id: str, site_info: dict, condition: dict | None
                 "title": "Compare Sites",
                 "href": f"comparisons?site={site_id}",
                 "body": "Check overlap against nearby or selected gages.",
-            },
-            {
-                "title": "Current Check",
-                "href": f"alerts?site={site_id}",
-                "body": "Run manual threshold checks for this gage.",
             },
         ])
 
