@@ -29,6 +29,16 @@ def test_styles_include_tile_hover_tooltips():
     assert "section: str = \"all\"" in text or 'section: str = "all"' in text
 
 
+def test_styles_include_mobile_touch_and_column_stacking():
+    text = (ROOT / "hydrology/app/styles.py").read_text(encoding="utf-8")
+    assert "@media (max-width: 768px)" in text
+    assert "@media (hover: none) and (pointer: coarse)" in text
+    assert "tabindex=" in text or 'tabindex="0"' in text
+    # Columns stack on tablet/phone so rating workshop isn't side-squeezed
+    assert 'min-width: 100% !important' in text
+    assert "stHorizontalBlock" in text
+
+
 def test_styles_include_premium_motion_and_reduced_motion_guard():
     """New fluid/animated premium polish (inspired by modern award-winning web UIs)
     must be present in the CSS system and guarded for accessibility.

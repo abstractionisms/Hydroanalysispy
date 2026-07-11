@@ -455,7 +455,8 @@ def apply_custom_css():
         color: #f87171;
     }
 
-    .plot-card .tile-info {
+    .plot-card .tile-info,
+    .insight-card .tile-info {
         position: absolute;
         top: 0.45rem;
         right: 0.5rem;
@@ -469,6 +470,7 @@ def apply_custom_css():
         line-height: 1.05rem;
         text-align: center;
         opacity: 0.75;
+        pointer-events: none;
     }
 
     .tile-tip {
@@ -488,6 +490,9 @@ def apply_custom_css():
         line-height: 1.35;
         white-space: normal;
         pointer-events: none;
+        max-height: min(42vh, 220px);
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
     }
 
     .tile-tip::after {
@@ -499,10 +504,23 @@ def apply_custom_css():
         border-top-color: rgba(78, 205, 196, 0.35);
     }
 
+    /* Desktop hover + keyboard/touch focus (tap tile once on mobile) */
     .plot-card:hover .tile-tip,
-    .insight-card:hover .tile-tip {
+    .insight-card:hover .tile-tip,
+    .plot-card:focus .tile-tip,
+    .insight-card:focus .tile-tip,
+    .plot-card:focus-within .tile-tip,
+    .insight-card:focus-within .tile-tip,
+    .plot-card:active .tile-tip,
+    .insight-card:active .tile-tip {
         display: block;
         animation: fadeInUp 0.12s ease-out both;
+    }
+
+    .plot-card:focus,
+    .insight-card:focus {
+        outline: 2px solid rgba(78, 205, 196, 0.55);
+        outline-offset: 2px;
     }
 
     .insight-board {
@@ -927,12 +945,24 @@ def apply_custom_css():
         text-decoration: underline;
     }
 
-    /* Mobile responsiveness */
+    /* Mobile / tablet responsiveness */
     @media (max-width: 768px) {
         .main .block-container {
             padding-top: 3.5rem;
             padding-left: 0.5rem;
             padding-right: 0.5rem;
+        }
+
+        /* Stack Streamlit columns so rating workshop + metrics don't squeeze */
+        [data-testid="column"] {
+            min-width: 100% !important;
+            width: 100% !important;
+            flex: 1 1 100% !important;
+        }
+
+        [data-testid="stHorizontalBlock"] {
+            flex-wrap: wrap !important;
+            gap: 0.35rem 0 !important;
         }
 
         .workflow-strip {
@@ -941,10 +971,48 @@ def apply_custom_css():
 
         .plot-board {
             grid-template-columns: 1fr 1fr;
+            gap: 0.55rem;
         }
 
         .insight-board {
             grid-template-columns: 1fr 1fr;
+            gap: 0.55rem;
+        }
+
+        .plot-card,
+        .insight-card {
+            min-height: 0;
+            padding: 0.72rem 0.78rem;
+            padding-right: 1.7rem;
+            /* Avoid hover-lift stealing space / clipping tips on touch */
+            transform: none !important;
+        }
+
+        .plot-card .tile-info,
+        .insight-card .tile-info {
+            width: 1.35rem;
+            height: 1.35rem;
+            line-height: 1.35rem;
+            font-size: 0.72rem;
+            opacity: 0.95;
+        }
+
+        /* Tips open below the tile on mobile so they aren't under the app chrome */
+        .tile-tip {
+            bottom: auto;
+            top: calc(100% + 6px);
+            left: 0;
+            right: 0;
+            font-size: 0.78rem;
+            max-height: min(50vh, 260px);
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+        }
+
+        .tile-tip::after {
+            top: auto;
+            bottom: 100%;
+            border-top-color: transparent;
+            border-bottom-color: rgba(78, 205, 196, 0.35);
         }
 
         .dashboard-hero h1 {
@@ -952,11 +1020,16 @@ def apply_custom_css():
         }
 
         [data-testid="stMetricValue"] {
-            font-size: 1.2rem;
+            font-size: 1.15rem;
         }
 
         [data-testid="stMetricLabel"] {
             font-size: 0.75rem;
+        }
+
+        /* Plotly: keep charts usable on narrow viewports */
+        div[data-testid="stPlotlyChart"] {
+            min-height: 280px;
         }
 
         .site-header h1 {
@@ -971,13 +1044,18 @@ def apply_custom_css():
             font-size: 0.7rem;
             padding: 0.15rem 0.5rem;
         }
+
+        .action-card-grid {
+            grid-template-columns: 1fr !important;
+        }
+
+        .main-nav {
+            flex-wrap: wrap;
+            gap: 0.35rem;
+        }
     }
 
     @media (max-width: 480px) {
-        [data-testid="column"] {
-            min-width: 100% !important;
-        }
-
         [data-testid="stMetricValue"] {
             font-size: 1rem;
         }
@@ -998,6 +1076,32 @@ def apply_custom_css():
         .insight-board {
             grid-template-columns: 1fr;
         }
+
+        /* Tighter Plotly margins feel on very small phones */
+        div[data-testid="stPlotlyChart"] {
+            min-height: 260px;
+        }
+    }
+
+    /* Touch devices: prefer tap/focus over hover for tips */
+    @media (hover: none) and (pointer: coarse) {
+        .plot-card,
+        .insight-card {
+            cursor: pointer;
+            -webkit-tap-highlight-color: rgba(78, 205, 196, 0.15);
+        }
+
+        .plot-card:hover .tile-tip,
+        .insight-card:hover .tile-tip {
+            display: none;
+        }
+
+        .plot-card:focus .tile-tip,
+        .insight-card:focus .tile-tip,
+        .plot-card:focus-within .tile-tip,
+        .insight-card:focus-within .tile-tip {
+            display: block;
+        }
     }
 
     /* Respect user motion preference and add subtle global polish */
@@ -1009,7 +1113,8 @@ def apply_custom_css():
         .insight-card,
         .status-chip,
         .main-nav a,
-        .stButton > button {
+        .stButton > button,
+        .tile-tip {
             animation: none !important;
             transition: none !important;
             transform: none !important;
@@ -1022,9 +1127,11 @@ def apply_custom_css():
         transition: box-shadow 0.2s ease, border-color 0.2s ease;
     }
 
-    div[data-testid="stPlotlyChart"]:hover,
-    iframe[title="streamlit_folium.st_folium"]:hover {
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+    @media (hover: hover) {
+        div[data-testid="stPlotlyChart"]:hover,
+        iframe[title="streamlit_folium.st_folium"]:hover {
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+        }
     }
     """
     _inject_css(css)
@@ -1137,12 +1244,12 @@ def render_action_cards(cards: list[dict]):
 
 
 def _tile_tip_html(help_text: str | None) -> str:
-    """Optional hover popup markup for HTML tiles."""
+    """Optional hover/focus popup markup for HTML tiles (desktop + mobile tap)."""
     if not help_text:
         return ""
     tip = escape(str(help_text))
     return (
-        f'<span class="tile-info" aria-hidden="true" title="Hover for more">i</span>'
+        f'<span class="tile-info" aria-hidden="true">i</span>'
         f'<div class="tile-tip" role="tooltip">{tip}</div>'
     )
 
@@ -1160,7 +1267,8 @@ def render_plot_capability_board(cards: list[dict]):
         status = escape(str(card.get("status", "Ready")))
         tip = _tile_tip_html(card.get("help") or card.get("tip"))
         html_cards.append(
-            f'<div class="plot-card {state}">'
+            f'<div class="plot-card {state}" tabindex="0" role="group" '
+            f'aria-label="{title}">'
             f"{tip}"
             f"<strong>{title}</strong>"
             f"<span>{body}</span>"
@@ -1172,7 +1280,7 @@ def render_plot_capability_board(cards: list[dict]):
         '<div class="plot-board">' + "".join(html_cards) + "</div>",
         unsafe_allow_html=True,
     )
-    st.caption("Hover a tile (or the **i**) for more detail.")
+    st.caption("Desktop: hover a tile · Mobile: tap a tile once for the tip.")
 
 
 def render_insight_board(cards):
@@ -1196,10 +1304,12 @@ def render_insight_board(cards):
             help_text = getattr(card, "help", "") or getattr(card, "tip", "") or ""
 
         tip = _tile_tip_html(help_text)
+        safe_title = escape(str(title))
         html_cards.append(
-            f'<div class="insight-card {escape(str(state))}">'
+            f'<div class="insight-card {escape(str(state))}" tabindex="0" '
+            f'role="group" aria-label="{safe_title}">'
             f"{tip}"
-            f'<div class="label">{escape(str(title))}</div>'
+            f'<div class="label">{safe_title}</div>'
             f'<div class="value">{escape(str(value))}</div>'
             f'<div class="body">{escape(str(body))}</div>'
             "</div>"

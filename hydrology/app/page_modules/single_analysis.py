@@ -300,7 +300,7 @@ def _render_analysis_readiness(data, has_stage: bool, climate_info):
     ]
 
     st.subheader("Analysis Readiness")
-    st.caption("What this site/period can support. Hover a tile for details.")
+    st.caption("What this site/period can support. Hover or tap a tile for details.")
     render_plot_capability_board(cards)
 
 
@@ -316,7 +316,7 @@ def _render_hydrologic_summary(data, has_stage: bool, climate_info):
         record_years = (df_q.index.max() - df_q.index.min()).days / 365.25
 
     st.subheader("Hydrologic Summary")
-    st.caption("Automated context for this period. Hover a tile (or the **i**) for more detail.")
+    st.caption("Automated context for this period. Hover (desktop) or tap (mobile) a tile for detail.")
     render_insight_board(summarize_flow_context(df_q))
 
     with st.expander("Recommended next views", expanded=False):
