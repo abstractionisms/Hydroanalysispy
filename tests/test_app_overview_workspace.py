@@ -21,9 +21,7 @@ def test_build_site_summary_formats_core_fields():
     assert summary["title"] == "Spokane River at Spokane, WA"
     assert summary["subtitle"] == "USGS 12422500 | 47.6593, -117.4491"
     assert summary["chips"] == [
-        {"label": "Flow 5,775 cfs", "state": "ready"},
         {"label": "Above Normal", "state": "ready"},
-        {"label": "Record since 1891", "state": "ready"},
     ]
 
 
@@ -39,5 +37,5 @@ def test_build_layer_status_labels_requested_layers():
     assert status == [
         {"label": "Boundary requested", "state": "limited"},
         {"label": "Flowlines requested", "state": "limited"},
-        {"label": "Dams off", "state": "blocked"},
+        {"label": "Dams off", "state": "muted"},
     ]

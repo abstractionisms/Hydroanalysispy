@@ -330,6 +330,38 @@ def apply_custom_css():
         border-color: rgba(255, 107, 107, 0.55);
     }
 
+    .status-chip.muted {
+        border-color: rgba(139, 156, 176, 0.28);
+        color: var(--hydro-muted);
+        font-weight: 600;
+    }
+
+    .rating-scoreboard {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem 1.1rem;
+        margin: 0.35rem 0 0.55rem;
+    }
+
+    .rating-scoreboard span {
+        color: var(--hydro-text);
+        font-size: 0.95rem;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rating-scoreboard b {
+        display: block;
+        color: var(--hydro-muted);
+        font-size: 0.72rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+
+    .hydro-map-slot {
+        display: none;
+    }
+
     .action-card-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
@@ -979,6 +1011,13 @@ def apply_custom_css():
             gap: 0.55rem;
         }
 
+        [data-testid="stElementContainer"]:has(.hydro-map-slot) + [data-testid="stElementContainer"] [data-testid="stCustomComponentV1"],
+        [data-testid="stElementContainer"]:has(.hydro-map-slot) + [data-testid="stElementContainer"] iframe {
+            height: 280px !important;
+            min-height: 280px !important;
+            max-height: 280px !important;
+        }
+
         .plot-card,
         .insight-card {
             min-height: 0;
@@ -1214,6 +1253,11 @@ def render_workspace_panel(title: str, body: str, chips: list[dict] | None = Non
         f'<section class="workspace-panel"><h3>{escape(str(title))}</h3><p>{escape(str(body))}</p>{chip_html}</section>',
         unsafe_allow_html=True,
     )
+
+
+def mark_folium_slot() -> None:
+    """Mark the next Folium iframe so a phone layout can shorten it."""
+    st.markdown('<div class="hydro-map-slot"></div>', unsafe_allow_html=True)
 
 
 def render_status_chips(chips: list[dict]):

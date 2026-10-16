@@ -19,12 +19,9 @@ from hydrology.app.shared import (
     render_export_buttons, get_site_conditions, get_site_condition_details,
     build_site_summary, logger)
 from hydrology.app.styles import (
-    render_site_header, render_availability_badges, render_metric_cards,
-    render_insight_board, render_workspace_panel, render_action_cards,
-    render_status_chips
+    render_workspace_panel, render_action_cards, render_status_chips,
+    mark_folium_slot,
 )
-from hydrology.app.interpretation import summarize_flow_context
-from hydrology.app.page_modules.alerts import render_site_current_check
 from hydrology.data.usgs import (
     fetch_daily_values, fetch_instantaneous_values,
     DEFAULT_PARAM_DISCHARGE, DEFAULT_PARAM_STAGE
@@ -122,7 +119,7 @@ def show():
         return
 
     st.subheader("Station Workspace")
-    st.caption("Search or click a station on the map, then move directly into analysis, comparison, or current checks.")
+    st.caption("Search or click a station on the map, then move directly into analysis or comparison.")
     site_id = site_picker(inventory_df, key="overview", label="Site", location="main")
 
     site_info = get_cached_site_info(site_id)
@@ -130,27 +127,13 @@ def show():
         st.error(f"Site {site_id} not found")
         return
 
-    lat = site_info.get('latitude')
-    lon = site_info.get('longitude')
-    desc = site_info.get('description', site_id)
-
     condition = get_site_condition_details([site_id]).get(site_id, {})
     _render_site_workspace(site_id, site_info, condition)
 
     _render_station_map(inventory_df, site_id)
 
     st.markdown("---")
-    render_site_header(site_id, desc, float(lat) if lat else None, float(lon) if lon else None)
     df_hist = _render_kpi_row(site_id, site_info)
-    if df_hist is not None and not df_hist.empty:
-        st.subheader("Current Interpretation")
-        st.caption("Fast context from the last 10 years of daily discharge.")
-        render_insight_board(summarize_flow_context(df_hist))
-
-    with st.expander("Current Conditions Check", expanded=False):
-        st.caption("Run threshold checks for the selected gage without leaving Stations.")
-        render_site_current_check(site_id, site_info, key_prefix=f"overview_current_{site_id}")
-
     _render_quick_stats(df_hist)
 
 
@@ -376,6 +359,15 @@ def _render_quick_stats(df_hist: "pd.DataFrame | None"):
     st.dataframe(stats, width="stretch", hide_index=True)
 
 
+def _layer_chip(requested: str, unavailable: str, off: str, show: bool, available: bool) -> dict:
+    """Red only when a layer was asked for and the library cannot draw it."""
+    if show:
+        return {"label": requested, "state": "limited"}
+    if not available:
+        return {"label": unavailable, "state": "blocked"}
+    return {"label": off, "state": "muted"}
+
+
 def build_layer_status(
     show_boundary: bool,
     show_flowlines: bool,
@@ -385,24 +377,9 @@ def build_layer_status(
 ) -> list[dict]:
     """Build display-ready map layer status chips."""
     return [
-        {
-            "label": "Boundary requested" if show_boundary else (
-                "Boundary unavailable" if not has_pynhd else "Boundary off"
-            ),
-            "state": "limited" if show_boundary else "blocked",
-        },
-        {
-            "label": "Flowlines requested" if show_flowlines else (
-                "Flowlines unavailable" if not has_pynhd else "Flowlines off"
-            ),
-            "state": "limited" if show_flowlines else "blocked",
-        },
-        {
-            "label": "Dams requested" if show_dams else (
-                "Dams unavailable" if not has_pygeohydro else "Dams off"
-            ),
-            "state": "limited" if show_dams else "blocked",
-        },
+        _layer_chip("Boundary requested", "Boundary unavailable", "Boundary off", show_boundary, has_pynhd),
+        _layer_chip("Flowlines requested", "Flowlines unavailable", "Flowlines off", show_flowlines, has_pynhd),
+        _layer_chip("Dams requested", "Dams unavailable", "Dams off", show_dams, has_pygeohydro),
     ]
 
 
@@ -551,6 +528,7 @@ def _render_station_map(inventory_df, selected_site_id):
                 with col3:
                     st.metric("Region", "Pacific Northwest")
 
+                mark_folium_slot()
                 st_folium(m, width=None, height=500)
                 return
 
@@ -598,17 +576,20 @@ def _render_station_map(inventory_df, selected_site_id):
         lon = row['longitude']
 
         is_selected = (sid == selected_site_id)
-        if is_selected:
-            color = 'red'
-            radius = 8
+        if color_by_conditions:
+            from hydrology.visualization.map_utils import get_condition_color
+            pctile = conditions.get(sid)
+            fill = get_condition_color(pctile) if pctile is not None else '#4488cc'
         else:
-            if color_by_conditions:
-                from hydrology.visualization.map_utils import get_condition_color
-                pctile = conditions.get(sid)
-                color = get_condition_color(pctile) if pctile is not None else '#4488cc'
-            else:
-                color = '#4488cc'
+            fill = '#4488cc'
+        if is_selected:
+            color = '#3dd6c6'
+            radius = 8
+            weight = 3
+        else:
+            color = fill
             radius = 5
+            weight = 1
 
         details = condition_details.get(sid, {})
         flow = details.get("flow_cfs")
@@ -642,8 +623,8 @@ def _render_station_map(inventory_df, selected_site_id):
             radius=radius,
             popup=folium.Popup(popup_html, max_width=250),
             tooltip=tooltip,
-            color=color, fill=True, fillColor=color,
-            fillOpacity=0.8, weight=1 if not is_selected else 3
+            color=color, fill=True, fillColor=fill,
+            fillOpacity=0.8, weight=weight
         ).add_to(marker_group)
 
     marker_group.add_to(m)
@@ -670,6 +651,7 @@ def _render_station_map(inventory_df, selected_site_id):
     with col3:
         st.metric("Region", "Pacific Northwest")
 
+    mark_folium_slot()
     map_output = st_folium(m, width=None, height=500, returned_objects=["last_object_clicked"])
 
     # Handle map click — show site info and suggest navigation

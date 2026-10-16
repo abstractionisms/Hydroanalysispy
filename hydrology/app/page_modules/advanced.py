@@ -20,6 +20,8 @@ from hydrology.analysis.multisite import MultiSiteAnalyzer
 from hydrology.analysis.flood_events import FloodEventAnalyzer, calculate_event_statistics
 from hydrology.data.national_inventory import get_national_inventory, get_region_inventory
 from hydrology.core.huc_regions import HUC2_REGIONS, get_region_name, get_region_center, US_CENTER
+from hydrology.app.styles import mark_folium_slot
+from hydrology.visualization.interactive import apply_hydro_theme
 
 
 def show():
@@ -125,7 +127,20 @@ def _multisite_analysis(inventory_df):
             name = info.get('description', sid)[:25] if info else sid
             site_names[sid] = f"{sid} - {name}"
         plot_data = synced_data.rename(columns=site_names)
-        st.line_chart(plot_data, width="stretch")
+        fig = go.Figure()
+        for col in plot_data.columns:
+            fig.add_trace(go.Scatter(
+                x=plot_data.index, y=plot_data[col],
+                mode="lines", name=str(col),
+            ))
+        fig.update_layout(
+            title="Synchronized time series",
+            xaxis_title="Date",
+            yaxis_title="Discharge (cfs)",
+            height=420,
+            hovermode="x unified",
+        )
+        st.plotly_chart(apply_hydro_theme(fig), width="stretch")
 
         # Correlation matrix
         st.subheader("Correlation Matrix")
@@ -135,9 +150,9 @@ def _multisite_analysis(inventory_df):
                 z=corr_matrix.values, x=corr_matrix.columns, y=corr_matrix.index,
                 colorscale='Viridis', zmin=0, zmax=1,
                 text=[[f"{val:.3f}" for val in row] for row in corr_matrix.values],
-                texttemplate="%{text}", textfont={"size": 12}))
-            fig.update_layout(height=350, margin=dict(l=20, r=20, t=30, b=20))
-            st.plotly_chart(fig, width="stretch")
+                texttemplate="%{text}", textfont={"size": 12, "color": "#e7eef7"}))
+            fig.update_layout(height=350)
+            st.plotly_chart(apply_hydro_theme(fig), width="stretch")
 
             avg_corr = corr_matrix.values[~np.eye(len(corr_matrix), dtype=bool)].mean()
             if avg_corr > 0.8:
@@ -327,8 +342,8 @@ def _nwm_comparison(inventory_df):
                     xaxis_title="Date", yaxis_title="Discharge (cfs)",
                     yaxis_type="log", height=450,
                     hovermode='x unified',
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-                st.plotly_chart(fig, width="stretch", key="retro_overlay")
+                )
+                st.plotly_chart(apply_hydro_theme(fig), width="stretch", key="retro_overlay")
 
                 # Residual analysis
                 usgs_daily = usgs_data.copy()
@@ -359,8 +374,8 @@ def _nwm_comparison(inventory_df):
                         yaxis_title="Residual (% of observed)",
                         yaxis=dict(range=[-200, 200]),
                         height=300,
-                        margin=dict(l=60, r=20, t=40, b=40))
-                    st.plotly_chart(fig_resid, width="stretch", key="retro_residual")
+                    )
+                    st.plotly_chart(apply_hydro_theme(fig_resid), width="stretch", key="retro_residual")
 
 
 def _flood_animation(inventory_df):
@@ -455,9 +470,8 @@ def _flood_animation(inventory_df):
             title=f"Flood Event: {selected_event.peak_date.strftime('%Y-%m-%d') if selected_event.peak_date else 'Unknown'}",
             xaxis_title="Date/Time", yaxis_title="Discharge (cfs)",
             yaxis_type="log", height=500, hovermode='x unified',
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(apply_hydro_theme(fig), width="stretch")
 
 
 def _watershed_view(inventory_df):
@@ -558,6 +572,7 @@ def _watershed_view(inventory_df):
                             icon=folium.Icon(color='green', icon='tint', prefix='fa')).add_to(m)
 
                     folium.LayerControl().add_to(m)
+                    mark_folium_slot()
                     st_folium(m, width=None, height=450)
 
                     # Land cover breakdown
@@ -664,6 +679,7 @@ def _watershed_view(inventory_df):
                     tooltip=str(row.get('site_id', ''))
                 ).add_to(marker_cluster)
             marker_cluster.add_to(m)
+            mark_folium_slot()
             st_folium(m, width=None, height=500)
 
         # Site table

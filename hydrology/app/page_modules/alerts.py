@@ -9,6 +9,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta, date
 import plotly.graph_objects as go
+from hydrology.visualization.interactive import apply_hydro_theme
 
 from hydrology.app.shared import (
     get_inventory, get_cached_site_info, get_weather_station_info,
@@ -178,6 +179,7 @@ def render_site_current_check(site_id: str, site_info: dict, key_prefix: str = "
             y_min = df_recent['value'].min() * 0.8
             y_max = df_recent['value'].max() * 1.2
             fig.update_yaxes(range=[np.log10(max(y_min, 0.1)), np.log10(y_max)])
+            apply_hydro_theme(fig)
 
             st.plotly_chart(fig, width="stretch")
 

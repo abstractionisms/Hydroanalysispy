@@ -125,17 +125,9 @@ def build_site_summary(site_id: str, site_info: dict, condition: dict | None = N
         subtitle = f"{subtitle} | {float(lat):.4f}, {float(lon):.4f}"
 
     chips = []
-    flow = condition.get("flow_cfs")
-    if flow is not None:
-        chips.append({"label": f"Flow {flow:,.0f} cfs", "state": "ready"})
-
     pctile = condition.get("percentile")
     if pctile is not None:
         chips.append({"label": get_condition_label(pctile), "state": "ready"})
-
-    begin_date = str(site_info.get("begin_date") or "")
-    if len(begin_date) >= 4 and begin_date[:4].isdigit():
-        chips.append({"label": f"Record since {begin_date[:4]}", "state": "ready"})
 
     return {
         "title": desc,
@@ -963,7 +955,8 @@ def create_comparison_figure(plot_name, data_list, titles, nrows, ncols, dpi=150
 
     fig.suptitle(f"Comparison: {plot_name}", fontsize=12, fontweight='bold')
     fig.tight_layout()
-    return fig
+    from hydrology.visualization.composer import style_matplotlib_dark
+    return style_matplotlib_dark(fig)
 
 
 def render_data_download(df: pd.DataFrame, filename_prefix: str = "discharge"):

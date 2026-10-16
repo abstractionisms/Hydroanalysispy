@@ -22,6 +22,7 @@ from hydrology.analysis.indicators import (
     calculate_spi, calculate_sri, classify_drought,
     calculate_baseflow_index_timeseries, get_seasonal_anomaly)
 from hydrology.analysis.baseflow import compare_baseflow_methods
+from hydrology.visualization.interactive import apply_hydro_theme
 
 
 def _summarize_baseflow_methods(flow: pd.Series) -> dict:
@@ -111,8 +112,6 @@ def _render_drought_tab(df_q, q_col, site_id, desc, lat, lon, start_str, end_str
         st.warning("Insufficient data for SRI calculation (need 10+ years of monthly data)")
         return
 
-    # Current drought status
-    _render_drought_status_cards(sri_df)
     _render_index_interpretation(sri_df, "SRI", "streamflow")
 
     # SRI time series with drought bands
@@ -123,9 +122,9 @@ def _render_drought_tab(df_q, q_col, site_id, desc, lat, lon, start_str, end_str
     st.markdown("---")
     st.subheader("Standardized Precipitation Index (SPI)")
     st.caption(
-        "Precipitation is resolved from the nearest Meteostat station (Daymet only if "
-        "NASA Earthdata credentials are configured). SPI fits need ~10+ years of monthly "
-        "precip — climate is auto-extended to at least 30 years when possible."
+        "Precipitation comes from Open-Meteo Historical at the gage, then a Meteostat "
+        "station, then Daymet if NASA Earthdata credentials are set. SPI fits need "
+        "about 10 years of monthly precipitation."
     )
     # Climate window: SPI-12 needs long monthly history (independent of discharge slider)
     spi_start = (datetime.strptime(end_str, "%Y-%m-%d") - timedelta(days=30 * 365)).strftime(
@@ -139,7 +138,7 @@ def _render_drought_tab(df_q, q_col, site_id, desc, lat, lon, start_str, end_str
     )
 
     if include_spi and spi_key not in st.session_state:
-        with st.spinner("Fetching precipitation (Meteostat / Daymet)..."):
+        with st.spinner("Fetching precipitation (Open-Meteo)..."):
             precip_result = _fetch_precip_data_result(
                 site_id, lat, lon, spi_start, end_str
             )
@@ -255,7 +254,7 @@ def _create_drought_timeseries(index_df: pd.DataFrame, title: str) -> go.Figure:
             layer="below")
 
     # Zero line
-    fig.add_hline(y=0, line_dash="solid", line_color="gray", line_width=1)
+    fig.add_hline(y=0, line_dash="solid", line_color="#8b9cb0", line_width=1)
     fig.add_hline(y=-0.5, line_dash="dot", line_color="orange", line_width=0.5, opacity=0.5)
     fig.add_hline(y=-1.3, line_dash="dot", line_color="red", line_width=0.5, opacity=0.5)
 
@@ -279,24 +278,19 @@ def _create_drought_timeseries(index_df: pd.DataFrame, title: str) -> go.Figure:
         yaxis=dict(range=[-3, 3]),
         height=450,
         hovermode='x unified',
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=60, r=20, t=60, b=40))
+    )
 
-    # Add drought severity labels on the right
     annotations = [
-        dict(x=1.02, y=-2.3, text="D4", font=dict(color='#730000', size=9)),
-        dict(x=1.02, y=-1.8, text="D3", font=dict(color='#E60000', size=9)),
-        dict(x=1.02, y=-1.45, text="D2", font=dict(color='#FFAA00', size=9)),
-        dict(x=1.02, y=-1.05, text="D1", font=dict(color='#FCD37F', size=9)),
-        dict(x=1.02, y=-0.65, text="D0", font=dict(color='#CCCC00', size=9)),
+        dict(x=0.012, y=-2.15, text="D4", xanchor="left", font=dict(color="#ffb4b4", size=11)),
+        dict(x=0.012, y=-1.75, text="D3", xanchor="left", font=dict(color="#ff8a8a", size=11)),
+        dict(x=0.012, y=-1.45, text="D2", xanchor="left", font=dict(color="#f0b429", size=11)),
+        dict(x=0.012, y=-1.05, text="D1", xanchor="left", font=dict(color="#fcd37f", size=11)),
+        dict(x=0.012, y=-0.65, text="D0", xanchor="left", font=dict(color="#e7eef7", size=11)),
     ]
     for ann in annotations:
-        fig.add_annotation(
-            xref="paper", yref="y",
-            showarrow=False, **ann
-        )
+        fig.add_annotation(xref="paper", yref="y", showarrow=False, **ann)
 
-    return fig
+    return apply_hydro_theme(fig)
 
 
 def _render_bfi_tab(df_q, q_col, desc):
@@ -371,17 +365,20 @@ def _render_bfi_tab(df_q, q_col, desc):
         hovertemplate='%{x|%Y-%m-%d}<br>BFI: %{y:.2f}<extra></extra>'), row=2, col=1)
 
     # Mean BFI reference line
-    fig.add_hline(y=mean_bfi, line_dash="dash", line_color="gray",
-                  row=2, col=1, annotation_text=f"Mean: {mean_bfi:.2f}")
+    fig.add_hline(
+        y=mean_bfi, line_dash="dash", line_color="#8b9cb0",
+        row=2, col=1, annotation_text=f"Mean: {mean_bfi:.2f}",
+        annotation_font_color="#e7eef7",
+    )
 
     fig.update_layout(
         title=f"{desc} - Baseflow Analysis",
         height=600,
         hovermode='x unified',
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=60, r=20, t=80, b=40))
+    )
     fig.update_yaxes(title_text="Discharge (cfs)", type="log", row=1, col=1)
     fig.update_yaxes(title_text="BFI", range=[0, 1], row=2, col=1)
+    apply_hydro_theme(fig)
 
     st.plotly_chart(fig, width="stretch", key="bfi_chart")
 
@@ -435,7 +432,7 @@ def _render_anomaly_tab(df_q, q_col, desc):
     fig.add_trace(go.Scatter(
         x=anomaly['doy'], y=anomaly['historical_median'],
         mode='lines', name='Historical Median',
-        line=dict(color='gray', width=1.5, dash='dash'),
+        line=dict(color='#8b9cb0', width=1.5, dash='dash'),
         hovertemplate='Day %{x}<br>Median: %{y:,.0f} cfs<extra></extra>'), row=1, col=1)
 
     fig.add_trace(go.Scatter(
@@ -460,22 +457,22 @@ def _render_anomaly_tab(df_q, q_col, desc):
             name='Below Normal', marker_color='rgba(214, 39, 40, 0.6)',
             hovertemplate='Day %{x}<br>%{y:+.0f}%<extra></extra>'), row=2, col=1)
 
-    fig.add_hline(y=0, line_color="gray", line_width=1, row=2, col=1)
+    fig.add_hline(y=0, line_color="#8b9cb0", line_width=1, row=2, col=1)
 
     fig.update_layout(
         title=f"{desc} - Seasonal Anomaly ({current_year})",
         height=600,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=60, r=20, t=80, b=40))
+    )
     fig.update_xaxes(tickvals=month_starts, ticktext=month_labels, row=2, col=1)
     fig.update_yaxes(title_text="Discharge (cfs)", type="log", row=1, col=1)
     fig.update_yaxes(title_text="Anomaly (%)", row=2, col=1)
+    apply_hydro_theme(fig)
 
     st.plotly_chart(fig, width="stretch", key="anomaly_chart")
 
 
 def _fetch_precip_data(site_id, lat, lon, start_str, end_str):
-    """Try Daymet first, fall back to Meteostat for precipitation."""
+    """Fetch precipitation. Open-Meteo is first, then Meteostat, then Daymet."""
     return _fetch_precip_data_result(site_id, lat, lon, start_str, end_str)["precip"]
 
 

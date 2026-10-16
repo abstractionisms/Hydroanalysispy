@@ -27,7 +27,7 @@ from hydrology.app.interpretation import (
     summarize_flow_context,
     summarize_recommendations,
     build_plot_analysis_report,
-    build_interactive_chart_brief,
+    summarize_seasonal_pattern,
 )
 from hydrology.app.plot_config import SINGLE_SITE_PLOTS, resolve_generated_plots
 from hydrology.app.page_modules.indicators import render_site_indicators
@@ -47,9 +47,7 @@ def _show_rating_chart(fig) -> None:
     """Draw the workshop chart in an iframe.
 
     Streamlit 1.37 mounts ``st.plotly_chart`` once and then only recolors that
-    first figure. Slider reruns change the spec, and the red curve and its
-    "Your fit · R²" label stay on the opening fit. An iframe reads the new
-    HTML on every rerun.
+    first figure. An iframe reads the new HTML on every rerun.
     """
     height = int(getattr(fig.layout, "height", None) or 560)
     snippet = fig.to_html(
@@ -242,30 +240,26 @@ def _render_rating_curve_workshop(
 
         scored = evaluate_rating_params(stage, discharge, A, B, H0)
         auto_scored = evaluate_rating_params(stage, discharge, auto_A, auto_B, auto_H0)
-        m1, m2, m3, m4 = st.columns(4)
         mdape = scored.get("mdape")
         r2_log = scored.get("r2_log")
         q_ref = scored.get("q_ref")
         n_excluded = int(scored.get("n_excluded") or 0)
-        m1.metric(
-            "% error",
-            f"{mdape:.1f}%" if pd.notna(mdape) else "—",
-            help="Median absolute percent error. This moves when H₀ moves. Cubic-feet R² mostly watches the floods.",
+        mdape_txt = f"{mdape:.1f}%" if pd.notna(mdape) else "—"
+        r2_txt = f"{r2_log:.3f}" if pd.notna(r2_log) else "—"
+        q_txt = f"{q_ref:,.0f}" if pd.notna(q_ref) else "—"
+        st.markdown(
+            "<div class='rating-scoreboard'>"
+            f"<span><b>% error</b>{mdape_txt}</span>"
+            f"<span><b>Log R²</b>{r2_txt}</span>"
+            f"<span><b>Q at mid stage</b>{q_txt}</span>"
+            f"<span><b>Left out</b>{n_excluded:,}</span>"
+            "</div>",
+            unsafe_allow_html=True,
         )
-        m2.metric(
-            "Log R²",
-            f"{r2_log:.3f}" if pd.notna(r2_log) else "—",
-            help="Fit quality on log discharge, so low flows count. 1 is a tight percent fit.",
-        )
-        m3.metric(
-            "Q at mid stage",
-            f"{q_ref:,.0f}" if pd.notna(q_ref) else "—",
-            help="Discharge the equation gives at the median observed stage. This is the direct effect of H₀.",
-        )
-        m4.metric(
-            "Left out",
-            f"{n_excluded:,}",
-            help="Pairs at or below H₀. They are not scored. Pushing H₀ up through the cloud drops them.",
+        st.caption(
+            "Percent error and log R² score your curve. "
+            "Q at mid stage is the equation at the median gage height. "
+            "Left out is days at or below H₀."
         )
 
         auto_mdape = auto_scored.get("mdape")
@@ -308,8 +302,6 @@ def _render_rating_curve_workshop(
             help="Percent error is easiest to see on a log axis. The range stays on the observations.",
         )
 
-        live_eq = scored.get("equation", "—")
-        st.markdown(f"**Equation:** `{live_eq}`")
         fig = interactive_rating_curve(
             df_q,
             A=A,
@@ -381,13 +373,12 @@ def _render_analysis_readiness(data, has_stage: bool, climate_info):
         },
     ]
 
-    st.subheader("Analysis Readiness")
-    st.caption("What this site/period can support. Hover or tap a tile for details.")
+    st.caption("What this site and period can support.")
     render_plot_capability_board(cards)
 
 
 def _render_hydrologic_summary(data, has_stage: bool, climate_info):
-    """Render automated interpretation cards for the selected record."""
+    """Keep flow context and readiness one click away from the plot control."""
     df_q = data.get('df_q') if data else None
     df_merged = data.get('df_merged') if data else None
     has_climate = df_merged is not None and not df_merged.empty and (
@@ -397,12 +388,10 @@ def _render_hydrologic_summary(data, has_stage: bool, climate_info):
     if df_q is not None and not df_q.empty:
         record_years = (df_q.index.max() - df_q.index.min()).days / 365.25
 
-    st.subheader("Hydrologic Summary")
-    st.caption("Automated context for this period. Hover (desktop) or tap (mobile) a tile for detail.")
-    render_insight_board(summarize_flow_context(df_q))
-
     with st.expander("Recommended next views", expanded=False):
+        render_insight_board(summarize_flow_context(df_q))
         render_insight_board(summarize_recommendations(has_stage, has_climate, record_years))
+        _render_analysis_readiness(data, has_stage, climate_info)
         if climate_info:
             station = climate_info.get('name', 'nearest weather station')
             distance = climate_info.get('distance_km')
@@ -442,9 +431,10 @@ def _plot_views(has_stage: bool) -> list[str]:
     return views
 
 
-def _render_chart_brief(data) -> None:
-    st.markdown("##### What this record is showing")
-    st.markdown(build_interactive_chart_brief(data.get("df_q"), data.get("df_merged")))
+def _render_hydrograph_note(data) -> None:
+    note = summarize_seasonal_pattern(data.get("df_q"))
+    if note:
+        st.caption(note)
 
 
 def _render_hydrograph_view(data, desc: str, has_stage: bool, site_id: str) -> None:
@@ -703,11 +693,10 @@ def _render_plot_workspace(data, site_id: str, desc: str, has_stage: bool, site_
 
     if view == "Hydrograph":
         _render_hydrograph_view(data, desc, has_stage, site_id)
-        _render_chart_brief(data)
+        _render_hydrograph_note(data)
     elif view == "Duration":
         render_metric_cards(data["df_q"], data.get("df_merged"), section="duration")
         _render_duration_view(data, desc)
-        _render_chart_brief(data)
     elif view == "Raster":
         fig_raster = raster_hydrograph(
             data['df_q'], discharge_col='Discharge_cfs',
@@ -739,7 +728,6 @@ def show():
         st.error("Could not load site inventory")
         return
 
-    st.subheader("Analysis Workspace")
     site_id = site_picker(inventory_df, key="single", label="Select Site", location="main")
 
     site_info = get_cached_site_info(site_id)
@@ -751,12 +739,6 @@ def show():
     lon = site_info.get('longitude')
     desc = site_info.get('description', site_id)
 
-    # Main Area
-    st.header("Single Site Analysis")
-    st.caption(f"Site: {desc}")
-
-    # Date range
-    st.subheader("Date Range")
     start_date, end_date = date_range_selector("single")
 
     if not lat or not lon:
@@ -782,11 +764,6 @@ def show():
     render_availability_badges(True, has_stage, climate_info)
     # Record coverage only at top — duration quantiles live on the Duration view
     render_metric_cards(data['df_q'], data['df_merged'], section="record")
-
-    st.markdown("---")
     _render_hydrologic_summary(data, has_stage, climate_info)
-    st.markdown("---")
-    _render_analysis_readiness(data, has_stage, climate_info)
-
     _render_plot_workspace(data, site_id, desc, has_stage, site_info)
     render_data_download(data['df_q'], filename_prefix=site_id)

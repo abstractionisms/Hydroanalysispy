@@ -28,6 +28,44 @@ from enum import Enum
 from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 import matplotlib.pyplot as plt
+
+
+def style_matplotlib_dark(fig):
+    """Paint a matplotlib figure with the dashboard's dark panel colors."""
+    if fig is None:
+        return fig
+    paper = "#0b1524"
+    face = "#101c2e"
+    text = "#e7eef7"
+    muted = "#8b9cb0"
+    spine = (0.46, 0.66, 0.75, 0.35)
+    fig.patch.set_facecolor(paper)
+    for ax in fig.axes:
+        ax.set_facecolor(face)
+        ax.tick_params(colors=muted, which="both")
+        ax.xaxis.label.set_color(text)
+        ax.yaxis.label.set_color(text)
+        ax.title.set_color(text)
+        for edge in ax.spines.values():
+            edge.set_color(spine)
+        legend = ax.get_legend()
+        if legend is not None:
+            frame = legend.get_frame()
+            frame.set_facecolor(paper)
+            frame.set_edgecolor(spine)
+            for item in legend.get_texts():
+                item.set_color(text)
+        for item in ax.texts:
+            color = str(item.get_color()).lower()
+            if color in {"k", "black", "#000", "#000000"}:
+                item.set_color(text)
+        for line in ax.lines:
+            color = str(line.get_color()).lower()
+            if color in {"k", "black", "#000", "#000000"}:
+                line.set_color(text)
+    if getattr(fig, "_suptitle", None) is not None:
+        fig._suptitle.set_color(text)
+    return fig
 import textwrap
 
 from .plots import AVAILABLE_PLOTS
@@ -242,10 +280,11 @@ def create_multi_plot(
         plot_filename = f"USGS_{site_id}_{layout_name}_{'_'.join(plots[:3])}.png"
         save_path = plot_dir / plot_filename
 
+    style_matplotlib_dark(fig)
     if save_path:
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, dpi=dpi, bbox_inches='tight')
+        fig.savefig(save_path, dpi=dpi, bbox_inches='tight', facecolor=fig.get_facecolor())
         logger.info(f"Multi-plot saved: {save_path}")
 
     return fig

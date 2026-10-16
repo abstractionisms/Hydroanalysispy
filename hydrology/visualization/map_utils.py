@@ -75,7 +75,7 @@ def get_condition_color(percentile: float) -> str:
         return '#808080'  # gray for unknown
 
     if percentile >= 90:
-        return '#00008B'   # dark blue: much above normal
+        return '#9fd4ff'   # light blue: much above normal, readable on the dark basemap
     elif percentile >= 75:
         return '#00BFFF'   # light blue: above normal
     elif percentile >= 25:
@@ -298,7 +298,7 @@ def create_watershed_map(
             location=[float(site_info['latitude']), float(site_info['longitude'])],
             tooltip=_format_site_tooltip(primary_site, selected=True),
             popup=folium.Popup(_format_site_popup(primary_site, selected=True), max_width=280),
-            icon=folium.Icon(color='red', icon='tint', prefix='fa'),
+            icon=folium.Icon(color='cadetblue', icon='tint', prefix='fa'),
         ).add_to(m)
 
     # Additional sites with condition coloring
@@ -337,11 +337,11 @@ def add_condition_legend(m) -> None:
         return
 
     legend_html = """
-    <div style="position: fixed; bottom: 30px; right: 10px; z-index: 1000;
+    <div style="position: fixed; bottom: 48px; left: 12px; z-index: 1000;
                 background-color: #1a1a2e; border: 1px solid #4a4a6a; border-radius: 8px;
                 padding: 10px; font-size: 11px; opacity: 0.92; color: #e0e0e0;">
         <b style="color: #e0e0e0;">Streamflow Condition</b><br>
-        <span style="color: #00008B;">&#9679;</span> Much Above Normal (>90th)<br>
+        <span style="color: #9fd4ff;">&#9679;</span> Much Above Normal (>90th)<br>
         <span style="color: #00BFFF;">&#9679;</span> Above Normal (75-90th)<br>
         <span style="color: #00CC00;">&#9679;</span> Normal (25-75th)<br>
         <span style="color: #FF8C00;">&#9679;</span> Below Normal (10-25th)<br>

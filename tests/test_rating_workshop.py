@@ -78,9 +78,11 @@ def test_slider_drag_changes_equation_and_curve():
 
     before_eq = _equations(at)
     before_html = _chart_html(at)
-    assert before_eq
+    assert len(before_eq) == 1
     assert "Q =" in before_eq[0]
     assert _eq_text(before_eq) in before_html
+    assert "Your curve" in before_html
+    assert "Auto-fit" in before_html
     assert "Your fit · R²=" not in before_html
 
     exponent = next(slider for slider in at.slider if slider.label.startswith("B"))

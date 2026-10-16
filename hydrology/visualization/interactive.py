@@ -101,8 +101,8 @@ def interactive_hydrograph(
     if df_q is None or df_q.empty or discharge_col not in df_q.columns:
         fig = go.Figure()
         fig.add_annotation(text="No discharge data available", xref="paper", yref="paper",
-                          x=0.5, y=0.5, showarrow=False, font=dict(size=16))
-        return fig
+                          x=0.5, y=0.5, showarrow=False, font=dict(size=16, color="#9bb4c8"))
+        return apply_hydro_theme(fig)
 
     # Resample if requested
     q_series = df_q[discharge_col].dropna()
@@ -181,11 +181,9 @@ def interactive_hydrograph(
         yaxis=yaxis,
         height=450,
         hovermode='x unified',
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=60, r=20, t=60, b=40),
     )
 
-    return fig
+    return apply_hydro_theme(fig)
 
 
 def interactive_fdc(
@@ -216,8 +214,8 @@ def interactive_fdc(
     if df_q is None or df_q.empty or discharge_col not in df_q.columns:
         fig = go.Figure()
         fig.add_annotation(text="No discharge data available", xref="paper", yref="paper",
-                          x=0.5, y=0.5, showarrow=False, font=dict(size=16))
-        return fig
+                          x=0.5, y=0.5, showarrow=False, font=dict(size=16, color="#9bb4c8"))
+        return apply_hydro_theme(fig)
 
     q = df_q[discharge_col].dropna().sort_index()
     y_for_scale = np.asarray(q.values, dtype=float)
@@ -258,7 +256,7 @@ def interactive_fdc(
         fig.add_annotation(
             text="Koehler (2025) enhanced FDC: color = dQ/dt",
             xref="paper", yref="paper", x=0.98, y=0.02,
-            showarrow=False, font=dict(size=9, color='gray'),
+            showarrow=False, font=dict(size=9, color="#8b9cb0"),
             xanchor='right', yanchor='bottom'
         )
 
@@ -268,8 +266,8 @@ def interactive_fdc(
         if fdc.empty:
             fig = go.Figure()
             fig.add_annotation(text="No data for FDC", xref="paper", yref="paper",
-                              x=0.5, y=0.5, showarrow=False)
-            return fig
+                              x=0.5, y=0.5, showarrow=False, font=dict(size=16, color="#9bb4c8"))
+            return apply_hydro_theme(fig)
 
         y_for_scale = np.asarray(fdc["discharge"].values, dtype=float)
         fig = go.Figure()
@@ -289,11 +287,12 @@ def interactive_fdc(
             fig.add_hline(
                 y=q_val,
                 line_dash="dash",
-                line_color="gray",
+                line_color="#8b9cb0",
                 annotation_text=f"{label}: {q_val:,.0f}",
                 annotation_position="right",
+                annotation_font_color="#8b9cb0",
                 line_width=1,
-                opacity=0.5,
+                opacity=0.7,
             )
 
     yaxis = _discharge_yaxis_layout(y_for_scale)
@@ -303,10 +302,9 @@ def interactive_fdc(
         yaxis=yaxis,
         xaxis=dict(range=[0, 100]),
         height=450,
-        margin=dict(l=60, r=80, t=60, b=40),
     )
 
-    return fig
+    return apply_hydro_theme(fig)
 
 
 def interactive_comparison(
@@ -355,11 +353,9 @@ def interactive_comparison(
         yaxis_type="log",
         height=450,
         hovermode='x unified',
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=60, r=20, t=60, b=40),
     )
 
-    return fig
+    return apply_hydro_theme(fig)
 
 
 def raster_hydrograph(
@@ -384,15 +380,15 @@ def raster_hydrograph(
     if df_q is None or df_q.empty or discharge_col not in df_q.columns:
         fig = go.Figure()
         fig.add_annotation(text="No data available", xref="paper", yref="paper",
-                          x=0.5, y=0.5, showarrow=False, font=dict(size=16))
-        return fig
+                          x=0.5, y=0.5, showarrow=False, font=dict(size=16, color="#9bb4c8"))
+        return apply_hydro_theme(fig)
 
     q = df_q[discharge_col].dropna()
     if q.empty:
         fig = go.Figure()
         fig.add_annotation(text="No discharge data", xref="paper", yref="paper",
-                          x=0.5, y=0.5, showarrow=False)
-        return fig
+                          x=0.5, y=0.5, showarrow=False, font=dict(size=16, color="#9bb4c8"))
+        return apply_hydro_theme(fig)
 
     # Build matrix: rows=years, cols=day-of-year
     df_work = pd.DataFrame({'q': q, 'year': q.index.year, 'doy': q.index.dayofyear})
@@ -402,8 +398,9 @@ def raster_hydrograph(
     if n_years < 2:
         fig = go.Figure()
         fig.add_annotation(text="Need 2+ years for raster hydrograph",
-                          xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
-        return fig
+                          xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+                          font=dict(size=16, color="#9bb4c8"))
+        return apply_hydro_theme(fig)
 
     # Create matrix (log-scaled for better contrast)
     matrix = np.full((n_years, 366), np.nan)
@@ -423,7 +420,10 @@ def raster_hydrograph(
         x=list(range(1, 367)),
         y=years,
         colorscale='Viridis',
-        colorbar=dict(title='log10(cfs)'),
+        colorbar=dict(
+            title=dict(text="log10(cfs)", font=dict(color="#e7eef7")),
+            tickfont=dict(color="#8b9cb0"),
+        ),
         hovertemplate='Day %{x}<br>Year %{y}<br>Flow: 10^%{z:.1f} cfs<extra></extra>',
         zsmooth='best',
     ))
@@ -433,10 +433,9 @@ def raster_hydrograph(
         xaxis=dict(title="Day of Year", tickvals=month_starts, ticktext=month_labels),
         yaxis=dict(title="Year", autorange='reversed'),
         height=max(300, n_years * 15 + 100),
-        margin=dict(l=60, r=20, t=60, b=40),
     )
 
-    return fig
+    return apply_hydro_theme(fig)
 
 
 def percentile_bands_hydrograph(
@@ -455,8 +454,8 @@ def percentile_bands_hydrograph(
     if df_q is None or df_q.empty or discharge_col not in df_q.columns:
         fig = go.Figure()
         fig.add_annotation(text="No data available", xref="paper", yref="paper",
-                          x=0.5, y=0.5, showarrow=False, font=dict(size=16))
-        return fig
+                          x=0.5, y=0.5, showarrow=False, font=dict(size=16, color="#9bb4c8"))
+        return apply_hydro_theme(fig)
 
     q = df_q[discharge_col].dropna()
     if current_year is None:
@@ -468,8 +467,9 @@ def percentile_bands_hydrograph(
     if len(hist) < 365:
         fig = go.Figure()
         fig.add_annotation(text="Insufficient historical data for percentile bands",
-                          xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
-        return fig
+                          xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+                          font=dict(size=16, color="#9bb4c8"))
+        return apply_hydro_theme(fig)
 
     pcts = hist.groupby('doy')['q'].quantile([0.10, 0.25, 0.50, 0.75, 0.90]).unstack()
     pcts.columns = ['p10', 'p25', 'p50', 'p75', 'p90']
@@ -522,11 +522,9 @@ def percentile_bands_hydrograph(
         yaxis=dict(title="Discharge (cfs)", type="log"),
         height=450,
         hovermode='x unified',
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=60, r=20, t=60, b=40),
     )
 
-    return fig
+    return apply_hydro_theme(fig)
 
 
 def interactive_return_period(
@@ -554,7 +552,7 @@ def interactive_return_period(
         fig.add_trace(go.Scatter(
             x=observed['return_period'], y=observed['flow_cfs'],
             mode='markers', name='Observed',
-            marker=dict(color='black', size=6, symbol='circle'),
+            marker=dict(color='#e7eef7', size=6, symbol='circle', line=dict(color='#8b9cb0', width=1)),
             hovertemplate='T=%{x:.1f} yr<br>Q=%{y:,.0f} cfs<extra>Observed</extra>',
         ))
 
@@ -620,17 +618,17 @@ def interactive_return_period(
         ),
         height=500,
         hovermode='closest',
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=60, r=20, t=60, b=40),
     )
 
-    # Add reference lines for common return periods
     for rp in [10, 50, 100]:
-        fig.add_vline(x=rp, line_dash="dot", line_color="gray",
-                     line_width=0.5, opacity=0.5,
-                     annotation_text=f"{rp}-yr", annotation_position="top")
+        fig.add_vline(
+            x=rp, line_dash="dot", line_color="#8b9cb0",
+            line_width=0.5, opacity=0.7,
+            annotation_text=f"{rp}-yr", annotation_position="top",
+            annotation_font_color="#8b9cb0",
+        )
 
-    return fig
+    return apply_hydro_theme(fig)
 
 
 def _lyne_hollick(Q: np.ndarray, alpha: float = 0.925) -> np.ndarray:
@@ -664,7 +662,8 @@ def baseflow_waterfall(
     empty = go.Figure()
     empty.add_annotation(text="Insufficient data for baseflow waterfall",
                          xref="paper", yref="paper", x=0.5, y=0.5,
-                         showarrow=False, font=dict(size=14))
+                         showarrow=False, font=dict(size=14, color="#9bb4c8"))
+    apply_hydro_theme(empty)
 
     if df_upstream is None or df_downstream is None:
         return empty
@@ -775,26 +774,18 @@ def baseflow_waterfall(
     )
 
     gain_loss_label = "gaining" if reach_delta >= 0 else "losing"
-    annotation_text = (
-        f"Reach is <b>{gain_loss_label}</b> {abs(reach_delta):,.0f} cfs on average | "
-        f"BFI: {upstream_name[:20]} = {bfi_up:.2f}, {downstream_name[:20]} = {bfi_dn:.2f}"
+    fig.layout.meta = (
+        f"Reach is {gain_loss_label} {abs(reach_delta):,.0f} cfs on average. "
+        f"BFI: {upstream_name[:20]} = {bfi_up:.2f}, {downstream_name[:20]} = {bfi_dn:.2f}."
     )
 
     fig.update_layout(
         title=dict(text=title, font=dict(size=14)),
         height=650,
         showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=60, r=20, t=80, b=40),
-        annotations=[
-            dict(
-                text=annotation_text,
-                xref="paper", yref="paper",
-                x=0.5, y=-0.06, showarrow=False,
-                font=dict(size=11, color="#666"),
-            )
-        ] + list(fig.layout.annotations),
     )
+    for ann in fig.layout.annotations or []:
+        ann.font.color = "#e7eef7"
 
     fig.update_yaxes(title_text="Discharge (cfs)", row=1, col=1)
     fig.update_yaxes(title_text="Baseflow Index", range=[0, 1], row=2, col=1)
@@ -888,7 +879,7 @@ def interactive_rating_curve(
         shared_xaxes=True,
         row_heights=row_heights,
         vertical_spacing=0.06 if show_residuals else 0.02,
-        subplot_titles=(None, "Residuals (Q_fit − Q_obs)") if show_residuals else None,
+        subplot_titles=None,
     )
 
     season_colors = {
@@ -955,16 +946,19 @@ def interactive_rating_curve(
     H_line = np.linspace(H_lo, H_max, 250)
     Q_user = predict_rating_discharge(H_line, A, B, H0f)
 
-    r2_txt = f"{scored['R2']:.3f}" if np.isfinite(scored.get("R2", np.nan)) else "—"
     eq = scored.get("equation") or f"Q = {A:.4g}·(H−{H0:.3f})^{B:.3f}"
     fig.add_trace(
         go.Scatter(
             x=H_line,
             y=Q_user,
             mode="lines",
-            name=f"{eq}  ·  R²={r2_txt}",
+            name="Your curve",
             line=dict(color="#ff6b6b", width=3.2),
-            hovertemplate="H=%{x:.2f} ft<br>Q_fit=%{y:,.1f} cfs<extra>Your rating</extra>",
+            hovertemplate=(
+                "H=%{x:.2f} ft<br>Q_fit=%{y:,.1f} cfs<br>"
+                + eq
+                + "<extra>Your curve</extra>"
+            ),
         ),
         row=1, col=1,
     )
@@ -979,14 +973,12 @@ def interactive_rating_curve(
         a_lo = aH0 + 1e-3 if aH0 < H_max else float(stage_window["h_min"])
         H_auto = np.linspace(a_lo, H_max, 250)
         Q_auto = predict_rating_discharge(H_auto, aA, aB, aH0)
-        a_r2 = auto_fit.get("R2", np.nan)
-        a_r2_txt = f"{a_r2:.3f}" if np.isfinite(a_r2) else "—"
         fig.add_trace(
             go.Scatter(
                 x=H_auto,
                 y=Q_auto,
                 mode="lines",
-                name=f"Auto-fit · R²={a_r2_txt}",
+                name="Auto-fit",
                 line=dict(color="#4ecdc4", width=2.2, dash="dash"),
                 hovertemplate="H=%{x:.2f} ft<br>Q_auto=%{y:,.1f} cfs<extra>Auto-fit</extra>",
             ),
@@ -1006,9 +998,9 @@ def interactive_rating_curve(
                     size=5,
                     color=resid,
                     colorscale=[
-                        [0.0, "#4ecdc4"],
-                        [0.5, "#e7eef7"],
-                        [1.0, "#ff6b6b"],
+                        [0.0, "#6b9fff"],
+                        [0.5, "#c4b8a5"],
+                        [1.0, "#f0b429"],
                     ],
                     cmid=0,
                     opacity=0.65,
@@ -1019,7 +1011,7 @@ def interactive_rating_curve(
             row=2, col=1,
         )
         fig.add_hline(
-            y=0, line=dict(color="rgba(118,169,192,0.45)", width=1, dash="dot"),
+            y=0, line=dict(color="rgba(139,156,176,0.85)", width=1.6),
             row=2, col=1,
         )
 
@@ -1054,7 +1046,7 @@ def interactive_rating_curve(
         fig.add_vrect(
             x0=x_lo,
             x1=H0f,
-            fillcolor="rgba(255,107,107,0.12)",
+            fillcolor="rgba(240,180,41,0.14)",
             line_width=0,
             layer="below",
             row=1,
@@ -1062,41 +1054,22 @@ def interactive_rating_curve(
         )
         fig.add_vline(
             x=H0f,
-            line=dict(color="#ff6b6b", width=1.6, dash="dot"),
+            line=dict(color="#f0b429", width=1.6, dash="dot"),
             annotation_text="H₀",
             annotation_position="top",
-            annotation_font=dict(color="#ff6b6b", size=12),
+            annotation_font=dict(color="#f0b429", size=12),
             row=1,
             col=1,
         )
 
-    subtitle = (
-        f"<span style='color:#9bb4c8;font-size:12px'>{eq} · n={scored['n_points']:,}</span>"
-    )
-
-    apply_hydro_theme(fig)
     fig.update_layout(
         # New revision drops any Plotly UI state held from the previous curve.
         uirevision=f"{A:.6g}|{B:.4f}|{H0:.4f}|{show_residuals}|{bool(use_log)}|{color_by}",
-        title=dict(
-            text=f"{title}<br>{subtitle}",
-            font=dict(size=15),
-        ),
+        title=dict(text=title, font=dict(size=15)),
         height=560 if show_residuals else 440,
         showlegend=True,
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1,
-            bgcolor="rgba(16,28,46,0.55)",
-            bordercolor="rgba(78,205,196,0.25)",
-            borderwidth=1,
-            font=dict(size=11),
-        ),
-        margin=dict(l=60, r=24, t=118, b=48),
     )
+    apply_hydro_theme(fig)
     fig.update_xaxes(
         title_text="Stage height (ft)" if not show_residuals else None,
         range=[x_lo, x_hi],
@@ -1111,24 +1084,49 @@ def interactive_rating_curve(
 
 
 def apply_hydro_theme(fig: "go.Figure") -> "go.Figure":
-    """Lightweight consistent theming for Plotly charts to match the dashboard premium visual language.
+    """Match a Plotly figure to the dark dashboard shell.
 
-    Safe to call on any interactive fig returned from this module.
-    Uses the same teal accent and dark surfaces as the Streamlit custom CSS.
-    (Optional polish; callers can opt-in without behavior change.)
+    The legend sits under the axes so it does not cover the title.
     """
     try:
         fig.update_layout(
-            font=dict(family="Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif", size=12, color="#e7eef7"),
+            font=dict(
+                family="Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+                size=12,
+                color="#e7eef7",
+            ),
             paper_bgcolor="rgba(16, 28, 46, 0.85)",
             plot_bgcolor="rgba(10, 21, 36, 0.6)",
-            margin=dict(l=50, r=20, t=60, b=40),
+            legend=dict(
+                orientation="h",
+                yanchor="top",
+                y=-0.22,
+                xanchor="left",
+                x=0,
+                bgcolor="rgba(16,28,46,0.55)",
+                bordercolor="rgba(78,205,196,0.25)",
+                borderwidth=1,
+                font=dict(size=11, color="#e7eef7"),
+            ),
+            margin=dict(l=60, r=24, t=48, b=96),
             hoverlabel=dict(bgcolor="#101c2e", bordercolor="#4ecdc4", font=dict(color="#e7eef7")),
         )
-        # Subtle grid using the muted border tone
-        fig.update_xaxes(gridcolor="rgba(118, 169, 192, 0.12)", zerolinecolor="rgba(118, 169, 192, 0.2)")
-        fig.update_yaxes(gridcolor="rgba(118, 169, 192, 0.12)", zerolinecolor="rgba(118, 169, 192, 0.2)")
+        fig.update_xaxes(
+            gridcolor="rgba(118, 169, 192, 0.12)",
+            zerolinecolor="rgba(139, 156, 176, 0.55)",
+            title_font_color="#e7eef7",
+            tickfont_color="#8b9cb0",
+        )
+        fig.update_yaxes(
+            gridcolor="rgba(118, 169, 192, 0.12)",
+            zerolinecolor="rgba(139, 156, 176, 0.55)",
+            title_font_color="#e7eef7",
+            tickfont_color="#8b9cb0",
+        )
+        for ann in fig.layout.annotations or []:
+            current = str(ann.font.color).lower() if ann.font and ann.font.color else ""
+            if current in ("", "gray", "#666", "#444", "black", "#000", "#000000"):
+                ann.font.color = "#e7eef7"
     except Exception:
-        # Never break a chart for theme
         pass
     return fig

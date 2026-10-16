@@ -21,7 +21,7 @@ from hydrology.app.shared import fetch_climate_cached
 from hydrology.visualization.interactive import baseflow_waterfall
 from hydrology.analysis.reach_gain_loss import summarize_reach_gain_loss
 from hydrology.data.nldi import discover_related_sites
-from hydrology.app.styles import render_workspace_panel, render_insight_board
+from hydrology.app.styles import render_workspace_panel, render_insight_board, mark_folium_slot
 
 import pandas as pd
 
@@ -710,6 +710,7 @@ def _render_reach_map(up_info, dn_info, upstream_id, downstream_id, reach_km, se
     reach_bounds = _map_bounds_for_reach(None, None, up_lat, up_lon, dn_lat, dn_lon)
     m.fit_bounds(reach_bounds, padding=(24, 24), max_zoom=13)
     m.get_root().html.add_child(Element(_leaflet_fit_bounds_script(reach_bounds)))
+    mark_folium_slot()
     st_folium(
         m,
         width=None,
@@ -1083,6 +1084,8 @@ def show():
 
         fig.suptitle(f"Reach Analysis: {up_desc[:45]} \u2192 {dn_desc[:45]}", fontsize=14, fontweight='bold')
         fig.tight_layout()
+        from hydrology.visualization.composer import style_matplotlib_dark
+        style_matplotlib_dark(fig)
 
         st.pyplot(fig)
         render_export_buttons(fig, f"reach_{upstream_id}_{downstream_id}", dpi)
@@ -1106,5 +1109,8 @@ def show():
                     downstream_name=dn_desc[:40],
                     title=f"Baseflow Waterfall: {up_desc[:35]} → {dn_desc[:35]}")
             st.plotly_chart(fig_wf, width="stretch", key="plotly_bf_waterfall")
+            note = getattr(fig_wf.layout, "meta", None)
+            if isinstance(note, str) and note.strip():
+                st.caption(note)
     else:
-        st.info("Select upstream and downstream stations, choose plots, then click 'Generate Reach Analysis'")
+        st.info("Choose a reach, then click Run Analysis.")

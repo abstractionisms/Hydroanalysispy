@@ -76,9 +76,10 @@ def test_compare_sites_uses_one_chart_mode():
     assert "Static Plot Grid" not in text
 
 
-def test_stations_owns_current_conditions_check():
+def test_stations_does_not_offer_current_conditions_check():
     text = (ROOT / "hydrology/app/page_modules/overview.py").read_text(encoding="utf-8")
 
-    assert "Current Conditions Check" in text
-    assert "render_site_current_check" in text
+    assert "Current Conditions Check" not in text
+    assert "render_site_current_check" not in text
+    assert "Flood Alerts" not in text
     assert "alerts?site=" not in text
