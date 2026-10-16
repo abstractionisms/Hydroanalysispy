@@ -935,12 +935,14 @@ def interactive_rating_curve(
                 row=1, col=1,
             )
 
-    # Curve starts at H₀ so the intercept is the zero-flow line, not the first point.
+    # Draw the curve across the measured stages. Starting at H₀ leaves an empty
+    # gap on gages whose stage never reaches zero flow.
     H0f = float(H0)
+    h_min = float(stage_window["h_min"])
     H_max = float(stage_window["h_max"])
-    H_lo = H0f + 1e-3
+    H_lo = max(h_min, H0f + 1e-3)
     if H_lo >= H_max:
-        H_lo = float(stage_window["h_min"])
+        H_lo = h_min
     H_line = np.linspace(H_lo, H_max, 250)
     Q_user = predict_rating_discharge(H_line, A, B, H0f)
 
@@ -968,7 +970,9 @@ def interactive_rating_curve(
         and np.isfinite(auto_fit.get("A", np.nan))
     ):
         aA, aB, aH0 = auto_fit["A"], auto_fit["B"], float(auto_fit.get("H0") or 0.0)
-        a_lo = aH0 + 1e-3 if aH0 < H_max else float(stage_window["h_min"])
+        a_lo = max(h_min, aH0 + 1e-3)
+        if a_lo >= H_max:
+            a_lo = h_min
         H_auto = np.linspace(a_lo, H_max, 250)
         Q_auto = predict_rating_discharge(H_auto, aA, aB, aH0)
         fig.add_trace(
@@ -1013,19 +1017,28 @@ def interactive_rating_curve(
             row=2, col=1,
         )
 
-    # Axis type for Q. Log range must be in log10 units, and it stays pinned to
-    # the observations so a wild curve cannot squash the cloud.
+    # Frame the panel on the points and the curves drawn through them.
+    framed = [Q.to_numpy(dtype=float), np.asarray(Q_user, dtype=float)]
+    if (
+        show_auto_fit
+        and auto_fit
+        and auto_fit.get("model") != "none"
+        and np.isfinite(auto_fit.get("A", np.nan))
+    ):
+        framed.append(np.asarray(Q_auto, dtype=float))
+    q_frame = np.concatenate(framed)
+
     use_log = log_q
     if use_log is None:
-        q_pos = Q[Q > 0]
-        use_log = bool(len(q_pos) and (q_pos.max() / max(q_pos.min(), 1e-9)) >= 40)
+        q_pos = q_frame[np.isfinite(q_frame) & (q_frame > 0)]
+        use_log = bool(q_pos.size and (q_pos.max() / max(q_pos.min(), 1e-9)) >= 40)
 
     if use_log:
-        pos = Q[Q > 0].to_numpy()
-        q_lo = float(np.percentile(pos, 1)) if pos.size else 1.0
-        q_hi = float(np.percentile(pos, 99.5)) if pos.size else 10.0
-        log_lo = float(np.log10(max(q_lo * 0.8, 1e-3)))
-        log_hi = float(np.log10(max(q_hi * 1.25, q_lo * 1.5)))
+        pos = q_frame[np.isfinite(q_frame) & (q_frame > 0)]
+        q_lo = float(pos.min()) if pos.size else 1.0
+        q_hi = float(pos.max()) if pos.size else 10.0
+        log_lo = float(np.log10(max(q_lo * 0.85, 1e-3)))
+        log_hi = float(np.log10(max(q_hi * 1.12, q_lo * 1.5)))
         if log_hi <= log_lo:
             log_hi = log_lo + 0.4
         yaxis_cfg = {
@@ -1035,30 +1048,13 @@ def interactive_rating_curve(
             "tickformat": "~s",
         }
     else:
-        yaxis_cfg = _discharge_yaxis_layout(Q.values, title="Discharge (cfs)")
+        yaxis_cfg = _discharge_yaxis_layout(q_frame, title="Discharge (cfs)")
         yaxis_cfg["type"] = "linear"
 
-    x_lo = float(stage_window["x_lo"])
-    x_hi = float(stage_window["x_hi"])
-    if x_lo <= H0f <= x_hi:
-        fig.add_vrect(
-            x0=x_lo,
-            x1=H0f,
-            fillcolor="rgba(240,180,41,0.14)",
-            line_width=0,
-            layer="below",
-            row=1,
-            col=1,
-        )
-        fig.add_vline(
-            x=H0f,
-            line=dict(color="#f0b429", width=1.6, dash="dot"),
-            annotation_text="H₀",
-            annotation_position="top right",
-            annotation_font=dict(color="#f0b429", size=12),
-            row=1,
-            col=1,
-        )
+    span = max(H_max - h_min, 0.5)
+    pad = max(0.05, 0.03 * span)
+    x_lo = h_min - pad
+    x_hi = H_max + pad
 
     fig.update_layout(
         # New revision drops any Plotly UI state held from the previous curve.

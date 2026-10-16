@@ -118,9 +118,8 @@ def _render_rating_curve_workshop(
 
     st.subheader("Rating curve workshop")
     st.caption(
-        "Red is your curve. Teal is the auto-fit. The dotted line is H₀, the stage "
-        "where this equation says discharge is zero. Dragging H₀ moves that line "
-        "inside a fixed stage axis. Daily discharge is often already computed from "
+        "Red is your curve. Teal is the auto-fit. The chart scales to the measured "
+        "stages and to those curves. Daily discharge is often already computed from "
         "stage, so this is a consistency check, not an independent measurement rating."
     )
 
@@ -221,9 +220,8 @@ def _render_rating_curve_workshop(
                 step=h0_step,
                 key=h0_key,
                 help=(
-                    "Moves the dotted zero-flow line. The stage axis stays put, so the "
-                    "line and the red curve actually travel. Raising H₀ lowers discharge, "
-                    "most of all at low stage."
+                    "Zero-flow stage in Q = A·(H − H₀)^B. Raising H₀ lowers discharge, "
+                    "most of all at low stage, and the chart refits around the new curve."
                 ),
             ))
             head = float(window["h_ref"]) - H0
