@@ -497,28 +497,6 @@ def build_plot_analysis_report(
     return "\n".join(lines)
 
 
-def build_interactive_chart_brief(
-    df_q: pd.DataFrame | None,
-    df_merged: pd.DataFrame | None = None,
-) -> str:
-    """Shorter narrative under auto-loaded interactive hydrograph + FDC."""
-    s = _series(df_q)
-    if s.empty:
-        return "Interactive charts loaded without discharge values to summarize."
-    parts = [
-        summarize_flow_duration(df_q),
-        summarize_seasonal_pattern(df_q),
-        "",
-        format_metric_relevance_markdown(
-            ["q10", "q50", "q90", "mean_flow"],
-            df_q=df_q,
-            df_merged=df_merged,
-            plot_keys=["flow_duration", "timeseries"],
-        ),
-    ]
-    return "\n\n".join(parts)
-
-
 # Plain-English "why this metric matters" for dashboard cards and reports
 METRIC_RELEVANCE: dict[str, dict[str, str]] = {
     "record_length": {

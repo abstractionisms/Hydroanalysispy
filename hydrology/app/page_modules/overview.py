@@ -8,7 +8,6 @@ import numpy as np
 import importlib.util
 from html import escape
 from datetime import datetime, timedelta, date
-import plotly.graph_objects as go
 # Deferred imports: folium/streamlit_folium can't be imported outside Streamlit runtime
 
 from hydrology.app.shared import (
@@ -27,30 +26,6 @@ from hydrology.data.usgs import (
     DEFAULT_PARAM_DISCHARGE, DEFAULT_PARAM_STAGE
 )
 from hydrology.core import DEFAULT_DISCHARGE_CODE
-
-def _mini_sparkline(series, height=50):
-    """Create a tiny sparkline Plotly figure."""
-    if series is None or len(series) < 2:
-        return None
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        y=series.values,
-        mode='lines',
-        line=dict(color='#4ecdc4', width=1.5),
-        fill='tozeroy',
-        fillcolor='rgba(78, 205, 196, 0.1)',
-        hoverinfo='skip'))
-    fig.update_layout(
-        height=height,
-        margin=dict(l=0, r=0, t=0, b=0),
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        xaxis=dict(visible=False),
-        yaxis=dict(visible=False),
-        showlegend=False)
-    return fig
-
-
 
 # Priority sites for regional summary
 LOCAL_SITES = {

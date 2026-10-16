@@ -8,7 +8,6 @@ def test_core_pages_do_not_use_sidebar_controls():
     core_pages = [
         ROOT / "hydrology/app/page_modules/overview.py",
         ROOT / "hydrology/app/page_modules/single_analysis.py",
-        ROOT / "hydrology/app/page_modules/alerts.py",
         ROOT / "hydrology/app/page_modules/indicators.py",
     ]
 

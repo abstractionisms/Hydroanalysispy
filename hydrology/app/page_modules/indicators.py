@@ -1,8 +1,8 @@
 """
-Indicators page - Standardized drought and climate indicators.
+Site indicators drawn inside Site Analysis.
 
 Displays SPI/SRI time series with drought severity bands,
-current drought status, BFI trends, and seasonal anomalies.
+BFI trends, and seasonal anomalies.
 """
 
 import streamlit as st
@@ -12,14 +12,12 @@ from datetime import datetime, timedelta
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from hydrology.app.shared import (
-    get_inventory, get_cached_site_info,
-    site_picker, fetch_climate_cached_result, logger)
+from hydrology.app.shared import fetch_climate_cached_result, logger
 from hydrology.app.interpretation import InsightCard, describe_standardized_index
 from hydrology.app.styles import render_insight_board
-from hydrology.data.usgs import fetch_daily_values, DEFAULT_PARAM_DISCHARGE
+from hydrology.data.usgs import fetch_daily_values
 from hydrology.analysis.indicators import (
-    calculate_spi, calculate_sri, classify_drought,
+    calculate_spi, calculate_sri,
     calculate_baseflow_index_timeseries, get_seasonal_anomaly)
 from hydrology.analysis.baseflow import compare_baseflow_methods
 from hydrology.visualization.interactive import apply_hydro_theme
@@ -34,27 +32,6 @@ def _summarize_baseflow_methods(flow: pd.Series) -> dict:
         "Difference": f"{comparison['bfi_difference']:.2f}",
         "Agreement": str(comparison["agreement"]).title(),
     }
-
-
-def show():
-    """Render the Indicators page."""
-    st.header("Hydrological Indicators")
-    st.caption("Standardized drought indices, baseflow trends, and seasonal anomalies")
-
-    inventory_df = get_inventory()
-    if inventory_df.empty:
-        st.error("Could not load site inventory")
-        return
-
-    st.subheader("Indicator Workspace")
-    site_id = site_picker(inventory_df, key="indicators", label="Site", location="main")
-
-    site_info = get_cached_site_info(site_id)
-    if not site_info:
-        st.error(f"Site {site_id} not found")
-        return
-
-    render_site_indicators(site_id, site_info)
 
 
 def render_site_indicators(site_id, site_info):
@@ -185,26 +162,6 @@ def _render_drought_tab(df_q, q_col, site_id, desc, lat, lon, start_str, end_str
             )
         else:
             st.warning(spi_result["fetch"].get("message") or "Precipitation unavailable.")
-
-
-def _render_drought_status_cards(sri_df: pd.DataFrame):
-    """Show current drought status as metric cards."""
-    cols = st.columns(len(sri_df.columns))
-
-    for i, col_name in enumerate(sri_df.columns):
-        latest = sri_df[col_name].dropna()
-        if latest.empty:
-            continue
-        val = latest.iloc[-1]
-        status = classify_drought(val)
-
-        with cols[i]:
-            window = col_name.split('_')[1]
-            st.metric(
-                f"{window}-Month SRI",
-                f"{val:+.2f}",
-                delta=status['label'],
-                delta_color="off")
 
 
 def _render_index_interpretation(index_df: pd.DataFrame, label: str, subject: str):
