@@ -912,7 +912,6 @@ def interactive_rating_curve(
                     hovertemplate=(
                         f"{yr}<br>H=%{{x:.2f}} ft<br>Q=%{{y:,.1f}} cfs<extra></extra>"
                     ),
-                    legendgroup="pts",
                 ),
                 row=1, col=1,
             )
@@ -932,7 +931,6 @@ def interactive_rating_curve(
                     hovertemplate=(
                         f"{season}<br>H=%{{x:.2f}} ft<br>Q=%{{y:,.1f}} cfs<extra></extra>"
                     ),
-                    legendgroup="pts",
                 ),
                 row=1, col=1,
             )
@@ -1056,7 +1054,7 @@ def interactive_rating_curve(
             x=H0f,
             line=dict(color="#f0b429", width=1.6, dash="dot"),
             annotation_text="H₀",
-            annotation_position="top",
+            annotation_position="top right",
             annotation_font=dict(color="#f0b429", size=12),
             row=1,
             col=1,
@@ -1066,10 +1064,41 @@ def interactive_rating_curve(
         # New revision drops any Plotly UI state held from the previous curve.
         uirevision=f"{A:.6g}|{B:.4f}|{H0:.4f}|{show_residuals}|{bool(use_log)}|{color_by}",
         title=dict(text=title, font=dict(size=15)),
-        height=560 if show_residuals else 440,
+        height=640 if show_residuals else 480,
         showlegend=True,
     )
     apply_hydro_theme(fig)
+    # The shared theme pins a horizontal legend under the axes. This figure is
+    # two panels inside a fixed iframe, so that legend wrapped out of the frame
+    # and the station title sat on H₀. Keep one legend row inside the margin.
+    n_legend = sum(1 for trace in fig.data if trace.showlegend is not False)
+    legend_rows = max(1, (n_legend + 5) // 6)
+    top = 52 + legend_rows * 26
+    fig.update_layout(
+        height=(640 if show_residuals else 480) + (legend_rows - 1) * 26,
+        margin=dict(l=64, r=18, t=top, b=46),
+        title=dict(
+            text=title,
+            font=dict(size=15, color="#e7eef7"),
+            x=0.0,
+            xanchor="left",
+            y=1.0,
+            yanchor="top",
+            yref="container",
+            pad=dict(t=4, b=0),
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=1.0 - (28 / ((640 if show_residuals else 480) + (legend_rows - 1) * 26)),
+            yref="container",
+            x=0.0,
+            xanchor="left",
+            bgcolor="rgba(16,28,46,0)",
+            borderwidth=0,
+            font=dict(size=11, color="#e7eef7"),
+        ),
+    )
     fig.update_xaxes(
         title_text="Stage height (ft)" if not show_residuals else None,
         range=[x_lo, x_hi],

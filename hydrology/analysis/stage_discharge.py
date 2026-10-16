@@ -92,10 +92,13 @@ def fit_powerlaw_rating_curve(
 def rating_stage_window(stage: pd.Series | np.ndarray) -> Dict[str, float]:
     """Stage axis and H₀ slider bounds that keep zero-flow on screen.
 
-    The slider is not limited to values below the lowest point. ``h0_hi`` reaches
-    into the lower part of the cloud so moving H₀ shifts a line across the points.
-    ``h0_fit_hi`` stays just below the lowest point so an automatic fit still uses
-    every pair.
+    The axis is fixed from the record, not the current H₀, so dragging zero-flow
+    moves the line instead of rescaling the chart. The left gutter is only wide
+    enough for that line. It is not a second copy of the stage range.
+
+    ``h0_hi`` reaches into the lower part of the cloud so the line can cross
+    real points. ``h0_fit_hi`` stays just below the lowest point so an automatic
+    fit still uses every pair.
     """
     h = pd.Series(stage, dtype=float).replace([np.inf, -np.inf], np.nan).dropna()
     h = h[h > 0]
@@ -117,7 +120,9 @@ def rating_stage_window(stage: pd.Series | np.ndarray) -> Dict[str, float]:
     span = max(h_max - h_min, 0.5)
     eps = max(0.01, 0.01 * span)
     h0_fit_hi = h_min - eps
-    h0_lo = h_min - max(2.0, span)
+    # A full span of empty stage left the cloud in the right half of the chart.
+    below = max(2.0, 0.35 * span)
+    h0_lo = h_min - below
     if h0_lo >= h0_fit_hi:
         h0_lo = h0_fit_hi - 0.5
     # Into the lower cloud, so the zero-flow line can cross real points.

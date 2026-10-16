@@ -213,6 +213,8 @@ class TestEvaluateRatingParams:
         assert window["x_lo"] < window["h0_lo"]
         assert window["x_hi"] > window["h_max"]
         assert window["h0_fit_hi"] < window["h_min"]
+        span = window["h_max"] - window["h_min"]
+        assert window["h_min"] - window["h0_lo"] == pytest.approx(max(2.0, 0.35 * span))
 
 
 class TestOffsetFitBounds:

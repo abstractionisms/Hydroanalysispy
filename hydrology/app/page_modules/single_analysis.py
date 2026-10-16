@@ -138,7 +138,9 @@ def _render_rating_curve_workshop(
         )
     except Exception:
         period = str(len(pairs))
-    state_key = f"rating_ws_{site_id}_{period}"
+    # ws3 reseeds sliders after the stage axis was tightened. A saved H₀ below
+    # the new minimum makes Streamlit reject the slider.
+    state_key = f"rating_ws3_{site_id}_{period}"
     window = rating_stage_window(stage)
     auto_A = float(auto["A"])
     auto_B = float(auto["B"])
@@ -307,7 +309,7 @@ def _render_rating_curve_workshop(
             A=A,
             B=B,
             H0=H0,
-            title=f"{site_desc} — rating workshop",
+            title=site_desc,
             show_auto_fit=True,
             auto_fit=auto,
             show_residuals=show_resid,
