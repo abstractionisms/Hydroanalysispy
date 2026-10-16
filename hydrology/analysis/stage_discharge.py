@@ -89,6 +89,55 @@ def fit_powerlaw_rating_curve(
                 pd.Series(index=stage.index, dtype=float))
 
 
+def rating_stage_window(stage: pd.Series | np.ndarray) -> Dict[str, float]:
+    """Stage axis and H₀ slider bounds that keep zero-flow on screen.
+
+    The slider is not limited to values below the lowest point. ``h0_hi`` reaches
+    into the lower part of the cloud so moving H₀ shifts a line across the points.
+    ``h0_fit_hi`` stays just below the lowest point so an automatic fit still uses
+    every pair.
+    """
+    h = pd.Series(stage, dtype=float).replace([np.inf, -np.inf], np.nan).dropna()
+    h = h[h > 0]
+    if h.empty:
+        return {
+            "h_min": np.nan,
+            "h_max": np.nan,
+            "h_ref": np.nan,
+            "h0_lo": -1.0,
+            "h0_hi": 0.0,
+            "h0_fit_lo": -1.0,
+            "h0_fit_hi": -0.01,
+            "x_lo": -1.2,
+            "x_hi": 1.0,
+        }
+
+    h_min = float(h.min())
+    h_max = float(h.max())
+    span = max(h_max - h_min, 0.5)
+    eps = max(0.01, 0.01 * span)
+    h0_fit_hi = h_min - eps
+    h0_lo = h_min - max(2.0, span)
+    if h0_lo >= h0_fit_hi:
+        h0_lo = h0_fit_hi - 0.5
+    # Into the lower cloud, so the zero-flow line can cross real points.
+    h0_hi = float(np.quantile(h.to_numpy(), 0.35))
+    if h0_hi < h0_lo + 0.2:
+        h0_hi = h0_lo + 0.2
+    pad = max(0.15, 0.04 * span)
+    return {
+        "h_min": h_min,
+        "h_max": h_max,
+        "h_ref": float(np.median(h.to_numpy())),
+        "h0_lo": float(h0_lo),
+        "h0_hi": float(h0_hi),
+        "h0_fit_lo": float(h0_lo),
+        "h0_fit_hi": float(h0_fit_hi),
+        "x_lo": float(h0_lo - pad),
+        "x_hi": float(h_max + pad),
+    }
+
+
 def fit_offset_powerlaw(
     stage: pd.Series,
     discharge: pd.Series,
@@ -130,35 +179,42 @@ def fit_offset_powerlaw(
                 pd.Series(index=stage.index, dtype=float))
 
     try:
-        # Define offset power-law function
-        def offset_powerlaw(H, A, B, H0):
-            """Q = A * (H - H0)^B, with protection against negative values."""
-            H_eff = np.maximum(H - H0, 1e-10)  # Avoid negative/zero
-            return A * (H_eff ** B)
+        # Log-space fit: ratings are judged in percent, not raw cfs.
+        # B and H₀ are bounded so the solver cannot run off to a nonsense exponent.
+        def offset_powerlaw_log(H, log10_A, B, H0):
+            H_eff = np.maximum(H - H0, 1e-6)
+            return log10_A + B * np.log10(H_eff)
 
-        # Initial parameter guesses
-        # Use simple power-law as starting point
         A_simple, B_simple, _, _ = fit_powerlaw_rating_curve(
             df['H'], df['Q'], min_points=min_points
         )
-        p0 = [A_simple if not np.isnan(A_simple) else 1.0,
-              B_simple if not np.isnan(B_simple) else 1.5,
-              offset_guess]
+        window = rating_stage_window(df['H'])
+        h0_lo = window["h0_fit_lo"]
+        h0_hi = window["h0_fit_hi"]
+        guess_h0 = offset_guess if np.isfinite(offset_guess) else window["h_min"] - 0.2
+        guess_h0 = float(np.clip(guess_h0, h0_lo + 1e-4, h0_hi - 1e-4))
+        guess_b = B_simple if np.isfinite(B_simple) else 1.67
+        guess_b = float(np.clip(guess_b, 0.5, 3.5))
+        guess_a = A_simple if np.isfinite(A_simple) and A_simple > 0 else 1.0
+        guess_log_a = float(np.clip(np.log10(guess_a), -2.0, 8.0))
 
-        # Fit using curve_fit
-        bounds = ([0, 0, -np.inf], [np.inf, 5, df['H'].min()])
-        popt, pcov = curve_fit(
-            offset_powerlaw,
+        popt, _pcov = curve_fit(
+            offset_powerlaw_log,
             df['H'].values,
-            df['Q'].values,
-            p0=p0,
-            bounds=bounds,
-            maxfev=5000
+            np.log10(df['Q'].values),
+            p0=[guess_log_a, guess_b, guess_h0],
+            bounds=([-2.0, 0.5, h0_lo], [8.0, 3.5, h0_hi]),
+            maxfev=8000,
         )
 
-        A, B, H0 = popt
+        log10_A, B, H0 = popt
+        A = 10 ** log10_A
 
-        # Calculate R²
+        def offset_powerlaw(H, A, B, H0):
+            H_eff = np.maximum(np.asarray(H, dtype=float) - H0, 1e-6)
+            return A * (H_eff ** B)
+
+        # Arithmetic R² is still reported so existing callers keep their meaning.
         Q_hat_fit = offset_powerlaw(df['H'].values, A, B, H0)
         ss_res = np.sum((df['Q'].values - Q_hat_fit) ** 2)
         ss_tot = np.sum((df['Q'].values - df['Q'].mean()) ** 2)
@@ -226,12 +282,15 @@ def fit_best_rating_curve(
         df["H"], df["Q"], min_points=min_points
     )
 
-    # Prefer offset when R² is clearly better (or simple fit is invalid)
+    # Prefer offset when it explains percent error better. Arithmetic R² lets
+    # floods crown a curve that is wrong at low stage.
+    log_s = evaluate_rating_params(df["H"], df["Q"], A_s, B_s, 0.0).get("r2_log", np.nan)
+    log_o = evaluate_rating_params(df["H"], df["Q"], A_o, B_o, H0).get("r2_log", np.nan)
     use_offset = (
-        np.isfinite(R2_o)
-        and (not np.isfinite(R2_s) or R2_o >= R2_s + 0.02 or R2_s < 0.5)
+        np.isfinite(log_o)
         and np.isfinite(A_o)
         and np.isfinite(B_o)
+        and (not np.isfinite(log_s) or log_o >= log_s + 0.01 or (np.isfinite(R2_s) and R2_s < 0.5))
     )
 
     if use_offset:
@@ -305,9 +364,16 @@ def evaluate_rating_params(
 
     Returns R², residual stats, equation string, and predicted Q on the clean pairs.
     """
-    df = pd.DataFrame({"H": stage, "Q": discharge})
-    df = df.replace([np.inf, -np.inf], np.nan).dropna()
-    df = df[(df["H"] > float(H0) + 1e-9) & (df["Q"] > 0)]
+    raw = pd.DataFrame({"H": stage, "Q": discharge})
+    raw = raw.replace([np.inf, -np.inf], np.nan).dropna()
+    raw = raw[(raw["H"] > 0) & (raw["Q"] > 0)]
+    h_ref = float(raw["H"].median()) if not raw.empty else np.nan
+    n_excluded = int((raw["H"] <= float(H0) + 1e-9).sum()) if not raw.empty else 0
+    q_ref = np.nan
+    if np.isfinite(h_ref) and h_ref > float(H0) and np.isfinite(A) and A > 0 and np.isfinite(B):
+        q_ref = float(predict_rating_discharge(np.array([h_ref]), A, B, H0)[0])
+
+    df = raw[raw["H"] > float(H0) + 1e-9]
 
     empty = {
         "model": "offset_powerlaw" if abs(float(H0)) > 1e-9 else "powerlaw",
@@ -315,12 +381,17 @@ def evaluate_rating_params(
         "B": float(B),
         "H0": float(H0),
         "R2": np.nan,
+        "r2_log": np.nan,
         "rmse": np.nan,
         "mae": np.nan,
         "mape": np.nan,
+        "mdape": np.nan,
         "bias": np.nan,
         "nash_sutcliffe": np.nan,
         "n_points": 0,
+        "n_excluded": n_excluded,
+        "h_ref": h_ref,
+        "q_ref": q_ref,
         "equation": "n/a",
         "Q_pred": np.array([], dtype=float),
         "H_clean": np.array([], dtype=float),
@@ -349,6 +420,12 @@ def evaluate_rating_params(
     mape = float(np.mean(np.abs(residuals[nz] / Q[nz])) * 100) if np.any(nz) else np.nan
     bias = float(np.mean(residuals))
     nse = 1.0 - ss_res / ss_tot if ss_tot > 0 else np.nan
+    log_q = np.log10(Q)
+    log_hat = np.log10(np.maximum(Q_hat, 1e-12))
+    ss_res_l = float(np.sum((log_q - log_hat) ** 2))
+    ss_tot_l = float(np.sum((log_q - log_q.mean()) ** 2))
+    r2_log = 1.0 - ss_res_l / ss_tot_l if ss_tot_l > 0 else np.nan
+    mdape = float(np.median(np.abs(residuals / Q) * 100.0))
 
     if abs(float(H0)) > 1e-6:
         eq = f"Q = {A:.4g} · (H − {H0:.3f})^{B:.3f}"
@@ -363,12 +440,17 @@ def evaluate_rating_params(
         "B": float(B),
         "H0": float(H0),
         "R2": float(R2) if np.isfinite(R2) else np.nan,
+        "r2_log": float(r2_log) if np.isfinite(r2_log) else np.nan,
         "rmse": rmse,
         "mae": mae,
         "mape": mape,
+        "mdape": mdape,
         "bias": bias,
         "nash_sutcliffe": float(nse) if np.isfinite(nse) else np.nan,
         "n_points": int(len(Q)),
+        "n_excluded": n_excluded,
+        "h_ref": h_ref,
+        "q_ref": q_ref,
         "equation": eq,
         "Q_pred": Q_hat,
         "H_clean": H,

@@ -15,6 +15,7 @@ from hydrology.analysis.stage_discharge import (
     fit_best_rating_curve,
     evaluate_rating_params,
     predict_rating_discharge,
+    rating_stage_window,
     season_labels,
     flow_duration_curve,
     classify_flow_regime
@@ -133,6 +134,28 @@ class TestFitBestRatingCurve:
         assert fit["R2"] > 0.95
         assert abs(fit["H0"] - H0) < 0.4
 
+    def test_high_datum_gage_does_not_fall_back_to_raw_powerlaw(self):
+        """Spokane (12422500) gage height sits near 17–29 ft, so Q = A·H^B
+        wants an exponent near 9. That start used to sit outside the offset
+        solver bounds, the fit aborted, and the workshop drew the raw power law.
+        """
+        rng = np.random.default_rng(0)
+        h0_true = 15.42
+        stage_vals = np.linspace(17.12, 28.68, 400)
+        discharge_vals = 231.1 * (stage_vals - h0_true) ** 2.025
+        discharge_vals *= 1 + rng.normal(0, 0.01, size=stage_vals.size)
+
+        fit = fit_best_rating_curve(
+            pd.Series(stage_vals), pd.Series(discharge_vals), min_points=10
+        )
+
+        assert fit["model"] == "offset_powerlaw"
+        assert fit["R2"] > 0.98
+        assert 1.4 <= fit["B"] <= 2.8
+        assert abs(fit["H0"] - h0_true) < 0.5
+        assert fit["A"] > 1.0
+        assert "−" in fit["equation"]
+
     def test_season_labels(self):
         idx = pd.DatetimeIndex(["2020-01-15", "2020-04-01", "2020-07-04", "2020-10-31"])
         seasons = season_labels(idx)
@@ -167,6 +190,46 @@ class TestEvaluateRatingParams:
         out = predict_rating_discharge(np.array([1.0, 2.0, 3.0]), A=2.0, B=1.5, H0=0.0)
         assert out.shape == (3,)
         assert np.all(out > 0)
+
+    def test_h0_changes_discharge_at_mid_stage(self):
+        """A high-datum gage still has to show an H₀ move in the reference discharge."""
+        stage = np.linspace(20.0, 28.0, 80)
+        discharge = 100.0 * (stage - 18.0) ** 1.6
+        low = evaluate_rating_params(stage, discharge, 100.0, 1.6, 16.0)
+        high = evaluate_rating_params(stage, discharge, 100.0, 1.6, 19.0)
+
+        assert high["q_ref"] < low["q_ref"] * 0.85
+        assert low["h_ref"] == pytest.approx(high["h_ref"])
+        inside = evaluate_rating_params(stage, discharge, 100.0, 1.6, 22.0)
+        assert inside["n_excluded"] > 0
+        assert inside["n_points"] < low["n_points"]
+
+    def test_stage_window_lets_h0_enter_the_cloud(self):
+        stage = pd.Series(np.linspace(20.0, 28.0, 80))
+        window = rating_stage_window(stage)
+
+        assert window["h0_lo"] < window["h_min"]
+        assert window["h0_hi"] > window["h_min"]
+        assert window["x_lo"] < window["h0_lo"]
+        assert window["x_hi"] > window["h_max"]
+        assert window["h0_fit_hi"] < window["h_min"]
+
+
+class TestOffsetFitBounds:
+    def test_log_fit_keeps_exponent_in_channel_range(self):
+        rng = np.random.default_rng(1)
+        stage = np.linspace(1.2, 10.0, 300)
+        discharge = 15.0 * stage ** 2.2
+        discharge = discharge.copy()
+        discharge[:60] *= 3.0
+        discharge *= 1 + rng.normal(0, 0.01, size=stage.size)
+
+        fit = fit_best_rating_curve(pd.Series(stage), pd.Series(discharge))
+        window = rating_stage_window(pd.Series(stage))
+
+        assert 0.5 <= fit["B"] <= 3.5
+        assert window["h0_fit_lo"] - 0.05 <= fit["H0"] <= window["h0_fit_hi"] + 0.05
+        assert fit["R2"] > 0.9
 
 
 class TestFlowDurationCurve:
