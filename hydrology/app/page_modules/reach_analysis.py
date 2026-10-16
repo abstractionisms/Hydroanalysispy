@@ -652,6 +652,8 @@ def _render_reach_map(up_info, dn_info, upstream_id, downstream_id, reach_km, se
     center_lat = (up_lat + dn_lat) / 2
     center_lon = (up_lon + dn_lon) / 2
 
+    from hydrology.visualization.map_utils import add_basemap
+
     m = folium.Map(
         location=[center_lat, center_lon],
         zoom_start=11,
@@ -659,12 +661,7 @@ def _render_reach_map(up_info, dn_info, upstream_id, downstream_id, reach_km, se
         max_bounds=True,
         control_scale=True,
     )
-    folium.TileLayer(
-        "CartoDB dark_matter",
-        name="Base map",
-        no_wrap=True,
-        detect_retina=True,
-    ).add_to(m)
+    add_basemap(m, no_wrap=True)
 
     flowline_distance = _flowline_distance_km(reach_km, search_km)
     try:

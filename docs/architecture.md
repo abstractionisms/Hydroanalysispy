@@ -5,10 +5,14 @@ HydroPlot is organized around five user-facing workflows. New features should la
 ## Workflows
 
 - **Stations** (`overview`): find a stream gage, inspect station map context, live/current condition checks, and record coverage.
-- **Site Analysis** (`single-analysis`): one selected gage, hydrographs, duration curves, exports, drought indicators, SPI, and baseflow proxy views.
-- **Compare Sites** (`comparisons`): multi-gage overlays, period comparisons, and site relationship analysis.
+- **Site Analysis** (`single-analysis`): one selected gage. Hydrograph, duration, raster, percentile bands, flood frequency, rating workshop, drought and baseflow indicators, SPI, and static export figures share one plot workspace.
+- **Compare Sites** (`comparisons`): multi-gage comparison, period comparisons, and site relationship analysis. The multi-gage chart is one mode at a time: overlay, separate hydrographs, or an export grid.
 - **Reach Analysis** (`reach-analysis`): selected upstream/downstream gage pairs, NHD reach map, gain/loss screening, reach plots, baseflow waterfall, and future groundwater observation support.
 - **Watershed** (`watershed`): broader basin, HUC, land-cover, dam, flowline, and future well/log context.
+
+## Plot Surface
+
+Site Analysis has one plot workspace. Do not add a second plot builder, an advanced-visualization toggle row, or a separate indicator launcher on that page. A view may load its own data when it is selected. Compare Sites draws one multi-gage chart mode at a time.
 
 ## Groundwater Source Rules
 

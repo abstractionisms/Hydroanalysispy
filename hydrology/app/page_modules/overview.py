@@ -581,10 +581,13 @@ def _render_station_map(inventory_df, selected_site_id):
     from folium.plugins import MarkerCluster
     from streamlit_folium import st_folium
 
+    from hydrology.visualization.map_utils import add_basemap
+
     m = folium.Map(
         location=center, zoom_start=zoom,
-        tiles='CartoDB dark_matter', control_scale=True
+        tiles=None, control_scale=True
     )
+    add_basemap(m)
 
     marker_group = MarkerCluster(name="USGS Sites")
 

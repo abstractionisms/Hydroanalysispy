@@ -34,6 +34,7 @@ def show():
         return
 
     st.header("Comparisons")
+    st.caption("Periods, sites, relationships, and the 2×2 are different questions. Open the one you need.")
 
     tab_time, tab_sites, tab_relationships, tab_quad = st.tabs([
         "Compare Time Periods",
@@ -241,12 +242,10 @@ def _compare_sites(inventory_df):
         st.error("No data available for any of the selected sites")
         return
 
-    # ── Interactive Charts (auto-loaded) ──
     st.header("Multi-Site Comparison")
     st.caption(f"{len(selected_sites)} sites | {start_date} to {end_date}")
     _render_compare_readiness(selected_sites, all_site_data, start_date, end_date)
 
-    # Interactive overlay comparison
     site_dict = {}
     for site_id, data in all_site_data.items():
         if data.get('df_q') is not None:
@@ -255,35 +254,38 @@ def _compare_sites(inventory_df):
             label = info.get('description', sid)[:30] if info else sid
             site_dict[label] = data['df_q']
 
-    if site_dict:
-        st.subheader("Interactive Overlay")
-        st.caption("Hover, zoom, and pan. Click legend entries to toggle.")
-        fig_interactive = interactive_comparison(
-            site_dict, title="Multi-Site Discharge Comparison"
-        )
-        st.plotly_chart(fig_interactive, width="stretch", key="cs_plotly_overlay")
+    chart_mode = st.radio(
+        "Comparison chart",
+        ["Overlay", "By site", "Export grid"],
+        horizontal=True,
+        key="compare_sites_chart",
+        help="Overlay, separate hydrographs, and the export grid are one comparison. Only the selected chart is drawn.",
+    )
 
-    # Individual interactive hydrographs
-    st.subheader("Individual Hydrographs")
-    cols = st.columns(min(len(all_site_data), 2))
-    for i, (site_id, data) in enumerate(all_site_data.items()):
-        if data.get('df_q') is not None:
-            sid = extract_site_id(site_id)
-            info = get_cached_site_info(sid)
-            label = info.get('description', sid)[:30] if info else sid
-            with cols[i % len(cols)]:
-                st.caption(f"{label} ({data['discharge_count']:,} Q, {data['merged_count']:,} merged)")
-                fig_hydro = interactive_hydrograph(
-                    data['df_q'], discharge_col='Discharge_cfs',
-                    title=label, show_percentile_bands=True)
-                st.plotly_chart(fig_hydro, width="stretch", key=f"cs_hydro_{i}")
-
-    st.markdown("---")
-
-    # ── Static Matplotlib Grid (on demand) ──
-    with st.expander("Static Plot Grid (matplotlib)", expanded=False):
-        st.caption("Select a plot type and generate a static comparison grid for export.")
-
+    if chart_mode == "Overlay":
+        if not site_dict:
+            st.info("No discharge series were available to overlay.")
+        else:
+            st.caption("Hover, zoom, and pan. Click legend entries to toggle.")
+            fig_interactive = interactive_comparison(
+                site_dict, title="Multi-Site Discharge Comparison"
+            )
+            st.plotly_chart(fig_interactive, width="stretch", key="cs_plotly_overlay")
+    elif chart_mode == "By site":
+        cols = st.columns(min(len(all_site_data), 2))
+        for i, (site_id, data) in enumerate(all_site_data.items()):
+            if data.get('df_q') is not None:
+                sid = extract_site_id(site_id)
+                info = get_cached_site_info(sid)
+                label = info.get('description', sid)[:30] if info else sid
+                with cols[i % len(cols)]:
+                    st.caption(f"{label} ({data['discharge_count']:,} Q, {data['merged_count']:,} merged)")
+                    fig_hydro = interactive_hydrograph(
+                        data['df_q'], discharge_col='Discharge_cfs',
+                        title=label, show_percentile_bands=True)
+                    st.plotly_chart(fig_hydro, width="stretch", key=f"cs_hydro_{i}")
+    else:
+        st.caption("Pick a plot type and generate a static comparison grid for export.")
         col1, col2 = st.columns([2, 1])
         with col1:
             plot_name = single_plot_selector_widget("_sites")
@@ -364,9 +366,9 @@ def _render_compare_readiness(selected_sites, all_site_data, start_date, end_dat
             "state": "ready" if climate_ready == loaded_count else "limited",
         },
         {
-            "title": "Interactive Review",
-            "body": "Overlay and individual hydrographs load first; static export grids remain on demand.",
-            "status": "Fast path",
+            "title": "Chart mode",
+            "body": "Overlay, separate hydrographs, or an export grid. Only the selected chart is drawn.",
+            "status": "One chart",
             "state": "ready",
         },
     ]

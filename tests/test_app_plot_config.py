@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from hydrology.app import plot_config
 
 
@@ -62,6 +64,23 @@ def test_describe_selected_plots_groups_counts():
     ])
 
     assert summary == "3 selected: Flow behavior, Extremes / frequency, Climate linkage"
+
+
+def test_catalog_plot_options_cover_single_site_plots_once():
+    options = plot_config.catalog_plot_options({plot: {} for plot in plot_config.SINGLE_SITE_PLOTS})
+    keys = [key for _, key in options]
+
+    assert len(keys) == len(set(keys))
+    assert set(keys) == set(plot_config.SINGLE_SITE_PLOTS)
+    assert all(" · " in label for label, _ in options)
+
+
+def test_plot_selector_is_one_catalog():
+    text = Path(__file__).resolve().parents[1].joinpath("hydrology/app/plot_config.py").read_text(encoding="utf-8")
+
+    assert "catalog_plot_options" in text
+    assert "Add from full plot catalog" not in text
+    assert "plot_preset_choice" in text
 
 
 def test_resolve_generated_plots_keeps_interactive_plot_choices():

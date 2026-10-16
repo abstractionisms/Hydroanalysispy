@@ -521,8 +521,10 @@ def _watershed_view(inventory_df):
                     from streamlit_folium import st_folium
 
                     centroid = boundary.geometry.centroid.iloc[0]
-                    m = folium.Map(location=[centroid.y, centroid.x], zoom_start=10,
-                                  tiles='CartoDB dark_matter')
+                    from hydrology.visualization.map_utils import add_basemap
+
+                    m = folium.Map(location=[centroid.y, centroid.x], zoom_start=10, tiles=None)
+                    add_basemap(m)
 
                     # Add boundary polygon
                     folium.GeoJson(
@@ -650,7 +652,10 @@ def _watershed_view(inventory_df):
             from folium.plugins import MarkerCluster
             from streamlit_folium import st_folium
 
-            m = folium.Map(location=center, zoom_start=zoom, tiles='CartoDB dark_matter')
+            from hydrology.visualization.map_utils import add_basemap
+
+            m = folium.Map(location=center, zoom_start=zoom, tiles=None)
+            add_basemap(m)
             marker_cluster = MarkerCluster(name="USGS Sites")
             for _, row in map_df.iterrows():
                 folium.CircleMarker(

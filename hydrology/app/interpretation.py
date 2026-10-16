@@ -155,7 +155,7 @@ def summarize_recommendations(has_stage: bool, has_climate: bool, record_years: 
             "ready",
             help=(
                 "The FDC and Q10/Q50/Q90 strip show how often high vs low flows occur. "
-                "Scroll to Interactive Charts → Duration statistics."
+                "Open Duration in the Plots workspace."
             ),
         )
     ]
@@ -168,7 +168,7 @@ def summarize_recommendations(has_stage: bool, has_climate: bool, record_years: 
                 "ready",
                 help=(
                     "SPI tracks meteorological drought; SRI tracks runoff drought. "
-                    "Open Drought & Baseflow Indicators below the charts when ready."
+                    "Open Indicators in the Plots workspace, then turn on precipitation SPI."
                 ),
             )
         )
@@ -193,8 +193,8 @@ def summarize_recommendations(has_stage: bool, has_climate: bool, record_years: 
                 "Stage overlay and rating-curve checks are valid for this selected period.",
                 "ready",
                 help=(
-                    "Gage height is present. Use dual-axis stage on the hydrograph and the "
-                    "Rating curve workshop to tune A, B, and H₀."
+                    "Gage height is present. Open Hydrograph for the stage axis, or Rating "
+                    "to tune A, B, and H₀."
                 ),
             )
         )
@@ -206,8 +206,7 @@ def summarize_recommendations(has_stage: bool, has_climate: bool, record_years: 
                 "Peak-flow frequency can be run separately without slowing the page load.",
                 "limited",
                 help=(
-                    "Annual-max flood frequency is opt-in so page load stays fast. "
-                    "Open Frequency Analysis under Advanced when you need return periods."
+                    "Annual-max flood frequency loads only when Frequency is the active plot view."
                 ),
             )
         )

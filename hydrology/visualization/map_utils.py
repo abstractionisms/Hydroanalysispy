@@ -17,6 +17,43 @@ from ..core.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
+# Esri World Dark Gray. Public raster tiles, no API key.
+# Carto's dark_matter endpoint now returns "API key required" tiles.
+BASEMAP_TILES = (
+    "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/"
+    "World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+)
+BASEMAP_LABELS = (
+    "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/"
+    "World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
+)
+BASEMAP_ATTR = "Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ"
+
+
+def add_basemap(m, *, no_wrap: bool = False):
+    """Add the shared dark basemap and place labels to a Folium map."""
+    import folium
+
+    folium.TileLayer(
+        tiles=BASEMAP_TILES,
+        attr=BASEMAP_ATTR,
+        name="Base map",
+        overlay=False,
+        control=False,
+        show=True,
+        no_wrap=no_wrap,
+    ).add_to(m)
+    folium.TileLayer(
+        tiles=BASEMAP_LABELS,
+        attr=BASEMAP_ATTR,
+        name="Place labels",
+        overlay=True,
+        control=False,
+        show=True,
+        no_wrap=no_wrap,
+    ).add_to(m)
+    return m
+
 
 def get_condition_color(percentile: float) -> str:
     """
@@ -138,7 +175,8 @@ def create_watershed_map(
     if site_info and site_info.get('latitude') and site_info.get('longitude'):
         center = [float(site_info['latitude']), float(site_info['longitude'])]
 
-    m = folium.Map(location=center, zoom_start=zoom, tiles='CartoDB dark_matter', control_scale=True)
+    m = folium.Map(location=center, zoom_start=zoom, tiles=None, control_scale=True)
+    add_basemap(m)
 
     # Watershed boundary
     if show_boundary:

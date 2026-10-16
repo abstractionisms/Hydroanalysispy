@@ -457,11 +457,14 @@ for site_id, info in selected_gages.items():
 # =============================================================================
 st.markdown("### 📍 Gage Locations")
 
+from hydrology.visualization.map_utils import add_basemap
+
 m = folium.Map(
     location=[47.66, -117.35],
     zoom_start=10,
-    tiles="CartoDB dark_matter",
+    tiles=None,
 )
+add_basemap(m)
 
 for site_id, info in selected_gages.items():
     df, _ = all_gage_data.get(site_id, (None, None))

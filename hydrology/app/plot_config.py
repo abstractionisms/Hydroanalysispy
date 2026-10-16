@@ -216,6 +216,15 @@ def describe_selected_plots(selected_plots: List[str]) -> str:
     return f"{len(selected_plots)} selected: " + ", ".join(labels)
 
 
+def catalog_plot_options(available_plots: Dict[str, Any]) -> List[tuple]:
+    """Return one ``(label, plot_key)`` catalog covering every available plot once."""
+    options = []
+    for group in get_grouped_plot_options(available_plots):
+        for plot in group["plots"]:
+            options.append((f"{group['label']} · {get_display_name(plot)}", plot))
+    return options
+
+
 def resolve_generated_plots(selected_plots: List[str]) -> List[str]:
     """Return plot keys that should be generated from the user's selection."""
     return list(selected_plots)
@@ -227,62 +236,36 @@ def resolve_generated_plots(selected_plots: List[str]) -> List[str]:
 
 def multi_plot_selector(available_plots: Dict[str, Any], key_prefix: str = "") -> List[str]:
     """
-    Multi-select plot selector with presets, purpose groups, and full manual access.
-    Used in Single Analysis mode for selecting multiple plots.
+    Preset plus one plot catalog. Used by Site Analysis export figures.
     """
-    st.caption("Start with a preset, then fine-tune by purpose. The full plot catalog remains available below.")
+    st.caption("Pick a preset, then add or remove figures in the catalog. Every single-site plot is in that one list.")
     preset_names = list(PLOT_PRESETS.keys())
-    selected_preset = st.radio(
-        "Plot preset",
+    selected_preset = st.selectbox(
+        "Preset",
         preset_names,
         index=preset_names.index("Quick site summary"),
-        key=f"{key_prefix}plot_preset",
-        horizontal=True,
-        help="Choose a guided starting set, then add or remove any plots below.",
+        key=f"{key_prefix}plot_preset_choice",
+        help="Guided starting set. Changing it resets the catalog to that set.",
     )
     preset = PLOT_PRESETS[selected_preset]
-    st.caption(f"{preset['intent']} - {preset['description']}")
-    default_plots = resolve_plot_preset(selected_preset, available_plots)
-    selected = list(default_plots)
+    st.caption(f"{preset['intent']} — {preset['description']}")
+    catalog = catalog_plot_options(available_plots)
+    label_to_plot = {label: plot for label, plot in catalog}
+    plot_to_label = {plot: label for label, plot in catalog}
+    default_labels = [
+        plot_to_label[plot]
+        for plot in resolve_plot_preset(selected_preset, available_plots)
+        if plot in plot_to_label
+    ]
     preset_key = selected_preset.lower().replace(" / ", "_").replace(" ", "_")
-
-    grouped_options = get_grouped_plot_options(available_plots)
-    for group in grouped_options:
-        group_options = {get_display_name(plot): plot for plot in group["plots"]}
-        group_defaults = [
-            get_display_name(plot)
-            for plot in group["plots"]
-            if plot in default_plots
-        ]
-        selected_names = st.multiselect(
-            group["label"],
-            list(group_options.keys()),
-            default=group_defaults,
-            key=f"{key_prefix}plot_group_{preset_key}_{group['label'].lower().replace(' / ', '_').replace(' ', '_')}",
-            help=group["help"],
-        )
-        for name in selected_names:
-            plot = group_options[name]
-            if plot not in selected:
-                selected.append(plot)
-        selected = [
-            plot for plot in selected
-            if plot not in group["plots"] or get_display_name(plot) in selected_names
-        ]
-
-    with st.expander("All plots", expanded=False):
-        all_options = {get_display_name(plot): plot for plot in available_plots.keys()}
-        all_selected_names = st.multiselect(
-            "Add from full plot catalog",
-            list(all_options.keys()),
-            default=[],
-            key=f"{key_prefix}all_plots",
-            help="Power-user catalog. Nothing is hidden; use this to add any available plot directly.",
-        )
-        for name in all_selected_names:
-            plot = all_options[name]
-            if plot not in selected:
-                selected.append(plot)
+    selected_labels = st.multiselect(
+        "Plots",
+        list(label_to_plot.keys()),
+        default=default_labels,
+        key=f"{key_prefix}plot_catalog_{preset_key}",
+        help="One catalog. Labels are grouped by purpose, and nothing is tucked into a second picker.",
+    )
+    selected = [label_to_plot[label] for label in selected_labels if label in label_to_plot]
 
     st.caption(describe_selected_plots(selected))
     return selected

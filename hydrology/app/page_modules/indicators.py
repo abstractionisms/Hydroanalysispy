@@ -132,13 +132,13 @@ def _render_drought_tab(df_q, q_col, site_id, desc, lat, lon, start_str, end_str
         "%Y-%m-%d"
     )
     spi_key = f"spi_result_{site_id}_{spi_start}_{end_str}"
-    calculate_spi_clicked = st.button(
-        "Calculate SPI from precipitation",
-        key=f"calculate_spi_{site_id}",
-        type="primary",
+    include_spi = st.checkbox(
+        "Include precipitation SPI",
+        key=f"include_spi_{site_id}",
+        help="Fetches precipitation and fits SPI. Leave this off to stay on runoff indicators.",
     )
 
-    if calculate_spi_clicked:
+    if include_spi and spi_key not in st.session_state:
         with st.spinner("Fetching precipitation (Meteostat / Daymet)..."):
             precip_result = _fetch_precip_data_result(
                 site_id, lat, lon, spi_start, end_str
@@ -166,7 +166,7 @@ def _render_drought_tab(df_q, q_col, site_id, desc, lat, lon, start_str, end_str
         else:
             st.session_state[spi_key] = {"fetch": precip_result, "spi": pd.DataFrame()}
 
-    spi_result = st.session_state.get(spi_key)
+    spi_result = st.session_state.get(spi_key) if include_spi else None
     if spi_result:
         st.dataframe(
             pd.DataFrame(_spi_readiness_rows(spi_result["fetch"])),

@@ -59,12 +59,21 @@ def test_compare_page_owns_multisite_relationships():
 def test_site_analysis_owns_indicators_without_autoloading():
     text = (ROOT / "hydrology/app/page_modules/single_analysis.py").read_text(encoding="utf-8")
 
-    assert "Drought & Baseflow Indicators" in text
-    assert "Load Indicators" in text
+    assert 'view == "Indicators"' in text
     assert "render_site_indicators" in text
-    assert "indicator_loaded_key" in text
-    assert "indicator_button_key" in text
-    assert "st.session_state[indicator_button_key]" not in text
+    assert "Load Indicators" not in text
+    assert "indicator_loaded_key" not in text
+    assert "Advanced Visualizations" not in text
+    assert "Guided Plot Builder" not in text
+    assert "Run Frequency Analysis" not in text
+
+
+def test_compare_sites_uses_one_chart_mode():
+    text = (ROOT / "hydrology/app/page_modules/comparisons.py").read_text(encoding="utf-8")
+
+    assert 'key="compare_sites_chart"' in text
+    assert "Export grid" in text
+    assert "Static Plot Grid" not in text
 
 
 def test_stations_owns_current_conditions_check():

@@ -16,5 +16,7 @@ def test_architecture_doc_names_current_workflows_and_groundwater_rules():
         "Washington Ecology well logs",
         "Drop private fields",
         "Do not fetch groundwater data automatically",
+        "one plot workspace",
+        "one multi-gage chart mode",
     ]:
         assert rule in text

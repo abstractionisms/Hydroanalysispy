@@ -827,6 +827,7 @@ def interactive_rating_curve(
     from ..analysis.stage_discharge import (
         evaluate_rating_params,
         predict_rating_discharge,
+        rating_stage_window,
         season_labels,
         fit_best_rating_curve,
     )
@@ -851,6 +852,10 @@ def interactive_rating_curve(
     if len(pairs) < 5:
         empty.layout.annotations[0].text = "Need ≥5 stage–discharge pairs"
         return empty
+
+    # Fixed stage frame from the full record. It must not depend on the current
+    # H₀, or dragging zero-flow just rescales the axis and looks like a no-op.
+    stage_window = rating_stage_window(pairs[stage_col])
 
     # Downsample dense records for browser snappiness (keep extremes)
     if len(pairs) > max_points:
@@ -941,21 +946,23 @@ def interactive_rating_curve(
                 row=1, col=1,
             )
 
-    # Curve domain
+    # Curve starts at H₀ so the intercept is the zero-flow line, not the first point.
     H0f = float(H0)
-    H_min = float(H.min())
-    H_max = float(H.max())
-    H_lo = max(H_min, H0f + 1e-3) if abs(H0f) > 1e-9 else H_min
+    H_max = float(stage_window["h_max"])
+    H_lo = H0f + 1e-3
+    if H_lo >= H_max:
+        H_lo = float(stage_window["h_min"])
     H_line = np.linspace(H_lo, H_max, 250)
     Q_user = predict_rating_discharge(H_line, A, B, H0f)
 
     r2_txt = f"{scored['R2']:.3f}" if np.isfinite(scored.get("R2", np.nan)) else "—"
+    eq = scored.get("equation") or f"Q = {A:.4g}·(H−{H0:.3f})^{B:.3f}"
     fig.add_trace(
         go.Scatter(
             x=H_line,
             y=Q_user,
             mode="lines",
-            name=f"Your fit · R²={r2_txt}",
+            name=f"{eq}  ·  R²={r2_txt}",
             line=dict(color="#ff6b6b", width=3.2),
             hovertemplate="H=%{x:.2f} ft<br>Q_fit=%{y:,.1f} cfs<extra>Your rating</extra>",
         ),
@@ -969,7 +976,7 @@ def interactive_rating_curve(
         and np.isfinite(auto_fit.get("A", np.nan))
     ):
         aA, aB, aH0 = auto_fit["A"], auto_fit["B"], float(auto_fit.get("H0") or 0.0)
-        a_lo = max(H_min, aH0 + 1e-3) if abs(aH0) > 1e-9 else H_min
+        a_lo = aH0 + 1e-3 if aH0 < H_max else float(stage_window["h_min"])
         H_auto = np.linspace(a_lo, H_max, 250)
         Q_auto = predict_rating_discharge(H_auto, aA, aB, aH0)
         a_r2 = auto_fit.get("R2", np.nan)
@@ -1016,24 +1023,61 @@ def interactive_rating_curve(
             row=2, col=1,
         )
 
-    # Axis type for Q
+    # Axis type for Q. Log range must be in log10 units, and it stays pinned to
+    # the observations so a wild curve cannot squash the cloud.
     use_log = log_q
     if use_log is None:
         q_pos = Q[Q > 0]
         use_log = bool(len(q_pos) and (q_pos.max() / max(q_pos.min(), 1e-9)) >= 40)
 
-    yaxis_cfg = _discharge_yaxis_layout(Q.values, title="Discharge (cfs)")
     if use_log:
-        yaxis_cfg["type"] = "log"
+        pos = Q[Q > 0].to_numpy()
+        q_lo = float(np.percentile(pos, 1)) if pos.size else 1.0
+        q_hi = float(np.percentile(pos, 99.5)) if pos.size else 10.0
+        log_lo = float(np.log10(max(q_lo * 0.8, 1e-3)))
+        log_hi = float(np.log10(max(q_hi * 1.25, q_lo * 1.5)))
+        if log_hi <= log_lo:
+            log_hi = log_lo + 0.4
+        yaxis_cfg = {
+            "title": "Discharge (cfs)",
+            "type": "log",
+            "range": [log_lo, log_hi],
+            "tickformat": "~s",
+        }
     else:
+        yaxis_cfg = _discharge_yaxis_layout(Q.values, title="Discharge (cfs)")
         yaxis_cfg["type"] = "linear"
 
-    eq = scored.get("equation") or f"Q = {A:.4g}·(H−{H0:.3f})^{B:.3f}"
+    x_lo = float(stage_window["x_lo"])
+    x_hi = float(stage_window["x_hi"])
+    if x_lo <= H0f <= x_hi:
+        fig.add_vrect(
+            x0=x_lo,
+            x1=H0f,
+            fillcolor="rgba(255,107,107,0.12)",
+            line_width=0,
+            layer="below",
+            row=1,
+            col=1,
+        )
+        fig.add_vline(
+            x=H0f,
+            line=dict(color="#ff6b6b", width=1.6, dash="dot"),
+            annotation_text="H₀",
+            annotation_position="top",
+            annotation_font=dict(color="#ff6b6b", size=12),
+            row=1,
+            col=1,
+        )
+
     subtitle = (
         f"<span style='color:#9bb4c8;font-size:12px'>{eq} · n={scored['n_points']:,}</span>"
     )
 
+    apply_hydro_theme(fig)
     fig.update_layout(
+        # New revision drops any Plotly UI state held from the previous curve.
+        uirevision=f"{A:.6g}|{B:.4f}|{H0:.4f}|{show_residuals}|{bool(use_log)}|{color_by}",
         title=dict(
             text=f"{title}<br>{subtitle}",
             font=dict(size=15),
@@ -1051,15 +1095,19 @@ def interactive_rating_curve(
             borderwidth=1,
             font=dict(size=11),
         ),
-        margin=dict(l=60, r=24, t=90, b=48),
+        margin=dict(l=60, r=24, t=118, b=48),
     )
-    fig.update_xaxes(title_text="Stage height (ft)" if not show_residuals else None, row=1, col=1)
+    fig.update_xaxes(
+        title_text="Stage height (ft)" if not show_residuals else None,
+        range=[x_lo, x_hi],
+        row=1, col=1,
+    )
     if show_residuals:
-        fig.update_xaxes(title_text="Stage height (ft)", row=2, col=1)
+        fig.update_xaxes(title_text="Stage height (ft)", range=[x_lo, x_hi], row=2, col=1)
         fig.update_yaxes(title_text="ΔQ (cfs)", row=2, col=1)
     fig.update_yaxes(row=1, col=1, **yaxis_cfg)
 
-    return apply_hydro_theme(fig)
+    return fig
 
 
 def apply_hydro_theme(fig: "go.Figure") -> "go.Figure":
