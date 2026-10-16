@@ -42,6 +42,8 @@ def add_basemap(m, *, no_wrap: bool = False):
         control=False,
         show=True,
         no_wrap=no_wrap,
+        max_zoom=16,
+        max_native_zoom=16,
     ).add_to(m)
     folium.TileLayer(
         tiles=BASEMAP_LABELS,
@@ -51,6 +53,8 @@ def add_basemap(m, *, no_wrap: bool = False):
         control=False,
         show=True,
         no_wrap=no_wrap,
+        max_zoom=16,
+        max_native_zoom=16,
     ).add_to(m)
     return m
 
