@@ -61,6 +61,7 @@ hydrology/
 | Source | Data | API |
 |--------|------|-----|
 | **USGS NWIS** | Discharge, stage, water quality | https://waterservices.usgs.gov/nwis/ |
+| **Ecology streamflow gages** | Station catalog, plus daily discharge and stage saved one water year at a time from Freshwater DataStream. The app reads the local copies. | `hydrology/data/catalogs/ecology_streamflow_stations.csv` and `data/ecology_cache/` |
 | **Meteostat** | Primary dashboard temperature and precipitation | Python library |
 | **Daymet / HyRiver** | Optional gridded watershed climate fallback | pydaymet / HyRiver |
 | **USGS NLDI** | River network topology | https://api.water.usgs.gov/nldi/ |

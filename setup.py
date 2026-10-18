@@ -51,6 +51,7 @@ setup(
     long_description_content_type="text/markdown",
     url="https://github.com/abstractionisms/Hydroanalysispy",
     packages=find_packages(),
+    package_data={"hydrology.data": ["catalogs/*.csv"]},
     python_requires=">=3.8",
     install_requires=requirements,
     extras_require=optional_requirements,

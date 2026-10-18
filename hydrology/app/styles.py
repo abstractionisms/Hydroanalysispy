@@ -1365,14 +1365,20 @@ def render_insight_board(cards):
     )
 
 
-def render_site_header(site_id: str, description: str, lat: float = None, lon: float = None):
+def render_site_header(
+    site_id: str,
+    description: str,
+    lat: float = None,
+    lon: float = None,
+    agency: str = "USGS",
+):
     """Render a styled header for the selected site."""
     coords = f"({lat:.4f}, {lon:.4f})" if lat and lon else ""
 
     st.markdown(f"""
     <div class="site-header">
         <h1>{description}</h1>
-        <p>USGS Site {site_id} {coords}</p>
+        <p>{agency} Site {site_id} {coords}</p>
     </div>
     """, unsafe_allow_html=True)
 

@@ -723,6 +723,18 @@ def _render_plot_workspace(data, site_id: str, desc: str, has_stage: bool, site_
 
 def show():
     """Render the Single Analysis page."""
+    source = st.radio(
+        "Gage source",
+        ["USGS", "Ecology"],
+        horizontal=True,
+        key="site_analysis_source",
+        help="Ecology discharge is read from a local copy. A button downloads one water year.",
+    )
+    if source == "Ecology":
+        from hydrology.app.page_modules.ecology_station import show_ecology_station
+        show_ecology_station()
+        return
+
     inventory_df = get_inventory()
     if inventory_df.empty:
         st.error("Could not load site inventory")
